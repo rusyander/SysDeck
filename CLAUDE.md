@@ -49,4 +49,8 @@ purge the Recycle Bin and never reset the machine's memory.
 PowerShell tooling for live GUI checks, `screenshots/` = before/after evidence. **Read
 `.agent/PROGRESS.md` first** in a new session; it is the restore point after a compaction.
 
-Human documentation: `README.md` / `README.en.md` (the manual, RU/EN) and `docs/` (`docs/tests.md`).
+Human documentation, RU/EN in parallel (`.md` = RU, `.en.md` = EN): `README.md` = landing page only
+(pitch, tab table, safety boundaries, short install); the manual is split per tab group across
+`docs/` — `install`, `processes-and-memory`, `disk`, `programs`, `tools-and-settings`,
+`data-and-rights`, `internals`, plus `docs/tests.md` (RU only). Touching a feature ⇒ update its
+`docs/` page in BOTH languages, and the README only if the pitch or a boundary changed.
