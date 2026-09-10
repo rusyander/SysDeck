@@ -150,6 +150,19 @@ namespace WindowsProcessCleaner
             return total;
         }
 
+        // ---------- Завершение процессов, которым не хватило прав ----------
+        // Разовое задание, а не резидентный помощник: «заверши любой pid от администратора»,
+        // лежащее в файле команд, — это готовая лазейка для повышения прав, поэтому в набор
+        // команд помощника завершение не входит (см. Elevation.Ram.cs). Список приходит уже
+        // отфильтрованным — только те, кто пережил обычную попытку.
+        private ElevResult KillElevated(List<int> pids, Action<string> progress, Func<bool> cancel)
+        {
+            ElevJob job = new ElevJob();
+            job.Kind = "kill";
+            job.Items = RamPidStrings(pids);
+            return Elevation.Run(_engine, job, progress, cancel);
+        }
+
         // ---------- Задача автозапуска ----------
         private string ApplyAutostartMaybeElevated(bool enabled)
         {

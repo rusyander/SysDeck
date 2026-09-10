@@ -66,7 +66,7 @@ namespace WindowsProcessCleaner
     //  поведение, за которое чистильщики и не любят. Такая операция либо выполняется без
     //  повышения, либо честно пропускается (см. AllowPrompt у вызывающего кода).
     // ================================================================== //
-    public static class Elevation
+    public static partial class Elevation
     {
         public const string JobSwitch = "--elevated-job";
 
@@ -153,6 +153,8 @@ namespace WindowsProcessCleaner
             {
                 case "clean": return Tr.S("очистка системных папок", "cleaning system folders");
                 case "standby": return Tr.S("очистка Standby Memory", "purging Standby Memory");
+                case "ram": return Tr.S("сброс памяти", "resetting memory");
+                case "ramagent": return Tr.S("права для вкладки «Память»", "rights for the Memory page");
                 case "tool": return Tr.S("системный инструмент", "system tool");
                 case "debloat": return Tr.S("изменение состава Windows", "changing Windows components");
                 case "autostart": return Tr.S("задача автозапуска", "the autostart task");
@@ -321,6 +323,17 @@ namespace WindowsProcessCleaner
                         r.Ok = mr.Ok; r.Message = mr.Message; r.Freed = mr.FreedBytes;
                         return r;
                     }
+                // Разовый сброс памяти: тем же путём, что и всё остальное, — когда права у
+                // окна уже есть либо резидентный помощник почему-то не поднялся.
+                case "ram":
+                    {
+                        RamAction a = job.Flag ? e.RamTrimProcesses(RamPidList(job.Arg))
+                                               : e.RamRunEmpty(job.Number);
+                        r.Ok = a.Ok; r.Freed = a.Freed; r.Count = a.Count; r.Errors = a.Denied; r.Message = a.Message;
+                        return r;
+                    }
+                case "ramagent":
+                    return RamAgentLoop(e, job, log, cancel);
                 case "kill":
                     {
                         List<int> pids = new List<int>();
@@ -481,6 +494,11 @@ namespace WindowsProcessCleaner
             t.Start();
             return t;
         }
+
+        // Резидентный помощник вкладки «Память» живёт по своим правилам (см. Elevation.Ram.cs),
+        // но файлы задания и ответа пишет тем же сериализатором — иначе форматы разъедутся.
+        internal static void WriteJobFile(string path, ElevJob job) { WriteJson(path, job); }
+        internal static ElevResult ReadResultFile(string path) { return ReadJson<ElevResult>(path); }
 
         // ---------- JSON ----------
         private static void WriteJson<T>(string path, T value)

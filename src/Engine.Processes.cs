@@ -374,6 +374,18 @@ namespace WindowsProcessCleaner
             return TerminateMany(one, out freed) > 0;
         }
 
+        // Кто из списка пережил завершение. Нужно окну, чтобы предложить повтор с правами
+        // администратора ровно для оставшихся, а не для всего списка: перезапрашивать права
+        // ради процессов, которые уже закрылись, — верный способ отучить читать окно UAC.
+        public List<int> SurvivorsOf(List<int> pids)
+        {
+            List<int> alive = new List<int>();
+            if (pids == null) return alive;
+            foreach (int pid in new HashSet<int>(pids))
+                if (pid > 4 && pid != _selfPid && !PidGone(pid)) alive.Add(pid);
+            return alive;
+        }
+
         // Пакетное завершение. Ключевое отличие от «по одному»: WM_CLOSE рассылается
         // всем сразу и ожидание общее, поэтому 20 процессов стоят ~6 с, а не 20*6 с.
         public int TerminateMany(List<int> pids, out long freed)

@@ -328,6 +328,7 @@ namespace WindowsProcessCleaner.Tests
                 Area("rules", RuleTests.Run);
                 Area("autostart", AutostartTests.Run);
                 Area("elevation", ElevationTests.Run);
+                Area("ram", RamTests.Run);
                 Area("browsers", BrowserTests.Run);
             }
             finally

@@ -135,6 +135,9 @@ namespace WindowsProcessCleaner
             // ради экрана, которого не видно, значит впустую грузить диск и CPU.
             if (_currentPage == PageClean && index != PageClean) _engine.CancelDiskWork();
             if (_currentPage == PageHome && index != PageHome) HomeLeave();
+            // То же и с памятью: опрос раз в секунду читает сотни процессов — на невидимой
+            // вкладке это чистая трата. Помощник с правами при этом остаётся жив.
+            if (_currentPage == PageRam && index != PageRam) RamLeave();
 
             _currentPage = index;
             for (int i = 0; i < _pages.Length; i++) _pages[i].Visible = (i == index);
@@ -146,9 +149,9 @@ namespace WindowsProcessCleaner
 
         // Порядок вкладок задан в _pages; держим индексы именами, чтобы обработчики
         // навигации не разъезжались с массивом при вставке новой вкладки.
-        private const int PageHome = 0, PageScan = 1, PageDev = 2, PageClean = 3, PageDisk = 4, PageBrowsers = 5,
-                          PageDocker = 6, PageApps = 7, PageUpdates = 8, PageStartup = 9,
-                          PageDebloat = 10, PageTools = 11, PageSettings = 12, PageHistory = 13;
+        private const int PageHome = 0, PageScan = 1, PageRam = 2, PageDev = 3, PageClean = 4, PageDisk = 5, PageBrowsers = 6,
+                          PageDocker = 7, PageApps = 8, PageUpdates = 9, PageStartup = 10,
+                          PageDebloat = 11, PageTools = 12, PageSettings = 13, PageHistory = 14;
 
         private ListView VisibleList(int index)
         {
@@ -156,6 +159,7 @@ namespace WindowsProcessCleaner
             {
                 case PageHome: return _lvHealth;
                 case PageScan: return _lvScan;
+                case PageRam: return _lvRamProcs;
                 case PageDev: return _lvPorts;
                 case PageClean: return _lvClean;
                 case PageDisk: return _lvDisk;
@@ -177,6 +181,7 @@ namespace WindowsProcessCleaner
                 switch (index)
                 {
                     case PageHome: HomeEnter(); break;
+                    case PageRam: RamEnter(); break;
                     case PageDev: RefreshPorts(); break;
                     case PageApps: RefreshApps(); break;
                     case PageStartup: RefreshStartup(); break;
@@ -202,6 +207,10 @@ namespace WindowsProcessCleaner
             AutoFillLastColumnDeferred(_lvApps);
             AutoFillLastColumnDeferred(_lvUpdates);
             AutoFillLastColumnDeferred(_lvBrowser);
+            AutoFillLastColumnDeferred(_lvRamLists);
+            AutoFillLastColumnDeferred(_lvRamProcs);
+            AutoFillLastColumnDeferred(_lvRamPools);
+            AutoFillLastColumnDeferred(_lvRamHw);
         }
 
         // Цвет подложки активного пункта и наведения — чуть светлее/темнее фона окна.
@@ -265,8 +274,8 @@ namespace WindowsProcessCleaner
             _content = new Panel();
             _content.Dock = DockStyle.Fill;
 
-            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildSettingsTab(), BuildHistoryTab() };
-            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
+            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildSettingsTab(), BuildHistoryTab() };
+            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
             // Разрывы между группами: главная | обслуживание | программы | система | служебное.
             int[] groupStart = { PageScan, PageApps, PageDebloat, PageSettings };
 
@@ -356,6 +365,7 @@ namespace WindowsProcessCleaner
                     e.Cancel = true;
                     Hide();
                     HomeLeave();
+                    RamLeave();
                     string ops = ActiveWriteOps();
                     _tray.ShowBalloonTip(2000, "Windows Process Cleaner",
                         Tr.S("Свёрнуто в трей. Работает в фоне.", "Minimized to tray. Running in background.")
@@ -370,6 +380,9 @@ namespace WindowsProcessCleaner
                 FlushSettingsAutoSave();
                 MemFlush();
                 _engine.CancelDiskWork();
+                // Элевированного помощника отсюда не убить — он выше по правам. Ему кладут
+                // флаг остановки; он и сам заметит, что родителя больше нет.
+                RamShutdown();
                 if (_monitor != null) { _monitor.Dispose(); _monitor = null; }
                 DisposeThemeGdi();
             };

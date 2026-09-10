@@ -3,8 +3,9 @@
 [🇷🇺 Русский](README.md) · 🇬🇧 English
 
 Windows maintenance in a single window: **disk cleanup**, **terminating forgotten
-processes**, **freeing RAM**, **updating installed programs**, managing **startup items**,
-uninstalling programs, and **Docker** cleanup.
+processes**, **breaking down and freeing RAM** (where every gigabyte went — as a live scheme),
+**updating installed programs**, managing **startup items**, uninstalling programs, and
+**Docker** cleanup.
 
 Written in **C# + WinForms** and built with the **compiler that ships with
 Windows, `csc.exe`** (.NET Framework 4.x). **Nothing to install** — no Node.js,
@@ -28,6 +29,7 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 |---|---|
 | **Home** | memory and disk cards, the Boost button, a system health check with actions |
 | **Scan** | finds abandoned processes and terminates them, purges Standby Memory |
+| **Memory** | a live scheme of RAM usage: where every gigabyte went, empty operations and process termination |
 | **Dev Cleanup** | bulk-kills dev runtimes and frees busy dev ports |
 | **Disk Cleanup** | analyzes and deletes junk by category, optional winapp2 rules |
 | **Disk** | folder map with sizes, large files, empty folders, duplicates; deletion to the Recycle Bin only |
@@ -274,6 +276,57 @@ A process becomes a termination candidate only when **all** conditions hold:
 - **Purge memory** — Standby Memory purge only, without terminating processes.
 
 Termination itself: first gracefully (WM_CLOSE), wait up to 3 seconds, then force.
+
+### Memory
+
+The tab answers one question — **where did the RAM go** — and answers it in full: all blocks add
+up to the installed size, including what the hardware took and what cannot be attributed to any
+process. Data refreshes once a second (the interval switches between 0.5 and 5 seconds, and there
+is a pause).
+
+Five views:
+
+| View | What it shows |
+|---|---|
+| **Scheme** | a treemap: a block's area is proportional to the bytes it holds, and each block carries its name and size. Processes are grouped by image name ("chrome.exe × 59"); double-click drills into a group, down to individual processes, "← Back" returns |
+| **Page lists** | how the kernel sorted every page of physical memory: active, modified, standby across eight priorities, free, zeroed, bad |
+| **Processes** | private and total working set, committed, per-tick growth, hard faults per second, threads, handles, session. Click a header to sort |
+| **Driver pools** | the four-letter tags drivers stamp on their kernel-pool allocations — this is how a leaking driver becomes visible |
+| **Hardware** | modules from SMBIOS (size, type, speed, manufacturer, part number) and the physical address ranges given to RAM |
+
+What the scheme adds up: **processes** (private working sets), **compressed memory**,
+**nonpaged pool**, the resident part of the **paged pool**, **kernel and driver code**,
+**system cache**, **unattributed**, **standby** by priority, **modified**, **free**,
+**hardware reserved**, **bad blocks**.
+
+> The **"Unattributed"** block is not an accounting error. It holds pages locked by drivers and
+> virtual machines (WSL, Hyper-V, Docker), page tables, shared DLLs and mapped files. The program
+> does not pretend to know more about them than it does: the block's tooltip states the exact
+> upper bound of shared pages. A breakdown down to individual files, the way RAMMap does it, was
+> deliberately left out — it relies on undocumented structures that change from one Windows build
+> to the next.
+
+**What can be emptied** (buttons in the second row): the working sets of all processes, the system
+cache, modified pages, the standby list, priority-0 standby, or everything at once. These are the
+same kernel commands as RAMMap's Empty menu. Nothing is lost, but after a full empty the system is
+noticeably slower for a few seconds — pages have to be read back; that is why a full empty and the
+working-set empty ask first.
+
+**What you can do with processes:** check them in the list (or pick a block on the scheme) and
+either empty their working sets or terminate them. Termination always shows the list and asks for
+confirmation.
+
+Rights: **reading** the memory state needs no administrator — the tab works fully right after
+launch. Rights are only needed for empty operations, and it is the button you press that asks for
+them, not the window. The first empty raises a resident helper — **one UAC prompt per session**,
+after which empties run instantly and silently. The "Get rights" button does the same thing ahead
+of time. The helper lives exactly as long as the program does: it gets a signal on exit, watches for
+its parent process disappearing, and quits after eight idle hours in any case — a process with
+administrator rights has no business hanging around forever. The helper understands exactly two
+commands — an empty operation, and trimming the working sets of the listed pids. Termination
+deliberately never goes through it: a "kill any pid as administrator" command sitting in a file is a
+ready-made privilege-escalation hole. If a process is protected or the rights were not enough, the
+program says so.
 
 ### Dev Cleanup
 Bulk termination by group: all Node / Python / Java / Vite / Webpack / npm / pnpm /
@@ -858,7 +911,7 @@ already has rights and needs no helper.
 | `installer\*.cs` | installer and uninstaller sources (a separate program with its own manifest) |
 | `build-installer.bat` | build both ready-made distributions into `dist\` |
 | `tests\*.cs`, `tests
-un-tests.bat` | the test suite (runs without administrator rights) |
+un-tests.bat` | the test suite (runs without administrator rights); how to run it and what it covers — [docs/tests.md](docs/tests.md) |
 | `icon.ico` | application icon (embedded into the exe) |
 | `build.bat` | builds all `src\*.cs` via the built-in csc.exe |
 | `run.bat` | build if needed and run |

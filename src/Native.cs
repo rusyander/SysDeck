@@ -28,7 +28,7 @@ namespace WindowsProcessCleaner
     // ------------------------------------------------------------------ //
     //  WinAPI
     // ------------------------------------------------------------------ //
-    internal static class Native
+    internal static partial class Native
     {
         // --- Toolhelp снимок процессов ---
         [StructLayout(LayoutKind.Sequential)]
