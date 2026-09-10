@@ -362,6 +362,9 @@ namespace WindowsProcessCleaner
                 // Реальный выход: гасим фоновую работу, иначе поток анализа продолжает
                 // обходить диск, а BeginInvoke на закрытое окно бросает исключение.
                 _closing = true;
+                // Память выбора пишется по таймеру, чтобы «Все»/«Ничего» не били по диску
+                // сотней записей подряд; при выходе ждать этот таймер уже некому.
+                MemFlush();
                 _engine.CancelDiskWork();
                 if (_monitor != null) { _monitor.Dispose(); _monitor = null; }
                 DisposeThemeGdi();

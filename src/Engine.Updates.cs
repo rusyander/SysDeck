@@ -46,19 +46,53 @@ namespace WindowsProcessCleaner
         // а не по именам заголовков, — иначе локализованный winget не распознаётся.
         private volatile bool _cancelUpdates;
         public void CancelUpdateWork() { _cancelUpdates = true; }
-        public void ResetUpdateCancel() { _cancelUpdates = false; }
+        public void ResetUpdateCancel() { _cancelUpdates = false; _updateStatus = null; }
         public bool UpdatesCancelled { get { return _cancelUpdates; } }
+
+        // Что установщик делает прямо сейчас — строкой для вкладки. Без этого «Обновление… 0/20»
+        // стояло неподвижно, пока одна групповая установка шла до двух часов.
+        private volatile string _updateStatus;
+        public string UpdateStatus { get { return _updateStatus; } }
+
+        // Отмену раньше опрашивали только МЕЖДУ менеджерами и МЕЖДУ группами: нажатый «Стоп»
+        // ничего не делал до конца текущего запуска (до 2 часов). Теперь его видит сам RunCapture.
+        private Func<bool> UpdateCancelPoll() { return delegate { return _cancelUpdates; }; }
+
+        private Action<string, long> UpdateProgressPoll(string what)
+        {
+            return delegate(string line, long ms)
+            {
+                string s = (line ?? "").Trim();
+                if (s.Length > 90) s = s.Substring(0, 90) + "…";
+                _updateStatus = what + (s.Length > 0 ? " · " + s : "");
+            };
+        }
+
+        private static string GroupNames(List<UpdateItem> group)
+        {
+            if (group == null || group.Count == 0) return "";
+            return group.Count == 1 ? group[0].Name : group[0].Name + " +" + (group.Count - 1);
+        }
 
         public string UpdateLogPath
         {
             get { return Path.Combine(_dir, "updates-" + DateTime.Now.ToString("yyyy-MM") + ".log"); }
         }
 
+        // Проверка «утилита вообще есть» — это `--version`, доли секунды. 20 секунд здесь
+        // означали, что первый заход на вкладку обновлений мог молча простоять 40 секунд.
         private static bool ToolAvailable(string exe, string args)
         {
             string so; int code;
-            return RunCapture(exe, args, 20000, out so, out code) && code == 0;
+            return RunCapture(exe, args, 5000, out so, out code) && code == 0;
         }
+
+        // Установщик отработал успешно: 0 — готово, 3010 — готово, нужна перезагрузка,
+        // 1641 — готово, перезагрузка уже запускается. Раньше успехом считался только 0,
+        // и удачно поставленное обновление попадало в лог как неудача и предлагалось снова.
+        private static bool IsInstallOk(int code) { return code == 0 || code == 3010 || code == 1641; }
+
+        private static bool NeedsReboot(int code) { return code == 3010 || code == 1641; }
 
         private bool? _hasWinget, _hasChoco;
         public bool HasWinget
@@ -82,6 +116,7 @@ namespace WindowsProcessCleaner
         // если его не вычитывать, буфер трубы заполняется и процесс встаёт навсегда.
         private const int RunTimeout = -2;
         private const int RunCancelled = -3;
+        private const int RunEarly = -4;      // всё нужное уже сказано в выводе, а сам процесс не завершился
 
         private static bool RunCapture(string exe, string args, int timeoutMs, out string stdout, out int exitCode)
         {
@@ -89,8 +124,11 @@ namespace WindowsProcessCleaner
         }
 
         // Человеческая подпись к неудачному запуску внешней утилиты.
-        private static string RunFailText(bool ran, int code)
+        // public: тем же текстом окно объясняет отказ запуска, таймаут и остановку —
+        // иначе на экран попадали сырые «-1» и «-2».
+        public static string RunFailText(bool ran, int code)
         {
+            if (code == RunEarly) return Tr.S("утилита не завершилась сама", "the tool did not exit on its own");
             if (ran) return code == 740
                 ? Tr.S("нужны права администратора", "administrator rights required")
                 : Tr.S("код ", "code ") + code;
@@ -105,6 +143,20 @@ namespace WindowsProcessCleaner
         private static bool RunCapture(string exe, string args, int timeoutMs, out string stdout, out int exitCode,
                                        Encoding encoding, Func<bool> cancel)
         {
+            return RunCapture(exe, args, timeoutMs, out stdout, out exitCode, encoding, cancel, null, null);
+        }
+
+        // onProgress(последняя строка вывода, сколько миллисекунд идёт) — вызывается примерно раз
+        // в 200 мс, чтобы показать пользователю живой ход длинной утилиты вместо замершего «…».
+        // stopWhen(строка) — «в выводе уже есть всё, что нам нужно»: после срабатывания ждём
+        // завершения ещё 5 секунд и уходим, убив процесс. Это не перестраховка: Dism.exe с
+        // отложенной перезагрузкой печатает отчёт, потом спрашивает «Do you want to restart the
+        // computer now? (Y/N)» и ждёт ответа вечно (10.09.2026: отчёт готов за 39 с, процесс жив
+        // через 12 минут, приложение при этом стояло до таймаута в 20 минут).
+        private static bool RunCapture(string exe, string args, int timeoutMs, out string stdout, out int exitCode,
+                                       Encoding encoding, Func<bool> cancel,
+                                       Action<string, long> onProgress, Func<string, bool> stopWhen)
+        {
             stdout = string.Empty;
             exitCode = -1;
             try
@@ -114,6 +166,10 @@ namespace WindowsProcessCleaner
                 psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
+                // stdin перенаправляем и сразу закрываем. У нас GUI-процесс без консоли: утилита,
+                // решившая что-нибудь спросить, иначе ждёт ответа, которого никто не даст.
+                // С закрытым stdin она получает конец файла и идёт дальше.
+                psi.RedirectStandardInput = true;
                 psi.StandardOutputEncoding = encoding ?? Encoding.UTF8;
                 psi.StandardErrorEncoding = encoding ?? Encoding.UTF8;
                 // winget иначе рисует прогресс-спиннер и ждёт нажатий
@@ -121,41 +177,113 @@ namespace WindowsProcessCleaner
                 using (Process p = Process.Start(psi))
                 {
                     if (p == null) return false;
+                    try { p.StandardInput.Close(); } catch { }
                     // оба потока вычитываются отдельно: не вычитанная труба заполняется,
                     // и процесс встаёт навсегда
                     StringBuilder err = new StringBuilder();
-                    StringBuilder outSb = new StringBuilder();
+                    RunOutput outp = new RunOutput(stopWhen);
                     Thread drainErr = new Thread(delegate() { try { err.Append(p.StandardError.ReadToEnd()); } catch { } });
-                    Thread drainOut = new Thread(delegate() { try { outSb.Append(p.StandardOutput.ReadToEnd()); } catch { } });
+                    Thread drainOut = new Thread(delegate() { outp.Pump(p.StandardOutput); });
                     drainErr.IsBackground = true; drainOut.IsBackground = true;
                     drainErr.Start(); drainOut.Start();
 
                     Stopwatch sw = Stopwatch.StartNew();
-                    bool exited = false, cancelled = false;
+                    bool exited = false, cancelled = false, early = false;
+                    long doneAt = -1;
                     while (true)
                     {
-                        if (p.WaitForExit(250)) { exited = true; break; }
-                        if (sw.ElapsedMilliseconds >= timeoutMs) break;
+                        if (p.WaitForExit(200)) { exited = true; break; }
+                        long ms = sw.ElapsedMilliseconds;
+                        if (ms >= timeoutMs) break;
                         if (cancel != null && cancel()) { cancelled = true; break; }
+                        if (outp.Done)
+                        {
+                            if (doneAt < 0) doneAt = ms;
+                            else if (ms - doneAt >= 5000) { early = true; break; }
+                        }
+                        if (onProgress != null) { try { onProgress(outp.Current, ms); } catch { } }
                     }
                     if (!exited)
                     {
-                        // код вызывающему: -2 = таймаут, -3 = отменено (а -1 = не запустился)
-                        exitCode = cancelled ? RunCancelled : RunTimeout;
+                        // код вызывающему: -2 = таймаут, -3 = отменено, -4 = вывод получен,
+                        // но процесс завис (а -1 = не запустился)
+                        exitCode = early ? RunEarly : cancelled ? RunCancelled : RunTimeout;
                         try { p.Kill(); } catch { }
                         try { drainOut.Join(2000); } catch { }
-                        stdout = outSb.ToString();
-                        return false;
+                        try { drainErr.Join(1000); } catch { }
+                        stdout = outp.Text;
+                        // то, что утилита успела сказать, теряться не должно: раньше по таймауту
+                        // вызывающий получал пустоту и не мог объяснить пользователю, что случилось
+                        if (stdout.Length == 0 && err.Length > 0) stdout = err.ToString();
+                        return early;
                     }
                     try { drainOut.Join(5000); } catch { }
                     try { drainErr.Join(2000); } catch { }
                     exitCode = p.ExitCode;
-                    stdout = outSb.ToString();
+                    stdout = outp.Text;
                     if (stdout.Length == 0 && err.Length > 0) stdout = err.ToString();
                     return true;
                 }
             }
             catch { return false; }   // утилиты нет в PATH — это нормально
+        }
+
+        // Потоковое чтение stdout: строки видны сразу, а не одним куском после выхода утилиты.
+        // Нужно ровно для двух вещей — показать живой прогресс и понять, что работа сделана,
+        // даже если процесс потом не завершается.
+        private sealed class RunOutput
+        {
+            private readonly StringBuilder _all = new StringBuilder();
+            private readonly StringBuilder _line = new StringBuilder();
+            private readonly Func<string, bool> _stopWhen;
+            private readonly object _gate = new object();
+            private volatile string _current = "";
+            private volatile bool _done;
+            private int _tick;
+
+            public RunOutput(Func<string, bool> stopWhen) { _stopWhen = stopWhen; }
+            public bool Done { get { return _done; } }
+            public string Current { get { return _current; } }
+            public string Text { get { lock (_gate) { return _all.ToString(); } } }
+
+            public void Pump(StreamReader r)
+            {
+                char[] buf = new char[4096];
+                try
+                {
+                    int n;
+                    while ((n = r.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        lock (_gate) { _all.Append(buf, 0, n); }
+                        for (int i = 0; i < n; i++) Feed(buf[i]);
+                    }
+                }
+                catch { }
+                Feed('\n');   // хвост без перевода строки тоже должен дойти до stopWhen
+            }
+
+            // Прогресс-бар DISM рисуется забоями (\b) поверх той же строки: без их обработки
+            // «строкой» стал бы весь бар целиком вместе с историей своих перерисовок.
+            private void Feed(char ch)
+            {
+                if (ch == '\b') { if (_line.Length > 0) _line.Length--; return; }
+                if (ch != '\n' && ch != '\r')
+                {
+                    _line.Append(ch);
+                    int t = Environment.TickCount;
+                    if (t - _tick >= 200) { _tick = t; _current = _line.ToString(); }
+                    return;
+                }
+                if (_line.Length == 0) return;
+                string s = _line.ToString();
+                _line.Length = 0;
+                if (s.Trim().Length > 0) _current = s.Trim();
+                if (!_done && _stopWhen != null)
+                {
+                    try { if (_stopWhen(s)) _done = true; }
+                    catch { }
+                }
+            }
         }
 
         // winget выравнивает таблицу по ЯЧЕЙКАМ терминала, а не по символам: восточноазиатский
@@ -474,7 +602,10 @@ namespace WindowsProcessCleaner
                 string args = "upgrade --accept-source-agreements --disable-interactivity";
                 if (Config.UpdateIncludeUnknown) args += " --include-unknown";
                 string so; int code;
-                if (RunCapture("winget.exe", args, 300000, out so, out code))
+                // Строка состояния нужна и на поиске: без неё вкладка пять минут показывала
+                // один секундомер, хотя winget в это время перебирал источники.
+                if (RunCapture("winget.exe", args, 300000, out so, out code, null, UpdateCancelPoll(),
+                               UpdateProgressPoll(Tr.S("winget: поиск обновлений", "winget: checking for updates")), null))
                     all.AddRange(ParseWingetTable(so));
                 else
                     notes.Add("winget: " + RunFailText(false, code));
@@ -487,7 +618,8 @@ namespace WindowsProcessCleaner
             {
                 string so; int code;
                 // choco outdated возвращает 2, когда обновления есть — это не ошибка
-                if (RunCapture("choco.exe", "outdated -r --limit-output --no-color", 300000, out so, out code))
+                if (RunCapture("choco.exe", "outdated -r --limit-output --no-color", 300000, out so, out code, null, UpdateCancelPoll(),
+                               UpdateProgressPoll(Tr.S("choco: поиск обновлений", "choco: checking for updates")), null))
                 {
                     List<UpdateItem> ch = ParseChocoOutdated(so);
                     List<string> wingetIds = new List<string>();
@@ -498,6 +630,8 @@ namespace WindowsProcessCleaner
                 }
                 else notes.Add("choco: " + RunFailText(false, code));
             }
+
+            _updateStatus = null;   // поиск закончен: строка состояния не должна «застыть» на нём
 
             // исключения пользователя
             if (Config.UpdateExclude != null && Config.UpdateExclude.Count > 0)
@@ -553,22 +687,25 @@ namespace WindowsProcessCleaner
             }
 
             string so; int code;
-            bool finished = RunCapture(exe, args, 1800000, out so, out code);   // 30 мин на установщик
+            bool finished = RunCapture(exe, args, 1800000, out so, out code, null, UpdateCancelPoll(),
+                                       UpdateProgressPoll(u.Name), null);   // 30 мин на установщик
+            _updateStatus = null;
             if (!finished)
             {
-                message = Tr.S("превышено время ожидания", "timed out");
+                message = RunFailText(false, code);
                 u.Status = message;
                 u.LastOk = false;
                 AppendUpdateLog(u, false, message);
                 return false;
             }
-            bool ok = code == 0;
+            bool ok = IsInstallOk(code);
             if (!ok)
             {
                 string tail = LastMeaningfulLine(so);
                 message = Tr.S("код ", "exit ") + code + (tail.Length > 0 ? ": " + tail : "");
             }
-            else message = Tr.S("обновлено до ", "updated to ") + u.Available;
+            else message = Tr.S("обновлено до ", "updated to ") + u.Available
+                         + (NeedsReboot(code) ? Tr.S(" · нужна перезагрузка", " · restart required") : "");
             u.Status = message;
             u.LastOk = ok;
             AppendUpdateLog(u, ok, message);
@@ -583,7 +720,8 @@ namespace WindowsProcessCleaner
             List<UpdateItem> list;
             if (manager == "choco")
             {
-                if (!RunCapture("choco.exe", "outdated -r --limit-output --no-color", 300000, out so, out code))
+                if (!RunCapture("choco.exe", "outdated -r --limit-output --no-color", 300000, out so, out code, null, UpdateCancelPoll(),
+                                UpdateProgressPoll(Tr.S("choco: проверяю результат", "choco: verifying the result")), null))
                     return null;
                 list = ParseChocoOutdated(so);
             }
@@ -591,9 +729,11 @@ namespace WindowsProcessCleaner
             {
                 string a = "upgrade --accept-source-agreements --disable-interactivity";
                 if (Config.UpdateIncludeUnknown) a += " --include-unknown";
-                if (!RunCapture("winget.exe", a, 300000, out so, out code)) return null;
+                if (!RunCapture("winget.exe", a, 300000, out so, out code, null, UpdateCancelPoll(),
+                                UpdateProgressPoll(Tr.S("winget: проверяю результат", "winget: verifying the result")), null)) return null;
                 list = ParseWingetTable(so);
             }
+            _updateStatus = null;
             Dictionary<string, string> map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (UpdateItem u in list) map[u.Id] = u.Available;
             return map;
@@ -683,10 +823,12 @@ namespace WindowsProcessCleaner
             if (timeout > 7200000) timeout = 7200000;
 
             string so; int code;
-            bool finished = RunCapture(exe, args, timeout, out so, out code);
+            bool finished = RunCapture(exe, args, timeout, out so, out code, null, UpdateCancelPoll(),
+                                       UpdateProgressPoll(GroupNames(group)), null);
+            _updateStatus = null;
             if (!finished)
             {
-                groupMessage = Tr.S("превышено время ожидания", "timed out");
+                groupMessage = RunFailText(false, code);
                 foreach (UpdateItem u in group)
                 {
                     u.Status = groupMessage;
@@ -702,7 +844,7 @@ namespace WindowsProcessCleaner
             if (still == null)
             {
                 // Проверить не смогли — честно говорим это, а не выдаём код за успех.
-                bool good = code == 0;
+                bool good = IsInstallOk(code);
                 groupMessage = Tr.S("код ", "exit ") + code;
                 foreach (UpdateItem u in group)
                 {

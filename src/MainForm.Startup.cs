@@ -35,14 +35,18 @@ namespace WindowsProcessCleaner
 
             FlowLayoutPanel top = MkToolbar();
 
-            Button btnRefresh = MkFlowButton(Tr.S("Обновить список", "Refresh list"), 170, true);
-            btnRefresh.Click += delegate { RefreshStartup(true); };
+            _btnStartupRefresh = MkFlowButton(Tr.S("Обновить список", "Refresh list"), 170, true);
+            _btnStartupRefresh.Click += delegate { RefreshStartup(true); };
+            _btnStartupStop = MkFlowButton(Tr.S("Стоп", "Stop"), 80, false);
+            _btnStartupStop.Enabled = false;
+            _btnStartupStop.Click += delegate { StopStartupRead(); };
 
             Label warn = MkNote(Tr.S("Галочка = запускается при входе. Снять — отключить, как в Диспетчере задач (запись сохраняется), поставить — включить.",
                                      "Checkbox = starts at sign-in. Uncheck to disable as Task Manager does (the entry is kept), check to enable."), true);
             _lblStartupInfo = MkNote(Tr.S("Нажмите «Обновить список»", "Click “Refresh list”"), false);
 
-            top.Controls.Add(btnRefresh);
+            top.Controls.Add(_btnStartupRefresh);
+            top.Controls.Add(_btnStartupStop);
 
             _lvStartup = new FastListView();
             _lvStartup.Dock = DockStyle.Fill;
@@ -68,6 +72,13 @@ namespace WindowsProcessCleaner
         // на каждый вход на вкладку.
         private int _startupBusy;
         private List<AutostartEntry> _autostartCache;
+        private Dictionary<string, List<AutostartEntry>> _autostartByExe;
+        private volatile bool _startupCancel;
+        private BusyTicker _startupTicker;
+        private Button _btnStartupRefresh, _btnStartupStop;
+        // Данные, по которым список УЖЕ построен: вход на вкладку не должен строить его заново.
+        private List<InstalledApp> _startupShownApps;
+        private List<AutostartEntry> _startupShownEntries;
 
         private void RefreshStartup() { RefreshStartup(false); }
 
@@ -75,34 +86,118 @@ namespace WindowsProcessCleaner
         {
             if (!force && _apps != null && _autostartCache != null)
             {
+                // Кэш тот же и список уже заполнен — выходим сразу. Раньше каждый вход
+                // на вкладку перестраивал все строки с подсказками заново, и переключение
+                // само по себе выглядело как зависание.
+                if (ReferenceEquals(_startupShownApps, _apps) && ReferenceEquals(_startupShownEntries, _autostartCache)
+                    && _lvStartup.Items.Count > 0) return;
                 PopulateStartup(_apps, _autostartCache);
                 return;
             }
-            if (Interlocked.CompareExchange(ref _startupBusy, 1, 0) != 0) return;
-            _lblStartupInfo.Text = Tr.S("Чтение автозапуска…", "Reading startup entries…");
+            if (Interlocked.CompareExchange(ref _startupBusy, 1, 0) != 0)
+            {
+                _lblStartupInfo.Text = Tr.S("Чтение автозапуска уже идёт — дождитесь окончания или нажмите «Стоп».",
+                                            "Startup entries are already being read — wait for it or press “Stop”.");
+                return;
+            }
+            _startupCancel = false;
+            _btnStartupRefresh.Enabled = false;
+            _btnStartupStop.Enabled = true;
+            BusyTicker tick = new BusyTicker(_lblStartupInfo,
+                Tr.S("Чтение списка установленных программ", "Reading the installed programs list"));
+            _startupTicker = tick;
             Thread t = new Thread(delegate()
             {
                 List<InstalledApp> apps = null;
                 List<AutostartEntry> entries = null;
+                string err = null;
                 try
                 {
-                    apps = _engine.GetInstalledApps();
-                    entries = _engine.GetAutostartEntries();
+                    apps = _engine.GetInstalledApps(delegate(string s) { tick.SetStage(s); });
+                    // Между стадиями даём «Стопу» сработать: ярлыки из папок автозагрузки
+                    // разрешаются через COM WScript.Shell, и один ярлык на отвалившийся
+                    // сетевой путь тянет секунды. Прервать сам обход нечем — прерываем до него.
+                    if (!_startupCancel)
+                    {
+                        tick.SetStage(Tr.S("Чтение записей автозапуска", "Reading startup entries"));
+                        entries = _engine.GetAutostartEntries(delegate(string s)
+                        {
+                            tick.SetStage(Tr.S("Чтение записей автозапуска: ", "Reading startup entries: ") + s);
+                        });
+                    }
                 }
-                catch
-                {
-                    if (apps == null) apps = new List<InstalledApp>();
-                    if (entries == null) entries = new List<AutostartEntry>();
-                }
+                catch (Exception ex) { err = ex.Message; }
+                List<InstalledApp> apps2 = apps;
+                List<AutostartEntry> entries2 = entries;
+                string emsg = err;
+                Interlocked.Exchange(ref _startupBusy, 0);
                 UiPost(delegate
                 {
-                    _apps = apps; _autostartCache = entries;
-                    PopulateStartup(apps, entries);
+                    tick.Stop();
+                    if (ReferenceEquals(_startupTicker, tick)) _startupTicker = null;
+                    _btnStartupStop.Enabled = false;
+                    _btnStartupRefresh.Enabled = true;
+                    if (emsg != null || apps2 == null || entries2 == null)
+                    {
+                        // Пустые списки вместо ошибки давали «Программ: 0» — вид пустой машины
+                        // вместо честного «прочитать не удалось».
+                        _lblStartupInfo.Text = emsg != null
+                            ? Tr.S("Прочитать автозапуск не удалось: ", "Failed to read startup entries: ") + emsg
+                            : Tr.S("Чтение прервано. Нажмите «Обновить список», чтобы прочитать заново.",
+                                   "Reading stopped. Click “Refresh list” to read again.");
+                        return;
+                    }
+                    _apps = apps2; _autostartCache = entries2;
+                    PopulateStartup(apps2, entries2);
                 });
-                Interlocked.Exchange(ref _startupBusy, 0);
             });
             t.IsBackground = true;
             t.Start();
+        }
+
+        // «Стоп» не может оборвать уже начатый обход реестра или разрешение ярлыка —
+        // поэтому кнопка гаснет сразу и честно говорит «останавливаю», а работа
+        // прекращается на ближайшей границе стадии.
+        private void StopStartupRead()
+        {
+            _startupCancel = true;
+            _btnStartupStop.Enabled = false;
+            BusyTicker t = _startupTicker;
+            if (t != null) t.SetStage(Tr.S("Останавливаю чтение", "Stopping the read"));
+        }
+
+        // Индекс «нормализованный путь exe → записи автозапуска». Ключ считает сам движок
+        // (Engine.NormPath): своя копия правила разъехалась бы с ним при первой же правке,
+        // и часть записей перестала бы находиться.
+        private static string StartupKey(string p)
+        {
+            return Engine.NormPath(p);
+        }
+
+        private static Dictionary<string, List<AutostartEntry>> IndexEntries(List<AutostartEntry> entries)
+        {
+            Dictionary<string, List<AutostartEntry>> map = new Dictionary<string, List<AutostartEntry>>(StringComparer.Ordinal);
+            if (entries == null) return map;
+            foreach (AutostartEntry e in entries)
+            {
+                string k = StartupKey(e.ExePath);
+                if (k == null) continue;
+                List<AutostartEntry> lst;
+                if (!map.TryGetValue(k, out lst)) { lst = new List<AutostartEntry>(); map[k] = lst; }
+                lst.Add(e);
+            }
+            return map;
+        }
+
+        // Общий пустой список: возвращается по ссылке и никем не изменяется.
+        private static readonly List<AutostartEntry> NoAutostartEntries = new List<AutostartEntry>();
+
+        private static List<AutostartEntry> EntriesFor(Dictionary<string, List<AutostartEntry>> map, string exe)
+        {
+            string k = StartupKey(exe);
+            List<AutostartEntry> lst;
+            if (map == null || k == null || !map.TryGetValue(k, out lst)) return NoAutostartEntries;
+            return lst;
         }
 
         private void PopulateStartup(List<InstalledApp> apps, List<AutostartEntry> entries)
@@ -113,20 +208,29 @@ namespace WindowsProcessCleaner
             _lvStartup.BeginUpdate();
             HashSet<string> appExes = new HashSet<string>();
             int onCount = 0;
+            // Индекс строится один раз на заполнение. Раньше на каждую программу трижды
+            // звался EntriesForExe (галочка, издатель, подсказка), а он гоняет
+            // Path.GetFullPath по ВСЕМ записям: ≈400 программ × ~80 записей × 3 вызова —
+            // сотня тысяч обращений к файловой системе в UI-потоке на каждый вход на вкладку.
+            Dictionary<string, List<AutostartEntry>> byExe = IndexEntries(entries);
+            _autostartByExe = byExe;
             try
             {
                 _lvStartup.Items.Clear();
                 List<ListViewItem> rows = new List<ListViewItem>();
                 foreach (InstalledApp a in apps)
                 {
-                    bool on = _engine.IsExeInAutostart(a.ExePath, entries);
+                    List<AutostartEntry> mine = EntriesFor(byExe, a.ExePath);
+                    // «В автозапуске» = есть хотя бы одна ВКЛЮЧЁННАЯ запись (как в Диспетчере задач).
+                    bool on = false;
+                    foreach (AutostartEntry en in mine) if (en.Enabled) { on = true; break; }
                     a.InAutostart = on;
                     if (!string.IsNullOrEmpty(a.ExePath)) appExes.Add(a.ExePath.ToLowerInvariant());
 
                     ListViewItem it = new ListViewItem(a.Name);
-                    it.SubItems.Add(StartupPublisherText(a, entries));
+                    it.SubItems.Add(StartupPublisherText(a, mine));
                     it.SubItems.Add(a.ExePath != null ? a.ExePath : Tr.S("(exe не найден)", "(exe not found)"));
-                    it.ToolTipText = StartupAppTip(a, entries);
+                    it.ToolTipText = StartupAppTip(a, mine);
                     it.Tag = a;
                     it.Checked = on;
                     it.ForeColor = _theme.Text;
@@ -161,6 +265,8 @@ namespace WindowsProcessCleaner
             }
 
             _startupPrograms = apps.Count;
+            _startupShownApps = apps;
+            _startupShownEntries = entries;
             UpdateStartupInfo(onCount);
             AutoFillLastColumnDeferred(_lvStartup);
         }
@@ -184,18 +290,20 @@ namespace WindowsProcessCleaner
 
         // Издатель; если записи программы есть, но все отключены в Windows — пометка
         // «отключено»: без неё снятая галочка выглядела бы как «записи нет вовсе».
-        private string StartupPublisherText(InstalledApp a, List<AutostartEntry> entries)
+        // Обоим методам передаются УЖЕ отобранные записи этой программы: сами они больше
+        // ничего не ищут, иначе поиск повторялся бы для каждой строки списка.
+        private static string StartupPublisherText(InstalledApp a, List<AutostartEntry> mine)
         {
             string pub = a.Publisher != null ? a.Publisher : "";
-            if (a.InAutostart || _engine.EntriesForExe(a.ExePath, entries).Count == 0) return pub;
+            if (a.InAutostart || mine.Count == 0) return pub;
             return pub.Length == 0 ? DisabledMark() : pub + " · " + DisabledMark();
         }
 
-        private string StartupAppTip(InstalledApp a, List<AutostartEntry> entries)
+        private static string StartupAppTip(InstalledApp a, List<AutostartEntry> mine)
         {
             StringBuilder sb = new StringBuilder(a.Name);
             if (!string.IsNullOrEmpty(a.ExePath)) sb.Append("\r\n").Append(a.ExePath);
-            foreach (AutostartEntry e in _engine.EntriesForExe(a.ExePath, entries))
+            foreach (AutostartEntry e in mine)
                 sb.Append("\r\n").Append(e.SourceLabel).Append(e.Enabled ? "" : " · " + DisabledMark()).Append(": ").Append(e.Command);
             return sb.ToString();
         }
@@ -221,8 +329,16 @@ namespace WindowsProcessCleaner
             {
                 // Список записей нужен для переключения: без него программа «отключалась»
                 // бы вхолостую. Кэш живёт, пока мы сами его не меняем, — «Обновить список»
-                // перечитывает его целиком.
-                if (_autostartCache == null) _autostartCache = _engine.GetAutostartEntries();
+                // перечитывает его целиком. Читать его ЗДЕСЬ нельзя: разрешение ярлыков
+                // идёт через COM и вешало окно на секунды прямо в обработчике галочки.
+                if (_autostartCache == null)
+                {
+                    RevertStartupCheck(it);
+                    _lblStartupInfo.Text = Tr.S("Список автозапуска ещё не прочитан — читаю его, повторите после обновления списка.",
+                                                "The startup list has not been read yet — reading it now, try again once the list refreshes.");
+                    RefreshStartup(true);
+                    return;
+                }
                 if (tag is InstalledApp)
                 {
                     InstalledApp app = (InstalledApp)tag;
@@ -240,8 +356,12 @@ namespace WindowsProcessCleaner
                     if (it.Checked) _engine.EnableAutostartForExe(app.Name, app.ExePath, _autostartCache);
                     else _engine.DisableAutostartForExe(app.ExePath, _autostartCache);
                     app.InAutostart = it.Checked;
-                    it.SubItems[1].Text = StartupPublisherText(app, _autostartCache);
-                    it.ToolTipText = StartupAppTip(app, _autostartCache);
+                    // Включение могло дописать в кэш новую запись HKCU\Run — индекс
+                    // пересобираем, иначе издатель и подсказка показывали бы состояние до правки.
+                    _autostartByExe = IndexEntries(_autostartCache);
+                    List<AutostartEntry> mine = EntriesFor(_autostartByExe, app.ExePath);
+                    it.SubItems[1].Text = StartupPublisherText(app, mine);
+                    it.ToolTipText = StartupAppTip(app, mine);
                 }
                 else if (tag is AutostartEntry)
                 {

@@ -29,15 +29,79 @@ namespace WindowsProcessCleaner
     {
         // ---------- Вкладка: Обновления программ ----------
 
+        // Проверка опрашивает winget и choco по пять минут каждого, а установка одного пакета
+        // ждёт установщик до получаса. Всё это время строка состояния стояла неподвижно — со
+        // стороны это неотличимо от зависшего приложения. Поэтому, пока идёт работа, тикает
+        // таймер: секундомер и то, что менеджер пакетов делает прямо сейчас (Engine.UpdateStatus).
+        private System.Windows.Forms.Timer _updTick;
+        private DateTime _updStarted;
+        private string _updPhase;       // «Опрос менеджеров пакетов» / «Обновление»
+        private string _updCounter;     // «3/20 · успешно: 2 · с ошибкой: 1» — дописывается по группам
+        private bool _updStopping;      // «Стоп» нажат, но текущая команда ещё выходит
+        private Button _btnUpdCheck, _btnUpdApply, _btnUpdAll, _btnUpdNone, _btnUpdSkip;
+
+        private void StartUpdTicker(string phase)
+        {
+            _updPhase = phase;
+            _updStarted = DateTime.UtcNow;
+            if (_updTick == null)
+            {
+                _updTick = new System.Windows.Forms.Timer();
+                _updTick.Interval = 500;
+                _updTick.Tick += delegate { UpdTick(); };
+            }
+            _updTick.Start();
+            UpdTick();
+        }
+
+        private void StopUpdTicker()
+        {
+            if (_updTick != null) _updTick.Stop();
+        }
+
+        private void UpdTick()
+        {
+            if (_updBusy == 0) { StopUpdTicker(); return; }
+            string s = _engine.UpdateStatus;
+            _lblUpdInfo.Text = _updPhase
+                + (string.IsNullOrEmpty(_updCounter) ? "" : " " + _updCounter)
+                + "   ·   " + Elapsed(DateTime.UtcNow - _updStarted)
+                + (string.IsNullOrEmpty(s) ? "" : "   ·   " + s)
+                + (!_updStopping ? ""
+                   : _updApplying
+                     ? Tr.S("   ·   останавливаю: начатый пакет может остаться недоустановленным",
+                            "   ·   stopping: the package being installed may stay half-updated")
+                     : Tr.S("   ·   останавливаю проверку…", "   ·   stopping the check…"));
+        }
+
+        // Кнопки на время работы гасим. Раньше они оставались нажимаемыми: повторный клик
+        // молча возвращался (клик выглядел проигнорированным), а «Не предлагать» посреди
+        // установки выкидывал из списка строки, в которые фоновый поток ещё дописывал итог.
+        private void SetUpdatesUiBusy(bool busy)
+        {
+            if (_btnUpdCheck != null) _btnUpdCheck.Enabled = !busy;
+            if (_btnUpdApply != null) _btnUpdApply.Enabled = !busy;
+            if (_btnUpdAll != null) _btnUpdAll.Enabled = !busy;
+            if (_btnUpdNone != null) _btnUpdNone.Enabled = !busy;
+            if (_btnUpdSkip != null) _btnUpdSkip.Enabled = !busy;
+            if (_btnUpdCancel != null) _btnUpdCancel.Enabled = busy;
+        }
+
         private void DoScanUpdates()
         {
-            if (Interlocked.CompareExchange(ref _updBusy, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _updBusy, 1, 0) != 0)
+            {
+                _lblUpdInfo.Text = Tr.S("Уже выполняется — дождитесь окончания или нажмите «Стоп».",
+                                        "Already running — wait for it to finish or press “Stop”.");
+                return;
+            }
             _engine.ResetUpdateCancel();
-            _lblUpdInfo.Text = Tr.S("Опрос менеджеров пакетов… это может занять до минуты",
-                                    "Querying package managers… this can take up to a minute");
+            _updStopping = false;
+            _updCounter = null;
             _lvUpdates.Items.Clear();
             _updates = null;
-            if (_btnUpdCancel != null) _btnUpdCancel.Enabled = true;
+            SetUpdatesUiBusy(true);
+            StartUpdTicker(Tr.S("Опрос менеджеров пакетов", "Querying package managers"));
 
             Thread t = new Thread(delegate()
             {
@@ -46,21 +110,40 @@ namespace WindowsProcessCleaner
                 try { found = _engine.ScanUpdates(out note); }
                 catch (Exception ex) { found = new List<UpdateItem>(); note = ex.Message; }
                 string noteCopy = note;
-                Interlocked.Exchange(ref _updBusy, 0);
+                // HasWinget на холодном кэше сам запускает winget --version. В UI-потоке это
+                // была бы пауза на ровном месте, поэтому значение снимаем здесь, в фоне.
+                bool hasWinget = _engine.HasWinget;
+                bool cancelled = _engine.UpdatesCancelled;
                 UiPost(delegate
                 {
                     _updates = found;
-                    PopulateUpdates(found, noteCopy);
-                    if (_btnUpdCancel != null) _btnUpdCancel.Enabled = false;
+                    StopUpdTicker();
+                    PopulateUpdates(found, noteCopy, hasWinget, cancelled);
+                    SetUpdatesUiBusy(false);
+                    // Флаг снимаем последним и в UI-потоке. Раньше он падал в 0 на фоновом
+                    // потоке ДО этого вызова: клик в этот зазор запускал вторую проверку,
+                    // а отложенный обработчик первой затирал её список и гасил «Стоп».
+                    Interlocked.Exchange(ref _updBusy, 0);
                 });
             });
             t.IsBackground = true;
             t.Start();
         }
 
-        private void PopulateUpdates(List<UpdateItem> found, string note)
+        // Область и ключ памяти выбора: пакет опознаётся менеджером и идентификатором —
+        // имя у winget и choco для одного и того же софта разное.
+        private const string UpdatesScope = "upd";
+
+        private static string UpdatesMemKey(ListViewItem it)
+        {
+            UpdateItem u = it.Tag as UpdateItem;
+            return u == null ? null : u.Manager + "/" + u.Id;
+        }
+
+        private void PopulateUpdates(List<UpdateItem> found, string note, bool hasWinget, bool cancelled)
         {
             found = found ?? new List<UpdateItem>();
+            MemBeginFill();
             _lvUpdates.BeginUpdate();
             try
             {
@@ -81,7 +164,10 @@ namespace WindowsProcessCleaner
                                    + "\r\n" + u.Current + " → " + u.Available
                                    + "\r\n" + SeverityHint(u);
                     it.Tag = u;
-                    // Ничего не отмечаем сами: обновление — действие пользователя.
+                    // Сами не отмечаем ничего: обновление — действие пользователя. Но если он
+                    // отметил этот пакет в прошлый раз и тот всё ещё не обновлён, галочку вернём
+                    // (MemEndFill ниже) — заново перебирать список после каждого сканирования
+                    // было главной причиной, по которой выбор терялся.
                     it.Checked = false;
                     // Дубль приглушаем текстом, а не зелёным фоном: зелёный в этом
                     // приложении значит «в белом списке, защищено» — здесь смысл обратный.
@@ -90,19 +176,28 @@ namespace WindowsProcessCleaner
                     rows[i] = it;
                 }
                 _lvUpdates.Items.AddRange(rows);
+                MemEndFill(_lvUpdates, UpdatesScope, true, UpdatesMemKey, null);
             }
             finally { _lvUpdates.EndUpdate(); }
             AutoFillLastColumnDeferred(_lvUpdates);
 
             string msg;
-            if (found.Count == 0)
+            // Пустой список после остановки и пустой список после полной проверки — разные
+            // вещи, а надпись была одна: «Обновлений не найдено» на прерванной проверке врала.
+            if (cancelled)
+                msg = Tr.S("Остановлено. ", "Stopped. ")
+                    + (found.Count > 0
+                       ? Tr.S("Успели найти: ", "Found so far: ") + found.Count
+                       : Tr.S("Проверка не успела завершиться — список неполный.",
+                              "The check did not finish — the list is incomplete."));
+            else if (found.Count == 0)
                 msg = Tr.S("Обновлений не найдено", "No updates found");
             else
                 msg = Tr.S("Найдено обновлений: ", "Updates found: ") + found.Count
                     + Tr.S("  ·  отметьте нужные и нажмите «Обновить выбранное»",
                            "  ·  check the ones you want and click “Update selected”");
             if (!string.IsNullOrEmpty(note)) msg += "  ·  " + note;
-            if (!_engine.HasWinget)
+            if (!hasWinget)
                 msg += Tr.S("  ·  установите «Установщик приложений» из Microsoft Store, чтобы появился winget",
                             "  ·  install “App Installer” from the Microsoft Store to get winget");
             _lblUpdInfo.Text = msg;
@@ -182,7 +277,20 @@ namespace WindowsProcessCleaner
                              "The log is empty — no updates have been installed yet."), Tr.S("Обновления", "Updates"));
                 return;
             }
-            try { Process.Start("notepad.exe", path); } catch { }
+            // Путь лежит в %APPDATA% — в имени учётной записи бывает пробел, поэтому в кавычках.
+            // Пустой catch превращал «Лог» в кнопку, которая ничего не делает и ничего не говорит:
+            // notepad бывает заблокирован политикой или подменён. Пробуем открыть файл тем, что
+            // назначено в системе, и только после этого сознаёмся вслух.
+            try { Process.Start("notepad.exe", "\"" + path + "\""); }
+            catch
+            {
+                try { Process.Start(path); }
+                catch (Exception ex)
+                {
+                    MsgError(Tr.S("Не удалось открыть лог: ", "Could not open the log: ") + ex.Message
+                           + "\r\n" + path);
+                }
+            }
         }
 
         private void DoApplyUpdates()
@@ -193,7 +301,12 @@ namespace WindowsProcessCleaner
                 MsgInfo(Tr.S("Отметьте, что обновить.", "Check what to update."), Tr.S("Обновления", "Updates"));
                 return;
             }
-            if (Interlocked.CompareExchange(ref _updBusy, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _updBusy, 1, 0) != 0)
+            {
+                _lblUpdInfo.Text = Tr.S("Уже выполняется — дождитесь окончания или нажмите «Стоп».",
+                                        "Already running — wait for it to finish or press “Stop”.");
+                return;
+            }
 
             StringBuilder names = new StringBuilder();
             for (int i = 0; i < sel.Count && i < 12; i++)
@@ -220,11 +333,16 @@ namespace WindowsProcessCleaner
             }
 
             _engine.ResetUpdateCancel();
-            if (_btnUpdCancel != null) _btnUpdCancel.Enabled = true;
-            _lblUpdInfo.Text = Tr.S("Обновление… 0/", "Updating… 0/") + sel.Count;
+            _updStopping = false;
+            _updCounter = "0/" + sel.Count;
+            SetUpdatesUiBusy(true);
             string op = Tr.S("установка обновлений программ", "installing program updates");
             BeginWrite(op);
             _updApplying = true;
+            // Счётчик двигается только по группам: при UpdateBatchSize=20 он стоял на «0/20»,
+            // пока одна групповая установка шла до двух часов. Секундомер и строка из winget
+            // показывают, что работа идёт, даже когда счётчик не меняется.
+            StartUpdTicker(Tr.S("Обновление", "Updating"));
 
             List<List<UpdateItem>> groups = Engine.BuildUpdateGroups(sel, batch);
 
@@ -267,28 +385,36 @@ namespace WindowsProcessCleaner
                     {
                         foreach (UpdateItem gu in g)
                             SetUpdateRowState(gu, (gu.LastOk ? "✓ " : "✗ ") + gu.Status);
-                        _lblUpdInfo.Text = Tr.S("Обновление… ", "Updating… ") + d + "/" + sel.Count
-                                         + Tr.S("  ·  успешно: ", "  ·  ok: ") + okc
-                                         + Tr.S("  ·  с ошибкой: ", "  ·  failed: ") + badc;
+                        // Строку рисует тикер — здесь только цифры, иначе они мигали бы
+                        // поверх секундомера и снова исчезали.
+                        _updCounter = d + "/" + sel.Count
+                                    + Tr.S("  ·  успешно: ", "  ·  ok: ") + okc
+                                    + Tr.S("  ·  с ошибкой: ", "  ·  failed: ") + badc;
                     });
                 }
                 int okFinal = ok, badFinal = failed, doneFinal = done;
                 bool cancelled = _engine.UpdatesCancelled;
+                int leftFinal = sel.Count - done;
                 EndWrite(op);
-                Interlocked.Exchange(ref _updBusy, 0);
                 UiPost(delegate
                 {
-                    if (_btnUpdCancel != null) _btnUpdCancel.Enabled = false;
+                    StopUpdTicker();
+                    SetUpdatesUiBusy(false);
                     _updApplying = false;
+                    _updStopping = false;
                     _lblUpdInfo.Text = (cancelled ? Tr.S("Остановлено. ", "Stopped. ") : Tr.S("Готово. ", "Done. "))
                                      + Tr.S("Обновлено: ", "Updated: ") + okFinal
                                      + (badFinal > 0 ? Tr.S("  ·  не удалось: ", "  ·  failed: ") + badFinal : "")
+                                     + (cancelled && leftFinal > 0
+                                        ? Tr.S("  ·  не начинали: ", "  ·  not started: ") + leftFinal : "")
                                      + Tr.S("  ·  подробности в логе", "  ·  details in the log");
                     if (_tray != null && doneFinal > 0)
                         _tray.ShowBalloonTip(3000, Tr.S("Обновление программ", "Program updates"),
                             Tr.S("Обновлено: ", "Updated: ") + okFinal
                             + (badFinal > 0 ? Tr.S(", не удалось: ", ", failed: ") + badFinal : ""),
                             badFinal > 0 ? ToolTipIcon.Warning : ToolTipIcon.Info);
+                    // Как и в проверке: флаг занятости снимаем последним и в UI-потоке.
+                    Interlocked.Exchange(ref _updBusy, 0);
                 });
             });
             t.IsBackground = true;
@@ -314,27 +440,28 @@ namespace WindowsProcessCleaner
 
             FlowLayoutPanel top = MkToolbar();
 
-            Button btnCheck = MkFlowButton(Tr.S("Проверить обновления", "Check for updates"), 200, true);
-            btnCheck.Click += delegate { DoScanUpdates(); };
-            Button btnApply = MkFlowButton(Tr.S("Обновить выбранное", "Update selected"), 190, true);
-            btnApply.Click += delegate { DoApplyUpdates(); };
+            _btnUpdCheck = MkFlowButton(Tr.S("Проверить обновления", "Check for updates"), 200, true);
+            _btnUpdCheck.Click += delegate { DoScanUpdates(); };
+            _btnUpdApply = MkFlowButton(Tr.S("Обновить выбранное", "Update selected"), 190, true);
+            _btnUpdApply.Click += delegate { DoApplyUpdates(); };
             _btnUpdCancel = MkFlowButton(Tr.S("Стоп", "Stop"), 80, false);
             _btnUpdCancel.Enabled = false;
             _btnUpdCancel.Click += delegate
             {
                 _engine.CancelUpdateWork();
-                // Установщик не убивается (полуустановленный пакет хуже лишней минуты): цикл
-                // остановится после текущего пакета или группы — скажем об этом, иначе «Стоп»
-                // выглядит как не сработавший.
-                if (_updApplying)
-                    _lblUpdInfo.Text += Tr.S("  ·  остановка после текущей установки…", "  ·  stopping after the current install…");
+                // Отмену теперь видит сам запуск утилиты, а не только промежуток между
+                // менеджерами: во время проверки «Стоп» раньше не делал вообще ничего и
+                // ничего не говорил. Текст про остановку рисует тикер — сразу дёргаем его,
+                // чтобы ответ на клик был мгновенным, а не через полсекунды.
+                _updStopping = true;
+                UpdTick();
             };
-            Button btnAll = MkFlowButton(Tr.S("Все", "All"), 70, false);
-            btnAll.Click += delegate { SetAllUpdateChecks(true); };
-            Button btnNone = MkFlowButton(Tr.S("Ничего", "None"), 90, false);
-            btnNone.Click += delegate { SetAllUpdateChecks(false); };
-            Button btnSkip = MkFlowButton(Tr.S("Не предлагать", "Never offer"), 150, false);
-            btnSkip.Click += delegate { ExcludeSelectedUpdates(); };
+            _btnUpdAll = MkFlowButton(Tr.S("Все", "All"), 70, false);
+            _btnUpdAll.Click += delegate { SetAllUpdateChecks(true); };
+            _btnUpdNone = MkFlowButton(Tr.S("Ничего", "None"), 90, false);
+            _btnUpdNone.Click += delegate { SetAllUpdateChecks(false); };
+            _btnUpdSkip = MkFlowButton(Tr.S("Не предлагать", "Never offer"), 150, false);
+            _btnUpdSkip.Click += delegate { ExcludeSelectedUpdates(); };
             Button btnLog = MkFlowButton(Tr.S("Лог", "Log"), 80, false);
             btnLog.Click += delegate { OpenUpdateLog(); };
 
@@ -342,12 +469,12 @@ namespace WindowsProcessCleaner
                                      "The package manager itself (winget/Chocolatey) updates, no registry edits. “Impact” is the size of the version jump, not a security rating."), true);
             _lblUpdInfo = MkNote(Tr.S("Нажмите «Проверить обновления»", "Click “Check for updates”"), false);
 
-            top.Controls.Add(btnCheck);
-            top.Controls.Add(btnApply);
+            top.Controls.Add(_btnUpdCheck);
+            top.Controls.Add(_btnUpdApply);
             top.Controls.Add(_btnUpdCancel);
-            top.Controls.Add(btnAll);
-            top.Controls.Add(btnNone);
-            top.Controls.Add(btnSkip);
+            top.Controls.Add(_btnUpdAll);
+            top.Controls.Add(_btnUpdNone);
+            top.Controls.Add(_btnUpdSkip);
             top.Controls.Add(btnLog);
 
             _lvUpdates = new FastListView();
@@ -355,6 +482,7 @@ namespace WindowsProcessCleaner
             _lvUpdates.View = View.Details;
             _lvUpdates.CheckBoxes = true;
             _lvUpdates.FullRowSelect = true;
+            MemWatch(_lvUpdates, UpdatesScope, true, UpdatesMemKey);
             _lvUpdates.Columns.Add(Tr.S("Программа", "Program"), 280);
             _lvUpdates.Columns.Add(Tr.S("Установлена", "Installed"), 130);
             _lvUpdates.Columns.Add(Tr.S("Доступна", "Available"), 130);

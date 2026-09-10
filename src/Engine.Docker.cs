@@ -28,48 +28,72 @@ namespace WindowsProcessCleaner
     public partial class Engine
     {
         // ================= DOCKER =================
-        // stdout и stderr вычитываются параллельно: последовательный ReadToEnd вставал
-        // намертво, когда docker много писал в stderr (труба заполнялась, процесс ждал нас,
-        // мы — его). exit: -1 = CLI не запустился, -2 = не уложился в 2 минуты и убит.
+        // Отмена и живой статус — как в остальном приложении: раньше у Docker не было ни того,
+        // ни другого, и «Сжать диск» на 40 минут выглядел зависанием.
+        private volatile bool _cancelDocker;
+        public void CancelDockerWork() { _cancelDocker = true; }
+        public void ResetDockerCancel() { _cancelDocker = false; _dockerStatus = null; _dockerStep = null; }
+        public bool DockerCancelled { get { return _cancelDocker; } }
+
+        private volatile string _dockerStatus;
+        private volatile string _dockerStep;
+        // Этап длинной операции плюс, если он есть, текущий вывод команды.
+        public string DockerStatus
+        {
+            get
+            {
+                string step = _dockerStep, cmd = _dockerStatus;
+                if (string.IsNullOrEmpty(step)) return cmd;
+                return string.IsNullOrEmpty(cmd) ? step : step + "  ·  " + cmd;
+            }
+        }
+
+        // Сколько ждать конкретную команду. Раньше на ВСЁ было 120 секунд: большой
+        // `builder prune` / `system prune` в них не укладывался, docker убивали на середине,
+        // а пользователь читал «команда не завершилась за 2 минуты» вместо результата.
+        private static int DockerTimeout(string args)
+        {
+            string a = (args ?? "").ToLowerInvariant();
+            if (a.IndexOf("prune", StringComparison.Ordinal) >= 0) return 1800000;
+            if (a.StartsWith("version") || a.StartsWith("info")) return 30000;
+            if (a.StartsWith("system df") || a.StartsWith("df")) return 120000;
+            return 300000;
+        }
+
+        // Общий с остальным приложением запуск: потоковое чтение вывода, закрытый stdin,
+        // опрос отмены. exit: -1 = CLI не запустился, -2 = не уложился в срок и убит,
+        // -3 = остановлено пользователем.
         public string RunCapture(string exe, string args, out int exit)
         {
-            exit = -1;
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(exe, args);
-                psi.UseShellExecute = false;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = Encoding.UTF8;
-                psi.StandardErrorEncoding = Encoding.UTF8;
-                using (Process p = Process.Start(psi))
-                {
-                    if (p == null) return Tr.S("[ошибка] не удалось запустить ", "[error] failed to start ") + exe;
-                    StringBuilder o = new StringBuilder(), e = new StringBuilder();
-                    Thread drainOut = new Thread(delegate() { try { o.Append(p.StandardOutput.ReadToEnd()); } catch { } });
-                    Thread drainErr = new Thread(delegate() { try { e.Append(p.StandardError.ReadToEnd()); } catch { } });
-                    drainOut.IsBackground = true; drainErr.IsBackground = true;
-                    drainOut.Start(); drainErr.Start();
-                    bool exited = p.WaitForExit(120000);
-                    if (exited) exit = p.ExitCode;
-                    else { exit = RunTimeout; try { p.Kill(); } catch { } }
-                    drainOut.Join(3000); drainErr.Join(3000);
-                    string res = o.ToString();
-                    if (e.Length > 0) res += (res.Length > 0 ? "\r\n" : "") + e.ToString();
-                    if (!exited)
-                        res += (res.Length > 0 ? "\r\n" : "")
-                             + Tr.S("[ошибка] команда не завершилась за 2 минуты и остановлена",
-                                    "[error] the command did not finish within 2 minutes and was stopped");
-                    return res.Trim();
-                }
-            }
-            catch (Exception ex)
-            {
-                return Tr.S("[ошибка] ", "[error] ") + ex.Message
+            return RunCapture(exe, args, DockerTimeout(args), out exit);
+        }
+
+        public string RunCapture(string exe, string args, int timeoutMs, out int exit)
+        {
+            string so;
+            string head = exe + " " + args;
+            _dockerStatus = head;
+            bool ran = RunCapture(exe, args, timeoutMs, out so, out exit, null,
+                                  delegate { return _cancelDocker; },
+                                  delegate(string line, long ms)
+                                  {
+                                      string t = (line ?? "").Trim();
+                                      if (t.Length > 80) t = t.Substring(0, 80) + "…";
+                                      _dockerStatus = head + (t.Length > 0 ? "  ·  " + t : "");
+                                  }, null);
+            _dockerStatus = null;
+            string res = (so ?? "").Trim();
+            if (!ran && exit == -1)
+                return Tr.S("[ошибка] не удалось запустить ", "[error] failed to start ") + exe
                      + Tr.S("\r\nВозможно, CLI не установлен или отсутствует в PATH.",
                             "\r\nThe CLI may not be installed or is not in PATH.");
-            }
+            if (exit == RunTimeout)
+                res += (res.Length > 0 ? "\r\n" : "")
+                     + Tr.S("[ошибка] команда не уложилась в " + (timeoutMs / 60000) + " мин и остановлена",
+                            "[error] the command did not finish within " + (timeoutMs / 60000) + " min and was stopped");
+            if (exit == RunCancelled)
+                res += (res.Length > 0 ? "\r\n" : "") + Tr.S("[остановлено пользователем]", "[stopped by user]");
+            return res;
         }
 
         public string Docker(string args)
@@ -122,6 +146,10 @@ namespace WindowsProcessCleaner
         {
             StringBuilder sb = new StringBuilder();
             int ec;
+            // Шаг называется вслух: без этого 40 минут работы выглядели одной строкой
+            // «это может занять пару минут». Отмена проверяется на безопасных границах —
+            // внутри compact vdisk прерывать нельзя, иначе vhdx останется подключённым.
+            _dockerStep = Tr.S("проверяю Docker", "checking Docker");
 
             // exit -1 = docker.exe не запустился (CLI нет); любой другой ненулевой код —
             // CLI есть, но демон не отвечает: prune невозможен, а сжать диск всё равно можно.
@@ -131,6 +159,7 @@ namespace WindowsProcessCleaner
                      + "\r\n" + ver;
             if (ec == 0)
             {
+                _dockerStep = Tr.S("считаю занятое место", "measuring usage");
                 sb.AppendLine(Tr.S("=== Занято до очистки ===", "=== Usage before cleanup ==="));
                 sb.AppendLine(Lf(RunCapture("docker", "system df", out ec)));
                 sb.AppendLine();
@@ -140,8 +169,12 @@ namespace WindowsProcessCleaner
                 if (cmds.Length > 0)
                 {
                     sb.AppendLine(Tr.S("=== Очистка перед сжатием ===", "=== Pruning before compaction ==="));
+                    int ci = 0;
                     foreach (string cmd in cmds)
                     {
+                        if (_cancelDocker) { sb.AppendLine(Tr.S("[остановлено пользователем]", "[stopped by user]")); return sb.ToString(); }
+                        ci++;
+                        _dockerStep = Tr.S("очистка ", "pruning ") + ci + "/" + cmds.Length + ": docker " + cmd;
                         sb.AppendLine("> docker " + cmd);
                         sb.AppendLine(Lf(RunCapture("docker", cmd, out ec)));
                     }
@@ -171,6 +204,8 @@ namespace WindowsProcessCleaner
                 sb.AppendLine(Tr.S("Диск: ", "Disk: ") + vhdx);
                 sb.AppendLine(Tr.S("Размер до сжатия: ", "Size before compaction: ") + FormatBytes(before));
                 // остановить процессы Docker Desktop, чтобы освободить файл vhdx
+                if (_cancelDocker) { sb.AppendLine(Tr.S("[остановлено пользователем — до остановки Docker]", "[stopped by user — before stopping Docker]")); return sb.ToString(); }
+                _dockerStep = Tr.S("останавливаю Docker Desktop и WSL", "stopping Docker Desktop and WSL");
                 sb.AppendLine(Tr.S("Остановка Docker Desktop…", "Stopping Docker Desktop…"));
                 RunCapture("taskkill", "/F /IM \"Docker Desktop.exe\"", out ec);
                 RunCapture("taskkill", "/F /IM com.docker.backend.exe", out ec);
@@ -184,13 +219,20 @@ namespace WindowsProcessCleaner
                                 "attach vdisk readonly\r\ncompact vdisk\r\ndetach vdisk\r\nexit\r\n";
                 string scriptPath = Path.Combine(Path.GetTempPath(), "wpc_compact.txt");
                 try { File.WriteAllText(scriptPath, script); } catch { }
+                _dockerStep = Tr.S("сжимаю диск (прервать уже нельзя)", "compacting the disk (cannot be interrupted)");
                 sb.AppendLine("> diskpart compact vdisk …");
                 // Сжатие диска на десятки гигабайт идёт дольше двух минут; общий RunCapture с
                 // 2-минутным таймаутом убивал diskpart посреди compact, и vhdx оставался
                 // подключённым — Docker после этого не стартовал до перезагрузки. Здесь ждём до получаса.
                 string dpOut; int dpCode;
                 bool dpRan = RunCapture(Path.Combine(Environment.SystemDirectory, "diskpart.exe"), "/s \"" + scriptPath + "\"",
-                                        1800000, out dpOut, out dpCode, OemEncoding(), null);
+                                        1800000, out dpOut, out dpCode, OemEncoding(), null,
+                                        delegate(string line, long ms)
+                                        {
+                                            string t = (line ?? "").Trim();
+                                            _dockerStep = Tr.S("сжимаю диск: ", "compacting the disk: ")
+                                                        + (t.Length > 60 ? t.Substring(0, 60) + "…" : t);
+                                        }, null);
                 if (!string.IsNullOrEmpty(dpOut)) sb.AppendLine(Lf(dpOut.Trim()));
                 if (!dpRan)
                     sb.AppendLine(Tr.S("[ошибка] diskpart: ", "[error] diskpart: ") + RunFailText(false, dpCode));
@@ -210,12 +252,14 @@ namespace WindowsProcessCleaner
             }
 
             // 3) перезапуск Docker Desktop
+            _dockerStep = Tr.S("запускаю Docker Desktop", "starting Docker Desktop");
             sb.AppendLine();
             bool started = StartDockerDesktop();
             sb.AppendLine(started
                 ? Tr.S("Docker Desktop запускается…", "Docker Desktop is starting…")
                 : Tr.S("Не удалось найти Docker Desktop.exe — запустите Docker вручную.",
                        "Docker Desktop.exe not found — start Docker manually."));
+            _dockerStep = null;
             return sb.ToString();
         }
 

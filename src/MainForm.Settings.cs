@@ -27,6 +27,15 @@ namespace WindowsProcessCleaner
 {
     public partial class MainForm
     {
+        // Сохранение уходит в фон: schtasks.exe на UI-потоке держал окно до пяти секунд,
+        // а результат его работы никто не читал — «Настройки сохранены» показывалось всегда.
+        private Button _btnSettingsSave;
+        private Label _lblSettingsStatus;
+        private int _settingsBusy;
+        private System.Windows.Forms.Timer _settingsTick;
+        private DateTime _settingsStarted;
+        private string _settingsPhase;
+
         private Control BuildSettingsTab()
         {
             Panel tab = new Panel();
@@ -151,20 +160,36 @@ namespace WindowsProcessCleaner
             body.Resize += delegate { LayoutSettings(body); };
 
             // ---- КНОПКИ ----
-            Button save = new RoundButton();
-            save.Text = Tr.S("Сохранить настройки", "Save settings");
-            save.Tag = "primary";
-            save.Left = lx; save.Top = 8; save.Width = 210; save.Height = 36;
-            save.Click += delegate { SaveSettingsFromUi(); };
-            bar.Controls.Add(save);
+            _btnSettingsSave = new RoundButton();
+            _btnSettingsSave.Text = Tr.S("Сохранить настройки", "Save settings");
+            _btnSettingsSave.Tag = "primary";
+            _btnSettingsSave.Left = lx; _btnSettingsSave.Top = 8; _btnSettingsSave.Width = 210; _btnSettingsSave.Height = 36;
+            _btnSettingsSave.Click += delegate { SaveSettingsFromUi(); };
+            bar.Controls.Add(_btnSettingsSave);
 
             Button openDir = new RoundButton();
             openDir.Text = Tr.S("Папка данных", "Data folder");
             openDir.Left = lx + 222; openDir.Top = 8; openDir.Width = 160; openDir.Height = 36;
-            openDir.Click += delegate { try { Process.Start("explorer.exe", _engine.DataDir); } catch { } };
+            // Путь шёл без кавычек: у учётной записи с пробелом в имени профиля Проводник
+            // открывал не ту папку, и никто об этом не сообщал (ошибка гасилась в catch).
+            openDir.Click += delegate
+            {
+                try { Process.Start("explorer.exe", "\"" + _engine.DataDir + "\""); }
+                catch (Exception ex) { SetSettingsStatus(Tr.S("Не удалось открыть папку данных: ", "Could not open the data folder: ") + ex.Message); }
+            };
             bar.Controls.Add(openDir);
 
+            _lblSettingsStatus = new Label();
+            _lblSettingsStatus.Left = lx + 394; _lblSettingsStatus.Top = 16; _lblSettingsStatus.AutoSize = true;
+            _lblSettingsStatus.Text = "";
+            bar.Controls.Add(_lblSettingsStatus);
+
             return tab;
+        }
+
+        private void SetSettingsStatus(string text)
+        {
+            if (_lblSettingsStatus != null) _lblSettingsStatus.Text = text;
         }
 
         private Label SectionHeader(Panel tab, string text, int lx, ref int y)
@@ -286,8 +311,62 @@ namespace WindowsProcessCleaner
             ApplyThemeAll();
         }
 
+        // Второй рубеж после ApplyAutostart: спрашиваем сам планировщик, есть задача или нет.
+        // Имя берём у движка — раньше здесь стоял его дубликат строкой.
+        private static bool AutostartTaskPresent()
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "schtasks.exe"),
+                                                            "/Query /TN \"" + Engine.AutostartTaskName + "\"");
+                psi.CreateNoWindow = true;
+                psi.UseShellExecute = false;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                using (Process p = Process.Start(psi))
+                {
+                    if (p == null) return false;
+                    // вывод крошечный, поэтому читаем по очереди: труба не переполнится
+                    p.StandardOutput.ReadToEnd();
+                    p.StandardError.ReadToEnd();
+                    if (!p.WaitForExit(5000)) { try { p.Kill(); } catch { } return false; }
+                    return p.ExitCode == 0;
+                }
+            }
+            catch { return false; }
+        }
+
+        private void StartSettingsTicker(string phase)
+        {
+            _settingsPhase = phase;
+            _settingsStarted = DateTime.UtcNow;
+            if (_settingsTick == null)
+            {
+                _settingsTick = new System.Windows.Forms.Timer();
+                _settingsTick.Interval = 500;
+                _settingsTick.Tick += delegate { SettingsTick(); };
+            }
+            _settingsTick.Start();
+            SettingsTick();
+        }
+
+        private void SettingsTick()
+        {
+            if (_settingsBusy == 0)
+            {
+                if (_settingsTick != null) _settingsTick.Stop();
+                return;
+            }
+            SetSettingsStatus(_settingsPhase + "   ·   " + Elapsed(DateTime.UtcNow - _settingsStarted));
+        }
+
         private void SaveSettingsFromUi()
         {
+            if (Interlocked.CompareExchange(ref _settingsBusy, 1, 0) != 0)
+            {
+                SetSettingsStatus(Tr.S("Сохранение уже идёт — подождите.", "Saving is already in progress — please wait."));
+                return;
+            }
             AppConfig c = _engine.Config;
             c.CpuThresholdPercent = (double)_numCpu.Value;
             c.IdleMinutes = (int)_numIdle.Value;
@@ -328,17 +407,56 @@ namespace WindowsProcessCleaner
             c.Autostart = _chkAutostart.Checked;
 
             _engine.SaveConfig();
-            // задача планировщика пересоздаётся всегда: путь к exe мог измениться
-            _engine.ApplyAutostart(c.Autostart);
             RescheduleAuto();
             if (_miAuto != null) _miAuto.Checked = c.AutoEnabled;
 
-            // Одно окно вместо двух подряд («сохранено», потом «язык после перезапуска»).
-            string saved = Tr.S("Настройки сохранены.", "Settings saved.");
-            if (langChanged)
-                saved += "\r\n\r\n" + Tr.S("Язык изменится после перезапуска приложения.",
-                                           "The language will change after you restart the app.");
-            MessageBox.Show(this, saved, Tr.S("Настройки", "Settings"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // Дальше — schtasks.exe: до пяти секунд ожидания. На UI-потоке это было мёртвое
+            // окно, поэтому задача планировщика пересоздаётся в фоне (путь к exe мог измениться),
+            // а её результат проверяется запросом к самому планировщику.
+            bool wantAutostart = c.Autostart;
+            _btnSettingsSave.Enabled = false;
+            StartSettingsTicker(Tr.S("Сохраняю: задача автозапуска в планировщике", "Saving: the autostart task in Task Scheduler"));
+            Thread th = new Thread(delegate()
+            {
+                string err = null;
+                bool ok = false;
+                try
+                {
+                    // Движок теперь возвращает причину отказа schtasks; проверка запросом
+                    // остаётся вторым рубежом — код возврата 0 ещё не значит, что задача есть.
+                    err = _engine.ApplyAutostart(wantAutostart);
+                    ok = AutostartTaskPresent() == wantAutostart;
+                    if (ok) err = null;
+                }
+                catch (Exception ex) { err = ex.Message; }
+                bool okCopy = ok; string errCopy = err;
+                UiPost(delegate
+                {
+                    Interlocked.Exchange(ref _settingsBusy, 0);
+                    if (_settingsTick != null) _settingsTick.Stop();
+                    _btnSettingsSave.Enabled = true;
+
+                    // Одно окно вместо двух подряд («сохранено», потом «язык после перезапуска»).
+                    string saved = Tr.S("Настройки сохранены.", "Settings saved.");
+                    if (!okCopy)
+                        saved += "\r\n\r\n" + (wantAutostart
+                            ? Tr.S("Но задачу автозапуска создать не удалось — запуск вместе с Windows не настроен. Обычная причина: нет прав администратора.",
+                                   "But the autostart task could not be created — starting with Windows is not set up. The usual cause: no administrator rights.")
+                            : Tr.S("Но задачу автозапуска удалить не удалось — приложение по-прежнему может стартовать вместе с Windows.",
+                                   "But the autostart task could not be deleted — the app may still start with Windows."))
+                          + (errCopy != null ? " (" + errCopy + ")" : "");
+                    if (langChanged)
+                        saved += "\r\n\r\n" + Tr.S("Язык изменится после перезапуска приложения.",
+                                                   "The language will change after you restart the app.");
+                    SetSettingsStatus(okCopy
+                        ? Tr.S("Сохранено в ", "Saved at ") + DateTime.Now.ToString("HH:mm:ss")
+                        : Tr.S("Сохранено, но автозапуск не настроен — см. сообщение.", "Saved, but autostart is not set up — see the message."));
+                    MessageBox.Show(this, saved, Tr.S("Настройки", "Settings"), MessageBoxButtons.OK,
+                                    okCopy ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                });
+            });
+            th.IsBackground = true;
+            th.Start();
         }
 
         private List<string> ParseLines(string text)

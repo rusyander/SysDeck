@@ -31,13 +31,21 @@ namespace WindowsProcessCleaner
         private readonly Dictionary<string, string[]> _installExes =
             new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
 
-        public List<InstalledApp> GetInstalledApps()
+        public List<InstalledApp> GetInstalledApps() { return GetInstalledApps(null); }
+
+        // stage — какой раздел реестра читается сейчас. Чтение трёх ульев с поиском exe на диске
+        // занимает секунды; без этого вкладка «Программы» просто молчала всё это время.
+        public List<InstalledApp> GetInstalledApps(Action<string> stage)
         {
             _installExes.Clear();
             Dictionary<string, InstalledApp> map = new Dictionary<string, InstalledApp>(StringComparer.OrdinalIgnoreCase);
+            if (stage != null) stage(Tr.S("читаю раздел «Программы» (система)", "reading the system uninstall keys"));
             ReadUninstall(Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", map);
+            if (stage != null) stage(Tr.S("читаю раздел «Программы» (32-разрядные), найдено: ", "reading the 32-bit uninstall keys, found: ") + map.Count);
             ReadUninstall(Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall", map);
+            if (stage != null) stage(Tr.S("читаю раздел «Программы» (пользователь), найдено: ", "reading the per-user uninstall keys, found: ") + map.Count);
             ReadUninstall(Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", map);
+            if (stage != null) stage(Tr.S("сортирую список, найдено: ", "sorting the list, found: ") + map.Count);
             List<InstalledApp> list = new List<InstalledApp>(map.Values);
             list.Sort(delegate(InstalledApp a, InstalledApp b)
             { return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase); });
@@ -112,6 +120,16 @@ namespace WindowsProcessCleaner
         // ждём только реестр, не дольше 30 с. true = запись исчезла.
         public bool WaitUninstall(InstalledApp app, Process started, int maxMs)
         {
+            return WaitUninstall(app, started, maxMs, null, null);
+        }
+
+        // cancel — «Стоп» на вкладке. Чужой процесс по нему НЕ убивается: прерванный на середине
+        // деинсталлятор оставляет программу в полуудалённом виде, а очередь ждала каждую из них до
+        // 45 минут, и выйти из этого было нельзя ничем, кроме убийства приложения. По отмене мы
+        // просто перестаём ждать. onProgress — чего именно ждём: без этого сорокапятиминутное
+        // ожидание молчаливого мастера неотличимо от зависшего приложения.
+        public bool WaitUninstall(InstalledApp app, Process started, int maxMs, Func<bool> cancel, Action<string> onProgress)
+        {
             DateTime deadline = DateTime.Now.AddMilliseconds(maxMs);
             DateTime softDeadline = DateTime.Now.AddSeconds(30);
             HashSet<int> family = new HashSet<int>();
@@ -119,9 +137,17 @@ namespace WindowsProcessCleaner
             HashSet<int> pre = _uninstallPreSnapshot ?? new HashSet<int>();
             while (DateTime.Now < deadline)
             {
+                if (cancel != null && cancel()) return !UninstallEntryExists(app);
                 if (!UninstallEntryExists(app)) return true;
                 bool alive;
-                if (family.Count == 0) alive = DateTime.Now < softDeadline;
+                if (family.Count == 0)
+                {
+                    // Дескриптора процесса нет (ShellExecute отдал работу уже запущенной копии):
+                    // остаётся только реестр, и ждать его вечно нельзя — отсюда 30 секунд.
+                    alive = DateTime.Now < softDeadline;
+                    ReportWait(onProgress, Tr.S("процесс деинсталлятора не виден — жду запись в реестре",
+                                                "the uninstaller process is not visible — waiting for the registry entry"));
+                }
                 else
                 {
                     List<RawProc> snap = Snapshot();
@@ -133,16 +159,28 @@ namespace WindowsProcessCleaner
                             if (family.Contains(r.Ppid) && !family.Contains(r.Pid) && !pre.Contains(r.Pid)) { family.Add(r.Pid); grown = true; }
                     }
                     alive = false;
-                    foreach (RawProc r in snap) if (family.Contains(r.Pid)) { alive = true; break; }
+                    int live = 0;
+                    foreach (RawProc r in snap) if (family.Contains(r.Pid)) { alive = true; live++; }
+                    if (alive)
+                        ReportWait(onProgress, Tr.S("деинсталлятор работает, процессов: ",
+                                                    "the uninstaller is running, processes: ") + live);
                 }
                 if (!alive)
                 {
+                    ReportWait(onProgress, Tr.S("деинсталлятор завершился — проверяю реестр",
+                                                "the uninstaller has exited — checking the registry"));
                     Thread.Sleep(1500);   // реестр обновляется последним — короткая пауза после последнего процесса
                     return !UninstallEntryExists(app);
                 }
                 Thread.Sleep(700);
             }
             return !UninstallEntryExists(app);
+        }
+
+        private static void ReportWait(Action<string> onProgress, string text)
+        {
+            if (onProgress == null) return;
+            try { onProgress(text); } catch { }
         }
 
         // Запуск штатного деинсталлятора. null = запущен, иначе причина (уже локализована) —

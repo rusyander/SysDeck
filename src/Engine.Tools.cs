@@ -76,6 +76,7 @@ namespace WindowsProcessCleaner
             t.Confirm = true; t.Admin = true;
             t.ConfirmText = Tr.S("Пересобрать кэш шрифтов? Служба шрифтов будет перезапущена, первый запуск программ после этого чуть медленнее.",
                                  "Rebuild the font cache? The font service restarts; the first program launches afterwards are slightly slower.");
+            t.Long = true;   // остановка службы + удаление кэша: до минуты, «Остановить» должна работать
             l.Add(t);
             t = Tool("sfc", ToolsFix, Tr.S("Проверить системные файлы (SFC)", "Check system files (SFC)"),
                 Tr.S("sfc /scannow: сверяет файлы Windows с эталоном и восстанавливает повреждённые. 5–15 минут, ничего пользовательского не трогает.",
@@ -95,7 +96,7 @@ namespace WindowsProcessCleaner
             t = Tool("wureset", ToolsFix, Tr.S("Сбросить компоненты Windows Update", "Reset Windows Update components"),
                 Tr.S("Останавливает службы обновления, переименовывает SoftwareDistribution и catroot2, запускает службы снова: лечит вечное «поиск обновлений» и ошибки 0x8007xxxx. История обновлений очистится.",
                      "Stops the update services, renames SoftwareDistribution and catroot2, starts the services again: cures the endless “checking for updates” and 0x8007xxxx errors. Update history is cleared."));
-            t.Confirm = true; t.Admin = true;
+            t.Confirm = true; t.Admin = true; t.Long = true;   // восемь net stop/start по 90 с + удаление каталогов
             t.ConfirmText = Tr.S("Сбросить компоненты Windows Update? Скачанные, но не установленные обновления и история обновлений будут удалены; сами обновления скачаются заново.",
                                  "Reset Windows Update components? Downloaded-but-not-installed updates and the update history are deleted; updates re-download on their own.");
             l.Add(t);
@@ -115,6 +116,7 @@ namespace WindowsProcessCleaner
             t.Confirm = true; t.Admin = true;
             t.ConfirmText = Tr.S("Очистить очередь печати? Все ожидающие задания печати будут удалены.",
                                  "Clear the print queue? All pending print jobs will be deleted.");
+            t.Long = true;   // net stop spooler на зависшей очереди упирается в свои 60 с
             l.Add(t);
             t = Tool("storereset", ToolsFix, Tr.S("Сбросить кэш Microsoft Store", "Reset Microsoft Store cache"),
                 Tr.S("wsreset.exe: чинит Store, который не открывается или не скачивает. Появится чёрное окно на несколько секунд, затем откроется Store.",
@@ -131,9 +133,11 @@ namespace WindowsProcessCleaner
                      "MpCmdRun -Scan -ScanType 1: scans startup, memory and system folders. 1–10 minutes, can be stopped."));
             t.Long = true;
             l.Add(t);
-            l.Add(Tool("defsig", ToolsProtect, Tr.S("Обновить антивирусные базы", "Update antivirus definitions"),
+            t = Tool("defsig", ToolsProtect, Tr.S("Обновить антивирусные базы", "Update antivirus definitions"),
                 Tr.S("MpCmdRun -SignatureUpdate: скачивает свежие определения Защитника Windows, не дожидаясь расписания.",
-                     "MpCmdRun -SignatureUpdate: downloads fresh Windows Defender definitions without waiting for the schedule.")));
+                     "MpCmdRun -SignatureUpdate: downloads fresh Windows Defender definitions without waiting for the schedule."));
+            t.Long = true;   // качает базы: на медленном канале это минуты, а не секунды
+            l.Add(t);
             l.Add(Tool("wucheck", ToolsProtect, Tr.S("Проверить обновления Windows", "Check for Windows updates"),
                 Tr.S("Запускает поиск обновлений (UsoClient) и открывает Центр обновления, где видно результат.",
                      "Starts an update scan (UsoClient) and opens Windows Update, where the result shows.")));
@@ -214,9 +218,9 @@ namespace WindowsProcessCleaner
                         return a && b;
                     }
                 case "explorer":
-                    return RestartExplorer(log, null);
+                    return RestartExplorer(log, cancel, null);
                 case "iconcache":
-                    return RestartExplorer(log, delegate
+                    return RestartExplorer(log, cancel, delegate
                     {
                         string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\Windows\Explorer");
                         int n = DeleteMatching(dir, "iconcache_*.db", log);
@@ -233,7 +237,7 @@ namespace WindowsProcessCleaner
                         string fnt = Path.Combine(sys, "FNTCACHE.DAT");
                         try { if (File.Exists(fnt)) { File.Delete(fnt); n++; } } catch (Exception ex) { log("  " + fnt + ": " + ex.Message); }
                         log(Tr.S("Удалено файлов кэша шрифтов: ", "Font cache files deleted: ") + n);
-                        return Run(log, cancel, Path.Combine(sys, "net.exe"), "start FontCache", OemEncoding(), 60000) == 0;
+                        return NetOk(Run(log, cancel, Path.Combine(sys, "net.exe"), "start FontCache", OemEncoding(), 60000), log);
                     }
                 case "sfc":
                     // sfc пишет в перенаправленный вывод UTF-16 — с любой другой кодировкой это «п р о б е л ы».
@@ -250,7 +254,7 @@ namespace WindowsProcessCleaner
                 case "wureset":
                     return ResetWindowsUpdate(log, cancel);
                 case "restore":
-                    return CreateRestorePoint(log);
+                    return CreateRestorePoint(log, cancel);
                 case "hiber":
                     {
                         long size;
@@ -265,10 +269,12 @@ namespace WindowsProcessCleaner
                         Run(log, cancel, Path.Combine(sys, "net.exe"), "stop spooler", OemEncoding(), 60000);
                         int n = DeleteMatching(Path.Combine(sys, @"spool\PRINTERS"), "*", log);
                         log(Tr.S("Удалено файлов очереди: ", "Queue files deleted: ") + n);
-                        return Run(log, cancel, Path.Combine(sys, "net.exe"), "start spooler", OemEncoding(), 60000) == 0;
+                        return NetOk(Run(log, cancel, Path.Combine(sys, "net.exe"), "start spooler", OemEncoding(), 60000), log);
                     }
                 case "defquick":
-                    return Run(log, cancel, MpCmdRunPath(), "-Scan -ScanType 1", null, 60 * 60000) == 0;
+                    // «Быстрая проверка» идёт 1–10 минут; час ожидания означал только одно —
+                    // при зависшем MpCmdRun вкладка держалась занятой до конца рабочего дня.
+                    return Run(log, cancel, MpCmdRunPath(), "-Scan -ScanType 1", null, 15 * 60000) == 0;
                 case "defsig":
                     return Run(log, cancel, MpCmdRunPath(), "-SignatureUpdate", null, 10 * 60000) == 0;
                 case "wucheck":
@@ -354,12 +360,25 @@ namespace WindowsProcessCleaner
                             return RunTimeout;
                         }
                     }
-                    p.WaitForExit();   // дочитать асинхронные буферы
+                    // Дочитать асинхронные буферы, но не дольше пяти секунд: WaitForExit() без срока
+                    // ждёт закрытия труб, а их может держать внук уже завершившегося процесса —
+                    // тогда вкладка «Инструменты» вставала навсегда после успешно отработавшей команды.
+                    p.WaitForExit(5000);
                     log(Tr.S("  код выхода: ", "  exit code: ") + p.ExitCode);
                     return p.ExitCode;
                 }
             }
             catch (Exception ex) { log("  " + ex.Message); return -1; }
+        }
+
+        // net start / net stop возвращает 2, когда служба уже в нужном состоянии («служба уже запущена»).
+        // Раньше это считалось провалом, и полностью успешный сброс кэша шрифтов или очереди печати
+        // заканчивался красным «не выполнено».
+        private static bool NetOk(int code, Action<string> log)
+        {
+            if (code == 0) return true;
+            if (code == 2) { log(Tr.S("  служба уже в нужном состоянии — это успех", "  the service is already in the required state — this is success")); return true; }
+            return false;
         }
 
         private static int DeleteMatching(string dir, string mask, Action<string> log)
@@ -380,12 +399,13 @@ namespace WindowsProcessCleaner
 
         // Проводник: завершить, выполнить between (пока он не держит файлы), дождаться автоперезапуска
         // (winlogon поднимает оболочку сам, AutoRestartShell), иначе запустить самим.
-        private static bool RestartExplorer(Action<string> log, Action between)
+        private static bool RestartExplorer(Action<string> log, Func<bool> cancel, Action between)
         {
             string sys = Environment.SystemDirectory;
-            Run(log, null, Path.Combine(sys, "taskkill.exe"), "/F /IM explorer.exe", OemEncoding(), 30000);
+            Run(log, cancel, Path.Combine(sys, "taskkill.exe"), "/F /IM explorer.exe", OemEncoding(), 30000);
             Thread.Sleep(800);
             if (between != null) { try { between(); } catch (Exception ex) { log("  " + ex.Message); } }
+            log(Tr.S("Жду автозапуск оболочки…", "Waiting for the shell to restart…"));
             for (int i = 0; i < 12; i++)
             {
                 Thread.Sleep(500);
@@ -394,6 +414,9 @@ namespace WindowsProcessCleaner
                     log(Tr.S("Проводник запущен снова.", "Explorer is running again."));
                     return true;
                 }
+                // Отмена посреди ожидания: раньше эти шесть секунд игнорировали «Остановить».
+                // Проводник всё равно поднимаем — оставить рабочий стол без оболочки нельзя.
+                if (cancel != null && cancel()) { log(Tr.S("Остановка — запускаю Проводник сразу.", "Cancelling — starting Explorer right away.")); break; }
             }
             try
             {
@@ -440,7 +463,7 @@ namespace WindowsProcessCleaner
 
         // Точка восстановления через Checkpoint-Computer. Windows создаёт не чаще одной точки в сутки
         // (SystemRestorePointCreationFrequency) — на время вызова лимит снимается и возвращается как был.
-        private bool CreateRestorePoint(Action<string> log)
+        private bool CreateRestorePoint(Action<string> log, Func<bool> cancel)
         {
             if (!IsAdmin()) { log(Tr.S("Нужны права администратора.", "Administrator rights are required.")); return false; }
             string drive = SystemDriveRoot();
@@ -461,7 +484,9 @@ namespace WindowsProcessCleaner
                 "else{Set-ItemProperty $k -Name SystemRestorePointCreationFrequency -Value $old -Type DWord}}";
             log(Tr.S("Создаю точку восстановления «", "Creating restore point “") + desc + Tr.S("»… обычно 10–60 секунд.", "”… usually 10–60 seconds."));
             string so; int code;
-            bool ran = PS(script, 10 * 60000, out so, out code);
+            // Отмена доходит до самого PowerShell: Checkpoint-Computer на занятом диске держит
+            // до десяти минут, и всё это время «Остановить» была бесполезной кнопкой.
+            bool ran = PS(script, 10 * 60000, out so, out code, cancel, null);
             foreach (string line in (so ?? "").Split('\n')) { string l = line.Trim(); if (l.Length > 0) log("  " + l); }
             bool ok = ran && so != null && so.IndexOf("OK", StringComparison.Ordinal) >= 0 && so.IndexOf("ERR ", StringComparison.Ordinal) < 0;
             log(ok ? Tr.S("Точка восстановления создана.", "Restore point created.") : Tr.S("Не удалось создать точку восстановления.", "Could not create a restore point."));

@@ -38,6 +38,11 @@ namespace WindowsProcessCleaner
         // нажатый в этот момент «Стоп» на вкладке очистки молча отменялся, и удаление продолжалось.
         private int _diskWorkers;
 
+        // Что дисковая работа делает прямо сейчас — строкой для UI. Иначе на длинном удалении
+        // (десятки гигабайт, DISM на хранилище компонентов) пользователь минутами видел
+        // неподвижное «Удаление…» и не мог отличить работу от зависшего окна.
+        public volatile string DiskStatus;
+
         // Снять отмену, только если никакой дисковой работы сейчас нет. false — работа идёт,
         // флаг оставлен как есть (вызывающий получит «прервано» вместо чужой отмены).
         public bool TryResetDiskCancel()
@@ -118,6 +123,8 @@ namespace WindowsProcessCleaner
         // настроек действуют на подпапки и файлы внутри цели, а не только на её корень.
         // Точки повторного разбора (junction/symlink) не раскрываются и в dirsOut не попадают —
         // RemoveDirectory снёс бы саму ссылку.
+        // Предохранитель сохранений и служебных баз проверяется здесь же, на каждой папке обхода:
+        // одной проверки корня цели мало (см. IsGuardedSubPath).
         private void Walk(CleanTarget t, FileVisitor onFile, List<string> dirsOut, ref int errors)
         {
             string rootPath = NormalizeDir(t.Path);
@@ -126,6 +133,8 @@ namespace WindowsProcessCleaner
             if (ra == Native.INVALID_FILE_ATTRIBUTES || (ra & Native.FILE_ATTRIBUTE_DIRECTORY) == 0
                 || (ra & Native.FILE_ATTRIBUTE_REPARSE_POINT) != 0) return;
             rootPath = CanonicalRoot(rootPath);
+            // Второй рубеж на случай вызова в обход IsAllowedTarget: сам корень тоже под запретом.
+            if (IsGuardedSubPath(rootPath.ToLowerInvariant())) return;
 
             string mask = string.IsNullOrEmpty(t.Mask) ? "*" : t.Mask;
             long cutoff = t.MinAgeMinutes > 0
@@ -175,7 +184,11 @@ namespace WindowsProcessCleaner
                             // его в родителя и обход зацикливается; легальными такие каталоги не бывают.
                             if (IsDotName(name)) continue;
                             if (depth >= MaxWalkDepth) continue;
-                            if (excl.Count > 0 && IsExcluded(full.ToLowerInvariant(), excl)) continue;
+                            string fullLower = full.ToLowerInvariant();
+                            if (excl.Count > 0 && IsExcluded(fullLower, excl)) continue;
+                            // Ни в состав, ни в dirsOut: подпапка с сохранениями или служебной базой
+                            // не раскрывается, поэтому её файлы недостижимы и для анализа, и для удаления.
+                            if (IsGuardedSubPath(fullLower)) continue;
                             if (dirsOut != null) dirsOut.Add(full);
                             stack.Push(full); depths.Push(depth + 1);
                         }
@@ -237,14 +250,24 @@ namespace WindowsProcessCleaner
             if (c.Kind == "driverstore") { AnalyzeDriverStore(c); return; }
             if (c.Kind == "winsxs") { AnalyzeComponentStore(c); return; }
             int errors = 0;
+            // Счётчики растут прямо в категории: строка списка тикает вживую, а не стоит на «…»
+            // всё время обхода (.nuget\packages или Windows.old — это минуты на холодном кэше).
+            long baseSize = 0; int baseFiles = 0;
+            c.Size = 0; c.FileCount = 0;
             foreach (CleanTarget t in c.Targets)
             {
                 if (_cancelDisk) break;
                 t.Guarded = !IsAllowedTarget(t);
                 if (t.Guarded) { t.Size = 0; t.FileCount = 0; t.Errors = 0; t.Analyzed = true; continue; }
                 long ts = 0; int tc = 0; int te = 0;
-                Walk(t, delegate(string path, long size, uint attrs) { ts += size; tc++; }, null, ref te);
+                bool live = t.Enabled;   // выключенное в «Составе» в итог не входит — и в живой счёт тоже
+                Walk(t, delegate(string path, long size, uint attrs)
+                {
+                    ts += size; tc++;
+                    if (live && (tc & 255) == 0) { c.Size = baseSize + ts; c.FileCount = baseFiles + tc; }
+                }, null, ref te);
                 t.Size = ts; t.FileCount = tc; t.Errors = te; t.Analyzed = true;
+                if (live) { baseSize += ts; baseFiles += tc; c.Size = baseSize; c.FileCount = baseFiles; }
                 if (t.Enabled) errors += te;   // недоступность отключённой папки пользователя не касается
             }
             if (c.RecycleBin)
@@ -316,7 +339,70 @@ namespace WindowsProcessCleaner
         {
             if (t == null) return false;
             bool shallowMask = !string.IsNullOrEmpty(t.Mask) && !t.Recurse && t.Mask != "*" && t.Mask != "*.*";
+            // Цель из внешнего файла правил: послабления для корней не действуют, плюс отдельный
+            // список запретов — см. IsRuleTargetAllowed.
+            if (t.FromRules)
+            {
+                if (!IsRuleTargetAllowed(t.Path)) return false;
+                shallowMask = false;
+            }
             return IsAllowedTarget(t.Path, shallowMask);
+        }
+
+        // Что позволено правилу ИЗ ФАЙЛА (winapp2.ini). Файл лежит в папке, куда пишет любой
+        // процесс от имени пользователя, а приложение работает от администратора: строка
+        // «FileKey1=%WinDir%|*.dll» в подложенном файле означала бы снос C:\Windows правами
+        // администратора руками нашего процесса. Поэтому: внутрь Windows — только заведомо
+        // мусорные подпапки, в Program Files — никогда, в чужие профили — никогда.
+        // Встроенные правила (MEMORY.DMP в C:\Windows, IconCache.db в %LOCALAPPDATA%) это
+        // не ограничивает: они в коде, подменить их нельзя.
+        private static readonly string[] _ruleWinDirAllow = new string[] {
+            "\\temp", "\\prefetch", "\\logs", "\\minidump", "\\debug",
+            "\\softwaredistribution\\download", "\\system32\\logfiles", "\\downloaded program files",
+        };
+
+        private bool IsRuleTargetAllowed(string path)
+        {
+            string p;
+            try { p = Path.GetFullPath(path).TrimEnd('\\').ToLowerInvariant(); } catch { return false; }
+
+            string win = (_winDir ?? "").TrimEnd('\\').ToLowerInvariant();
+            if (win.Length > 0 && IsSelfOrUnder(p, win))
+            {
+                string rest = p.Length == win.Length ? "" : p.Substring(win.Length);
+                foreach (string ok in _ruleWinDirAllow)
+                    if (rest == ok || rest.StartsWith(ok + "\\", StringComparison.Ordinal)) return true;
+                return false;
+            }
+
+            string[] pf = new string[] { _programFiles, _programFilesX86 };
+            foreach (string f in pf)
+            {
+                if (string.IsNullOrEmpty(f)) continue;
+                if (IsSelfOrUnder(p, f.TrimEnd('\\').ToLowerInvariant())) return false;
+            }
+
+            // Чужие профили: %UserProfile% в правиле раскрывается в текущего пользователя, но
+            // подложенный файл может написать путь другого пользователя буквами.
+            try
+            {
+                string me = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile).TrimEnd('\\').ToLowerInvariant();
+                string users = Path.GetDirectoryName(me);
+                if (!string.IsNullOrEmpty(users))
+                {
+                    users = users.TrimEnd('\\').ToLowerInvariant();
+                    string pub = Path.Combine(users, "public").ToLowerInvariant();
+                    if (IsSelfOrUnder(p, users) && !IsSelfOrUnder(p, me) && !IsSelfOrUnder(p, pub)) return false;
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        private static bool IsSelfOrUnder(string pathLower, string dirLower)
+        {
+            if (dirLower.Length == 0) return false;
+            return pathLower == dirLower || pathLower.StartsWith(dirLower + "\\", StringComparison.Ordinal);
         }
 
         private bool IsAllowedTarget(string path) { return IsAllowedTarget(path, false); }
@@ -375,7 +461,8 @@ namespace WindowsProcessCleaner
         }
 
         // Сохранения игр — не мусор ни по какому правилу, включая winapp2: путь с таким
-        // сегментом не становится целью вообще (не «не отмечен», а отсутствует в составе).
+        // сегментом не становится целью вообще (не «не отмечен», а отсутствует в составе)
+        // И НЕ РАСКРЫВАЕТСЯ при рекурсивном обходе — см. IsGuardedSubPath и Walk.
         // «remote» в Steam\userdata — облачные сейвы, «wgs» — сейвы Xbox/Game Pass.
         private static readonly string[] _saveSegments = new string[] {
             "\\saved games\\", "\\save games\\", "\\my games\\", "\\saves\\", "\\savegames\\",
@@ -390,6 +477,16 @@ namespace WindowsProcessCleaner
         private static readonly string[] _appDataSegments = new string[] {
             "\\nvbackend\\applicationontology\\",
         };
+
+        // Проверка обоих списков разом. Раньше она стояла только в IsAllowedTarget, то есть на корне
+        // цели: правило winapp2 с RECURSE над %LocalAppData%\NVIDIA Corporation спокойно доходило до
+        // NvBackend\ApplicationOntology, а над профилем — до Saved Games, и повторило бы инцидент
+        // 06.09.2026, ради которого предохранитель и добавлялся. Теперь тот же список проверяется
+        // на каждой папке обхода, и комментарий выше наконец описывает то, что код действительно делает.
+        private static bool IsGuardedSubPath(string pathLower)
+        {
+            return HasSegment(pathLower, _saveSegments) || HasSegment(pathLower, _appDataSegments);
+        }
 
         private static bool HasSegment(string pathLower, string[] segments)
         {
@@ -470,9 +567,12 @@ namespace WindowsProcessCleaner
             CleanResult res = new CleanResult();
             if (cats == null) return res;
 
+            int ci = 0;
             foreach (CleanCategory c in cats)
             {
                 if (_cancelDisk) break;
+                ci++;
+                DiskStatus = ci + "/" + cats.Count + "  " + c.Title;
                 long catFreed = 0;
                 if (!string.IsNullOrEmpty(c.Kind))
                 {
@@ -494,6 +594,7 @@ namespace WindowsProcessCleaner
                         res.Log.Add("SKIP (guard) " + t.Path);
                         continue;
                     }
+                    DiskStatus = ci + "/" + cats.Count + "  " + c.Title + " · " + ShortStatusPath(t.Path);
                     long f = DeleteTarget(t, res);
                     catFreed += f;
                     res.Log.Add(FormatBytes(f).PadLeft(10) + "  " + t.Path
@@ -521,8 +622,20 @@ namespace WindowsProcessCleaner
                 res.Log.Add("--- " + c.Title + ": " + FormatBytes(catFreed));
             }
 
+            DiskStatus = null;
+            res.Cancelled = _cancelDisk;
+            if (res.Cancelled) res.Log.Add(Tr.S("=== остановлено пользователем: список пройден не до конца",
+                                                "=== stopped by the user: the list was not finished"));
             if (Config.CleanLogEnabled) WriteCleanLog(res);
             return res;
+        }
+
+        // Путь для строки состояния: целиком он не влезает и прыгает по ширине.
+        private static string ShortStatusPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return "";
+            if (path.Length <= 58) return path;
+            return path.Substring(0, 24) + "…" + path.Substring(path.Length - 33);
         }
 
         // Лог очистки — как в FluentCleaner: видно, что именно и сколько было удалено.

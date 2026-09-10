@@ -92,7 +92,9 @@ namespace WindowsProcessCleaner
             // экземпляр уже запущен, поэтому проверяется до захвата single-instance.
             if (args != null && (args.Contains("/auto") || args.Contains("/AUTO")))
             {
-                RunHeadlessClean();
+                // Код возврата виден планировщику в «Последний результат выполнения»:
+                // без него неудачный ночной прогон был неотличим от успешного.
+                Environment.ExitCode = RunHeadlessClean();
                 return;
             }
 
@@ -241,21 +243,77 @@ namespace WindowsProcessCleaner
             Console.Write(report);
         }
 
-        // Тихий режим: чистим только рекомендованные категории и пишем результат в лог.
-        // Никакого UI — процесс завершается сам, годится для расписания.
-        private static void RunHeadlessClean()
+        // Коды возврата тихого режима. Ноль — только когда очистка действительно прошла.
+        private const int AutoOk = 0;            // отработало
+        private const int AutoStartFailed = 2;   // движок не поднялся: нет прав, битый конфиг
+        private const int AutoFailed = 3;        // исключение во время анализа или удаления
+        private const int AutoNothing = 4;       // ни одной рекомендованной категории — чистить нечего
+
+        // Строка этапа уходит и в auto.log рядом с конфигом, и в stdout: задачу планировщика
+        // часто запускают с перенаправлением вывода. Сбой самой записи гасим — сообщать о нём
+        // всё равно некуда, а прогон из-за недоступного лога падать не должен.
+        private static void AutoLog(string dir, string line)
         {
+            string text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " [auto] " + line;
+            try { Console.WriteLine(text); }
+            catch { }
+            if (dir == null) return;
             try
             {
-                Engine engine = new Engine();
+                Directory.CreateDirectory(dir);
+                File.AppendAllText(Path.Combine(dir, "auto.log"), text + "\r\n", Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        // Тихий режим: чистим только рекомендованные категории. Раньше всё тело стояло в пустом
+        // catch, и процесс всегда выходил с нулём — упавший прогон выглядел как успешный.
+        // Никакого UI: окно с ошибкой в расписании некому закрыть.
+        private static int RunHeadlessClean()
+        {
+            string dir = null;
+            Engine engine;
+            try
+            {
+                dir = Engine.DefaultDataDir();
+                engine = new Engine();
                 Tr.En = engine.Config.Language == "en";
+            }
+            catch (Exception ex)
+            {
+                AutoLog(dir, "start failed: " + ex);
+                return AutoStartFailed;
+            }
+
+            AutoLog(dir, "start");
+            Stopwatch sw = Stopwatch.StartNew();
+            try
+            {
                 List<CleanCategory> cats = engine.BuildCleanCategories();
                 List<CleanCategory> pick = new List<CleanCategory>();
                 foreach (CleanCategory c in cats) if (c.Recommended) pick.Add(c);
+                AutoLog(dir, "categories=" + cats.Count + " recommended=" + pick.Count + " (" + sw.ElapsedMilliseconds + " ms)");
+                if (pick.Count == 0)
+                {
+                    AutoLog(dir, "nothing to clean");
+                    return AutoNothing;
+                }
+
                 engine.AnalyzeCategories(pick, null);
-                engine.CleanCategories(pick);
+                AutoLog(dir, "analyzed " + Engine.FormatBytes(Engine.DistinctSize(pick)) + " (" + sw.ElapsedMilliseconds + " ms)");
+
+                CleanResult res = engine.CleanCategories(pick);
+                AutoLog(dir, "cleaned files=" + res.FilesDeleted + " freed=" + Engine.FormatBytes(res.Freed)
+                             + " errors=" + res.Errors + " (" + sw.ElapsedMilliseconds + " ms)");
+                // Занятые файлы — обычное дело и не повод объявлять прогон неудачным,
+                // но их количество должно быть видно в логе.
+                return AutoOk;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                AutoLog(dir, "failed after " + sw.ElapsedMilliseconds + " ms: " + ex);
+                return AutoFailed;
+            }
         }
 
         private static bool TryBecomePrimary(out TcpListener listener)

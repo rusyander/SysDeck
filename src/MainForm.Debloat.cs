@@ -35,10 +35,16 @@ namespace WindowsProcessCleaner
         private RichTextBox _rtbDebloat;
         private Label _lblDebloatInfo;
         private Button _btnDebloatCheck, _btnDebloatDisable, _btnDebloatRemove, _btnDebloatRestore, _btnDebloatRecommended, _btnDebloatNone;
+        private Button _btnDebloatStop;
         private List<DebloatItem> _debloatItems;
         private bool _suppressDebloat, _debloatDetected;
         private int _debloatBusy;
         private Font _fontDebloatBold, _fontDebloatTitle;
+        // Секундомер вкладки: DISM на один пункт живёт до получаса, и без него на экране
+        // неподвижная строка, неотличимая от зависшего приложения.
+        private System.Windows.Forms.Timer _debloatTick;
+        private DateTime _debloatStarted;
+        private string _debloatPhase;
 
         // ---------- Вкладка: Windows: лишнее ----------
         private Control BuildDebloatTab()
@@ -55,6 +61,9 @@ namespace WindowsProcessCleaner
             _btnDebloatRemove.Click += delegate { DebloatRun(Engine.DebloatRemove); };
             _btnDebloatRestore = MkFlowButton(Tr.S("Вернуть отмеченное", "Restore checked"), 180, false);
             _btnDebloatRestore.Click += delegate { DebloatRun(Engine.DebloatRestore); };
+            _btnDebloatStop = MkFlowButton(Tr.S("Остановить", "Stop"), 130, false);
+            _btnDebloatStop.Enabled = false;
+            _btnDebloatStop.Click += delegate { CancelDebloat(); };
             _btnDebloatRecommended = MkFlowButton(Tr.S("Отметить рекомендуемое", "Check recommended"), 200, false);
             _btnDebloatRecommended.Click += delegate { DebloatCheckRecommended(); };
             _btnDebloatNone = MkFlowButton(Tr.S("Снять все", "Uncheck all"), 110, false);
@@ -63,12 +72,21 @@ namespace WindowsProcessCleaner
             top.Controls.Add(_btnDebloatDisable);
             top.Controls.Add(_btnDebloatRemove);
             top.Controls.Add(_btnDebloatRestore);
+            top.Controls.Add(_btnDebloatStop);
             top.Controls.Add(_btnDebloatRecommended);
             top.Controls.Add(_btnDebloatNone);
             if (!IsElevated())
             {
                 Button btnAdmin = MkFlowButton(Tr.S("Перезапустить от администратора", "Restart as administrator"), 230, false);
-                btnAdmin.Click += delegate { RestartAsAdmin(); };
+                // ExitNow() поднимает _reallyExit; раз мы всё ещё здесь и флага нет — второй
+                // экземпляр не стартовал (UAC отклонён), а раньше об этом никто не сообщал.
+                btnAdmin.Click += delegate
+                {
+                    RestartAsAdmin();
+                    if (!_reallyExit)
+                        _lblDebloatInfo.Text = Tr.S("Перезапуск не выполнен: запрос администратора отклонён или отменён.",
+                                                    "Restart did not happen: the administrator prompt was declined or cancelled.");
+                };
                 top.Controls.Add(btnAdmin);
             }
 
@@ -190,6 +208,7 @@ namespace WindowsProcessCleaner
                 }
             }
             finally { _suppressDebloat = false; }
+            DebloatRememberNode(e.Node);
             UpdateDebloatInfo();
         }
 
@@ -201,6 +220,48 @@ namespace WindowsProcessCleaner
             return it.State != DebloatState.Absent && it.State != DebloatState.Removed;
         }
 
+        // «Остановить» появилась только после того, как движок научился прерывать DISM и
+        // PowerShell (CancelDebloatWork). Кнопка гаснет сразу: повторные нажатия по уже
+        // отменённой работе выглядели бы как «щёлкаю, а ничего не происходит».
+        private void CancelDebloat()
+        {
+            if (_debloatBusy == 0) return;
+            if (_btnDebloatStop != null) _btnDebloatStop.Enabled = false;
+            _engine.CancelDebloatWork();
+            _debloatPhase = Tr.S("Останавливаю", "Stopping");
+        }
+
+        // Строка «выключить 3/12: …» обновлялась раз на пункт и стояла неподвижно десятками
+        // минут. Полусекундный таймер дописывает к ней секундомер и живую строку движка
+        // (DebloatStatus — последняя строка вывода DISM/PowerShell).
+        private void StartDebloatTicker(string phase)
+        {
+            _debloatPhase = phase;
+            _debloatStarted = DateTime.UtcNow;
+            if (_debloatTick == null)
+            {
+                _debloatTick = new System.Windows.Forms.Timer();
+                _debloatTick.Interval = 500;
+                _debloatTick.Tick += delegate { DebloatTick(); };
+            }
+            _debloatTick.Start();
+            DebloatTick();
+        }
+
+        private void StopDebloatTicker()
+        {
+            if (_debloatTick != null) _debloatTick.Stop();
+        }
+
+        private void DebloatTick()
+        {
+            if (_debloatBusy == 0) { StopDebloatTicker(); return; }
+            string st = _engine.DebloatStatus;
+            _lblDebloatInfo.Text = _debloatPhase + "   ·   " + Elapsed(DateTime.UtcNow - _debloatStarted)
+                + (string.IsNullOrEmpty(st) ? "" : "   ·   " + st)
+                + (_engine.DebloatCancelled ? Tr.S("   ·   останавливаюсь…", "   ·   stopping…") : "");
+        }
+
         private void RefreshDebloat(bool force)
         {
             if (_debloatItems == null)
@@ -209,9 +270,17 @@ namespace WindowsProcessCleaner
                 PopulateDebloat(true);
             }
             if (!force) return;
-            if (Interlocked.CompareExchange(ref _debloatBusy, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _debloatBusy, 1, 0) != 0)
+            {
+                // раньше здесь был молчаливый return, и повторный щелчок выглядел проигнорированным
+                _lblDebloatInfo.Text = Tr.S("Работа уже идёт — дождитесь её или нажмите «Остановить».",
+                                            "Work is already running — wait for it or click “Stop”.");
+                return;
+            }
+            _engine.ResetDebloatCancel();
             SetDebloatButtons(false);
-            _lblDebloatInfo.Text = Tr.S("Проверка состояния…", "Checking state…");
+            if (_btnDebloatStop != null) _btnDebloatStop.Enabled = true;
+            StartDebloatTicker(Tr.S("Проверка состояния", "Checking state"));
             List<DebloatItem> items = _debloatItems;
             Thread t = new Thread(delegate()
             {
@@ -220,19 +289,28 @@ namespace WindowsProcessCleaner
                 {
                     _engine.DebloatDetect(items, delegate(string stage)
                     {
-                        UiPost(delegate { _lblDebloatInfo.Text = Tr.S("Проверка: ", "Checking: ") + stage; });
+                        UiPost(delegate { _debloatPhase = Tr.S("Проверка: ", "Checking: ") + stage; });
                     });
                 }
                 catch (Exception ex) { err = ex.Message; }
+                bool stopped = _engine.DebloatCancelled;
                 UiPost(delegate
                 {
-                    _debloatDetected = err == null;
+                    // флаг снимаем внутри UiPost: сброшенный раньше, он пускал новый запуск,
+                    // которому этот же обработчик тут же гасил кнопки и обнулял строку состояния
+                    Interlocked.Exchange(ref _debloatBusy, 0);
+                    StopDebloatTicker();
+                    // после остановки состояние прочитано частично — действия к нему применять нельзя
+                    _debloatDetected = err == null && !stopped;
                     PopulateDebloat(false);
                     SetDebloatButtons(true);
-                    if (err != null) MsgError(err);
+                    if (_btnDebloatStop != null) _btnDebloatStop.Enabled = false;
+                    if (stopped)
+                        _lblDebloatInfo.Text = Tr.S("Проверка остановлена — состояние прочитано не полностью, запустите её заново.",
+                                                    "The check was stopped — the state is incomplete, run it again.");
                     ShowDebloatNode(_tvDebloat.SelectedNode);
+                    if (err != null) MsgError(err);
                 });
-                Interlocked.Exchange(ref _debloatBusy, 0);
             });
             t.IsBackground = true;
             t.Start();
@@ -276,7 +354,10 @@ namespace WindowsProcessCleaner
                         TreeNode n = new TreeNode(DebloatNodeText(it));
                         n.Tag = it;
                         bool want;
-                        if (first || !keep.TryGetValue(it.Id, out want)) want = it.DefaultChecked;
+                        // В пределах сеанса выбор берём из keep, при первом показе — из памяти
+                        // выбора: отмеченное в прошлый раз переживает перезапуск приложения.
+                        if (first || !keep.TryGetValue(it.Id, out want))
+                            want = MemBool(DebloatScope, it.Id, it.DefaultChecked, true);
                         bool can = _debloatDetected ? DebloatCheckable(it) : it.Ops.Count > 0;
                         n.Checked = want && can;
                         if (can) checkable++;
@@ -327,6 +408,28 @@ namespace WindowsProcessCleaner
             _lblDebloatInfo.Text = sb.ToString();
         }
 
+        private const string DebloatScope = "debloat";
+
+        // «Рекомендуемые» / «Все» / «Ничего» меняют сотню пунктов разом — там записывается всё
+        // дерево. На одиночный щелчок обходить его целиком незачем: пишется только тронутый
+        // узел (у категории — её дети, которых обработчик и переставил).
+        private void DebloatRemember()
+        {
+            foreach (TreeNode cat in _tvDebloat.Nodes) DebloatRememberNode(cat);
+        }
+
+        private void DebloatRememberNode(TreeNode node)
+        {
+            if (node == null) return;
+            DebloatItem it = node.Tag as DebloatItem;
+            if (it != null) { MemSetBool(DebloatScope, it.Id, node.Checked, true); return; }
+            foreach (TreeNode ch in node.Nodes)
+            {
+                DebloatItem c = ch.Tag as DebloatItem;
+                if (c != null) MemSetBool(DebloatScope, c.Id, ch.Checked, true);
+            }
+        }
+
         private void DebloatCheckRecommended()
         {
             if (_debloatItems == null) return;
@@ -348,6 +451,7 @@ namespace WindowsProcessCleaner
                 }
             }
             finally { _suppressDebloat = false; }
+            DebloatRemember();
             UpdateDebloatInfo();
         }
 
@@ -368,6 +472,7 @@ namespace WindowsProcessCleaner
                 }
             }
             finally { _suppressDebloat = false; }
+            DebloatRemember();
             UpdateDebloatInfo();
         }
 
@@ -489,7 +594,19 @@ namespace WindowsProcessCleaner
 
         private void DebloatRun(int action)
         {
-            if (_debloatItems == null || _debloatBusy != 0) return;
+            // раньше оба условия давали молчаливый выход, и щелчок выглядел «проглоченным»
+            if (_debloatItems == null)
+            {
+                _lblDebloatInfo.Text = Tr.S("Список пунктов ещё не построен — откройте вкладку заново.",
+                                            "The item list is not built yet — reopen the tab.");
+                return;
+            }
+            if (_debloatBusy != 0)
+            {
+                _lblDebloatInfo.Text = Tr.S("Работа уже идёт — дождитесь её или нажмите «Остановить».",
+                                            "Work is already running — wait for it or click “Stop”.");
+                return;
+            }
             if (!_debloatDetected)
             {
                 MessageBox.Show(this, Tr.S("Сначала нажмите «Проверить состояние»: действия применяются к тому, что реально есть в системе.",
@@ -537,54 +654,92 @@ namespace WindowsProcessCleaner
                                               "Without administrator rights some actions (HKLM, services, tasks, features, OneDrive) are skipped and logged as errors.")).Append("\r\n");
             sb.Append("\r\n").Append(Tr.S("Продолжить?", "Continue?"));
             if (MessageBox.Show(this, sb.ToString(), Tr.S("Windows: лишнее", "Windows bloat"), MessageBoxButtons.YesNo,
-                                serious.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                                serious.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            {
+                _lblDebloatInfo.Text = Tr.S("Отменено, ничего не изменено.", "Cancelled, nothing was changed.");
+                return;
+            }
 
-            if (Interlocked.CompareExchange(ref _debloatBusy, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _debloatBusy, 1, 0) != 0)
+            {
+                _lblDebloatInfo.Text = Tr.S("Работа уже идёт — дождитесь её или нажмите «Остановить».",
+                                            "Work is already running — wait for it or click “Stop”.");
+                return;
+            }
+            _engine.ResetDebloatCancel();
             SetDebloatButtons(false);
+            if (_btnDebloatStop != null) _btnDebloatStop.Enabled = true;
+            StartDebloatTicker(verb + " 1/" + sel.Count);
             string op = Tr.S("Windows: лишнее", "Windows bloat");
             BeginWrite(op);
             List<DebloatItem> items = _debloatItems;
             Thread t = new Thread(delegate()
             {
                 StringBuilder log = new StringBuilder();
-                int errors = 0;
+                int errors = 0, applied = 0;
                 try
                 {
                     for (int i = 0; i < sel.Count; i++)
                     {
+                        // отмена проверяется между пунктами; внутри пункта её отрабатывает сам
+                        // движок — он убивает текущий DISM/PowerShell, не дожидаясь таймаута
+                        if (_engine.DebloatCancelled)
+                        {
+                            log.AppendLine(Tr.S("Остановлено пользователем; не тронуто пунктов: ", "Stopped by the user; items left untouched: ")
+                                           + (sel.Count - i));
+                            break;
+                        }
                         DebloatItem it = sel[i];
                         int idx = i + 1;
-                        UiPost(delegate { _lblDebloatInfo.Text = verb + " " + idx + "/" + sel.Count + ": " + it.Title; });
+                        UiPost(delegate { _debloatPhase = verb + " " + idx + "/" + sel.Count + ": " + it.Title; });
                         log.AppendLine(it.Title);
+                        applied++;
                         string err = null;
                         try { err = _engine.DebloatApply(it, action, log); }
                         catch (Exception ex) { err = ex.Message; }
                         if (err != null) { errors++; log.AppendLine("  ! " + err); }
                     }
-                    try
+                    // повторная проверка после отмены смысла не имеет: её всё равно прервут
+                    if (!_engine.DebloatCancelled)
                     {
-                        _engine.DebloatDetect(items, delegate(string stage)
+                        try
                         {
-                            UiPost(delegate { _lblDebloatInfo.Text = Tr.S("Повторная проверка: ", "Re-checking: ") + stage; });
-                        });
+                            _engine.DebloatDetect(items, delegate(string stage)
+                            {
+                                UiPost(delegate { _debloatPhase = Tr.S("Повторная проверка: ", "Re-checking: ") + stage; });
+                            });
+                        }
+                        catch (Exception ex) { log.AppendLine("! " + ex.Message); }
                     }
-                    catch (Exception ex) { log.AppendLine("! " + ex.Message); }
                 }
                 finally { EndWrite(op); }
                 string logText = log.ToString();
-                int done = sel.Count - errors;
+                int done = applied - errors;
+                int appliedCopy = applied;
+                bool stopped = _engine.DebloatCancelled;
                 UiPost(delegate
                 {
+                    // флаг снимаем здесь, а не в потоке: иначе щелчок в зазоре запускал новую
+                    // работу, которой этот обработчик тут же ломал кнопки и строку состояния
+                    Interlocked.Exchange(ref _debloatBusy, 0);
+                    StopDebloatTicker();
+                    // состояние после остановки прочитано частично — требуем новую проверку
+                    if (stopped) _debloatDetected = false;
                     PopulateDebloat(false);
                     SetDebloatButtons(true);
+                    if (_btnDebloatStop != null) _btnDebloatStop.Enabled = false;
                     ShowDebloatLog(Tr.S("Журнал: ", "Log: ") + verb, logText);
-                    _lblDebloatInfo.Text = Tr.S("Готово: ", "Done: ") + verb + " " + done + "/" + sel.Count
+                    _lblDebloatInfo.Text = (stopped ? Tr.S("Остановлено: ", "Stopped: ") : Tr.S("Готово: ", "Done: "))
+                        + verb + " " + done + "/" + sel.Count
+                        + (stopped && appliedCopy < sel.Count
+                            ? Tr.S(", не тронуто: ", ", left untouched: ") + (sel.Count - appliedCopy)
+                              + Tr.S(" — состояние нужно проверить заново", " — the state has to be re-checked")
+                            : "")
                         + (errors > 0 ? Tr.S(", с ошибками: ", ", with errors: ") + errors + Tr.S(" — подробности в журнале справа", " — details in the log on the right") : "");
                     if (errors > 0)
                         MessageBox.Show(this, Tr.S("Часть действий не выполнена: ", "Some actions failed: ") + errors + Tr.S(". Журнал — в правой панели.", ". See the log on the right."),
                             op, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 });
-                Interlocked.Exchange(ref _debloatBusy, 0);
             });
             t.IsBackground = true;
             t.Start();

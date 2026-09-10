@@ -40,14 +40,24 @@ namespace WindowsProcessCleaner
         // «Автозагрузка» (имя значения = имя файла с расширением).
         private const string ApprovedKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved";
 
-        public List<AutostartEntry> GetAutostartEntries()
+        public List<AutostartEntry> GetAutostartEntries() { return GetAutostartEntries(null); }
+
+        // stage — какой источник читается сейчас: разбор ярлыков в папках «Автозагрузка»
+        // ходит на диск, и на холодном кэше это заметные секунды молчания.
+        public List<AutostartEntry> GetAutostartEntries(Action<string> stage)
         {
             List<AutostartEntry> list = new List<AutostartEntry>();
+            if (stage != null) stage("HKCU\\Run");
             ReadRun(Registry.CurrentUser, RunKeyPath, 0, "HKCU\\Run", list);
+            if (stage != null) stage("HKLM\\Run");
             ReadRun(Registry.LocalMachine, RunKeyPath, 1, "HKLM\\Run", list);
+            if (stage != null) stage("HKLM\\Run (32-bit)");
             ReadRun(Registry.LocalMachine, RunKeyPathWow, 2, "HKLM\\Run (32-bit)", list);
+            if (stage != null) stage(Tr.S("Автозагрузка (пользователь)", "Startup folder (user)"));
             ReadStartupFolder(Environment.SpecialFolder.Startup, 3, Tr.S("Автозагрузка (пользователь)", "Startup folder (user)"), list);
+            if (stage != null) stage(Tr.S("Автозагрузка (общая)", "Startup folder (all users)"));
             ReadStartupFolder(Environment.SpecialFolder.CommonStartup, 4, Tr.S("Автозагрузка (общая)", "Startup folder (all users)"), list);
+            if (stage != null) stage(Tr.S("состояние записей, найдено: ", "entry states, found: ") + list.Count);
             foreach (AutostartEntry e in list) ReadApproved(e);
             return list;
         }
@@ -176,7 +186,9 @@ namespace WindowsProcessCleaner
             e.ApprovedState = enabled ? 2 : 3;
         }
 
-        private static string NormPath(string p)
+        // public: тот же нормализованный путь нужен и окну (вкладка «Автозапуск» строит по нему
+        // указатель exe → записи). Своя копия там разъезжалась бы с этой при первой же правке.
+        public static string NormPath(string p)
         {
             if (string.IsNullOrEmpty(p)) return null;
             try { return Path.GetFullPath(p).TrimEnd('\\').ToLowerInvariant(); }
@@ -265,8 +277,11 @@ namespace WindowsProcessCleaner
         // приложения с повышенными правами). Используем Планировщик задач с
         // наивысшими правами — тогда при входе в систему UAC не появляется.
         private const string TaskName = "WindowsProcessCleaner";
+        public static string AutostartTaskName { get { return TaskName; } }
 
-        public void ApplyAutostart(bool enabled)
+        // Возвращает null при успехе, иначе причину. Раньше результат не проверялся вовсе:
+        // schtasks мог отказать, а окно писало «Настройки сохранены» — автозапуска при этом не было.
+        public string ApplyAutostart(bool enabled)
         {
             // почистить возможный устаревший Run-ключ
             try
@@ -297,9 +312,20 @@ namespace WindowsProcessCleaner
                 psi.UseShellExecute = false;
                 psi.WindowStyle = ProcessWindowStyle.Hidden;
                 using (Process p = Process.Start(psi))
-                    if (p != null) p.WaitForExit(5000);
+                {
+                    if (p == null) return Tr.S("не удалось запустить schtasks.exe", "failed to start schtasks.exe");
+                    if (!p.WaitForExit(15000))
+                    {
+                        try { p.Kill(); } catch { }
+                        return Tr.S("schtasks.exe не ответил за 15 секунд", "schtasks.exe did not answer within 15 seconds");
+                    }
+                    // /Delete для несуществующей задачи возвращает 1 — выключать нечего, и это не ошибка
+                    if (p.ExitCode != 0 && !(!enabled && p.ExitCode == 1))
+                        return "schtasks → " + p.ExitCode;
+                }
             }
-            catch { }
+            catch (Exception ex) { return ex.Message; }
+            return null;
         }
     }
 }

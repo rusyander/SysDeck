@@ -44,7 +44,29 @@ namespace WindowsProcessCleaner
         private string _diskStartPath;             // /disk <путь>: просканировать сразу после показа окна
         private bool _diskStartPage;
 
+        // Живая строка состояния страницы: фаза + секундомер + подробности от рабочего потока.
+        // Без секундомера длинные фазы выглядели зависанием: у поиска дубликатов сравнение
+        // «голов» файлов не даёт ни одного отчёта о прогрессе, а один большой файл в полном
+        // хэшировании держит счётчик байт неподвижным минутами.
+        private System.Windows.Forms.Timer _diskTick;
+        private DateTime _diskStarted;
+        private string _diskPhase;
+        private volatile string _diskDetail;       // пишет рабочий поток, читает таймер UI
+        private string _diskDeferred;              // что применится после текущей операции
+        private volatile bool _recycleCancel;      // «Стоп» во время переноса в Корзину
+        private bool _suspendDiskChecked;          // идёт массовая простановка галочек — считаем один раз
+        private bool _dupSearching;                // занят именно поиск дубликатов (а не обход/перенос)
+        private bool _dupRerun;                    // за время поиска выбрали другую папку — пересчитать
+        private bool _diskMinPending;              // порог меняли во время работы — применить, когда освободимся
+        private int _diskListRun;                  // номер последнего запроса списка: ответы старых выбрасываем
+        private bool _diskListQuiet;               // список пересобирается после обхода/переноса: их итог в строке важнее
+        private int _drivesBusy;                   // идёт фоновое чтение полосок дисков
+        private System.Windows.Forms.Timer _diskListTimer, _diskMinTimer;
+
         private const int DiskListLimit = 500;
+        // Перенос в Корзину идёт порциями: оболочка вызывается с FOF_SILENT, своего окна
+        // прогресса не показывает, и на тысяче путей одна операция висела молча и без отмены.
+        private const int RecycleChunk = 200;
 
         private class ScopeItem
         {
@@ -85,7 +107,7 @@ namespace WindowsProcessCleaner
             _diskFlow.Controls.Add(_btnDiskScan);
             _btnDiskStop = MkFlowButton(Tr.S("Стоп", "Stop"), 80, false);
             _btnDiskStop.Enabled = false;
-            _btnDiskStop.Click += delegate { _engine.CancelDiskScan(); };
+            _btnDiskStop.Click += delegate { DiskStopClicked(); };
             _diskFlow.Controls.Add(_btnDiskStop);
 
             // Порог «крупного файла» (и дубликатов): ниже 1 МБ смысла нет — мелких одинаковых
@@ -169,7 +191,7 @@ namespace WindowsProcessCleaner
             _tvDisk.AfterSelect += delegate(object s, TreeViewEventArgs e)
             {
                 _diskSelected = e.Node == null ? null : e.Node.Tag as DiskDir;
-                RefreshDiskList();
+                ScheduleDiskList();
             };
             _tvDisk.NodeMouseDoubleClick += delegate(object s, TreeNodeMouseClickEventArgs e)
             {
@@ -182,6 +204,7 @@ namespace WindowsProcessCleaner
             _lvDisk.Dock = DockStyle.Fill;
             _lvDisk.View = View.Details;
             _lvDisk.CheckBoxes = true;
+            MemWatch(_lvDisk, DiskScope, false, DiskMemKey);
             _lvDisk.FullRowSelect = true;
             _lvDisk.Columns.Add(Tr.S("Имя", "Name"), 260);
             _lvDisk.Columns.Add(Tr.S("Размер", "Size"), 100);
@@ -199,7 +222,13 @@ namespace WindowsProcessCleaner
                 if (e.KeyCode == Keys.Enter && _lvDisk.SelectedItems.Count > 0) { e.Handled = true; OpenDiskRow(_lvDisk.SelectedItems[0]); }
                 if (e.KeyCode == Keys.Delete) { e.Handled = true; RecycleDiskSelection(); }
             };
-            _lvDisk.ItemChecked += delegate { if (_diskScan != null && _diskScanBusy == 0) UpdateDiskChecked(); };
+            // BeginUpdate не гасит ItemChecked, поэтому «Все»/«Ничего» пересчитывали отметки на
+            // каждой строке, а каждый пересчёт проходит весь список — на дубликатах (список
+            // ничем не ограничен) это квадрат от числа строк. Пересчёт один раз в конце.
+            _lvDisk.ItemChecked += delegate
+            {
+                if (!_suspendDiskChecked && _diskScan != null && _diskScanBusy == 0) UpdateDiskChecked();
+            };
             split.Panel2.Controls.Add(_lvDisk);
 
             tab.Controls.Add(split);
@@ -217,7 +246,7 @@ namespace WindowsProcessCleaner
                 ScopeItem cu = new ScopeItem(); cu.Text = customPath; cu.Path = customPath;
                 _cmbDiskScope.Items.Add(cu);
             }
-            foreach (DriveRow d in Engine.Drives())
+            foreach (DriveRow d in DrivesCached())
             {
                 ScopeItem it = new ScopeItem();
                 it.Path = d.Name;
@@ -231,9 +260,25 @@ namespace WindowsProcessCleaner
             AddScopeFolder(Tr.S("Рабочий стол", "Desktop"), Environment.GetFolderPath(Environment.SpecialFolder.Desktop));
             ScopeItem br = new ScopeItem(); br.Text = Tr.S("Другая папка…", "Other folder…"); br.Browse = true;
             _cmbDiskScope.Items.Add(br);
-            if (_cmbDiskScope.Items.Count > 0) _cmbDiskScope.SelectedIndex = 0;
-            _diskScopeLast = 0;
+            // «Где искать» тоже помнится: раньше список пересобирался при каждом входе на
+            // вкладку и выбор всегда откатывался на первый диск.
+            int want = 0;
+            if (string.IsNullOrEmpty(customPath))
+            {
+                string saved = MemGet(DiskScopeScope, "path", true);
+                if (!string.IsNullOrEmpty(saved))
+                    for (int i = 0; i < _cmbDiskScope.Items.Count; i++)
+                    {
+                        ScopeItem si = _cmbDiskScope.Items[i] as ScopeItem;
+                        if (si != null && !si.Browse && string.Equals(si.Path, saved, StringComparison.OrdinalIgnoreCase))
+                        { want = i; break; }
+                    }
+            }
+            if (_cmbDiskScope.Items.Count > 0) _cmbDiskScope.SelectedIndex = want;
+            _diskScopeLast = want;
         }
+
+        private const string DiskScopeScope = "disk.scope";
 
         private void AddScopeFolder(string title, string path)
         {
@@ -246,18 +291,28 @@ namespace WindowsProcessCleaner
         {
             ScopeItem it = _cmbDiskScope.SelectedItem as ScopeItem;
             if (it == null) return;
-            if (!it.Browse) { _diskScopeLast = _cmbDiskScope.SelectedIndex; return; }
+            if (!it.Browse)
+            {
+                _diskScopeLast = _cmbDiskScope.SelectedIndex;
+                MemSet(DiskScopeScope, "path", it.Path, true);
+                return;
+            }
+            if (BrowseDiskScope()) return;
+            _cmbDiskScope.SelectedIndex = Math.Min(_diskScopeLast, _cmbDiskScope.Items.Count - 1);
+        }
+
+        // Выбор произвольной папки. Общий код для пункта «Другая папка…» и для «Сканировать»,
+        // нажатого, когда комбо так на нём и осталось. true — папка выбрана и уже подставлена.
+        private bool BrowseDiskScope()
+        {
             using (FolderBrowserDialog dlg = new FolderBrowserDialog())
             {
                 dlg.Description = Tr.S("Папка для анализа занятого места", "Folder to analyze");
                 dlg.ShowNewFolderButton = false;
-                if (dlg.ShowDialog(this) == DialogResult.OK && !string.IsNullOrEmpty(dlg.SelectedPath))
-                {
-                    FillDiskScopes(dlg.SelectedPath);
-                    return;
-                }
+                if (dlg.ShowDialog(this) != DialogResult.OK || string.IsNullOrEmpty(dlg.SelectedPath)) return false;
+                FillDiskScopes(dlg.SelectedPath);
+                return true;
             }
-            _cmbDiskScope.SelectedIndex = Math.Min(_diskScopeLast, _cmbDiskScope.Items.Count - 1);
         }
 
         private string DiskScopePath()
@@ -266,50 +321,121 @@ namespace WindowsProcessCleaner
             return it == null || it.Browse ? null : it.Path;
         }
 
+        // ---------- Секундомер и «Стоп» ----------
+        private void StartDiskTicker(string phase)
+        {
+            _diskPhase = phase;
+            _diskDetail = null;
+            _diskDeferred = null;
+            _diskStarted = DateTime.UtcNow;
+            if (_diskTick == null)
+            {
+                _diskTick = new System.Windows.Forms.Timer();
+                _diskTick.Interval = 500;
+                _diskTick.Tick += delegate { DiskTick(); };
+            }
+            _diskTick.Start();
+            DiskTick();
+        }
+
+        private void StopDiskTicker()
+        {
+            if (_diskTick != null) _diskTick.Stop();
+        }
+
+        private void DiskTick()
+        {
+            string d = _diskDetail;
+            // Elapsed() объявлен на вкладке очистки — класс один, формат секундомера общий
+            _lblDiskStatus.Text = _diskPhase + "   ·   " + Elapsed(DateTime.UtcNow - _diskStarted)
+                + (string.IsNullOrEmpty(d) ? "" : "   ·   " + d)
+                + (string.IsNullOrEmpty(_diskDeferred) ? "" : "   ·   " + _diskDeferred);
+        }
+
+        // «Стоп» не обрывает работу мгновенно: обход доходит до ближайшей проверки флага,
+        // перенос в Корзину — до конца текущей порции, хэш текущего файла дочитывается.
+        // Кнопка гаснет, фаза меняется на «Останавливаю…» — иначе нажатие выглядело
+        // проигнорированным: строка ещё несколько секунд отсчитывала «Сканирование…».
+        private void DiskStopClicked()
+        {
+            _engine.CancelDiskScan();
+            _recycleCancel = true;
+            _btnDiskStop.Enabled = false;
+            _diskPhase = Tr.S("Останавливаю…", "Stopping…");
+            if (_diskTick != null && _diskTick.Enabled) DiskTick();
+        }
+
         // ---------- Сканирование ----------
         private void DoDiskScan()
         {
             string path = DiskScopePath();
-            if (string.IsNullOrEmpty(path)) return;
-            if (Interlocked.CompareExchange(ref _diskScanBusy, 1, 0) != 0) return;
+            // Комбо осталось на пункте «Другая папка…»: раньше клик по «Сканировать» молча
+            // не делал ничего — теперь сразу предлагается выбрать папку.
+            if (string.IsNullOrEmpty(path))
+            {
+                if (!BrowseDiskScope())
+                {
+                    _lblDiskStatus.Text = Tr.S("Папка не выбрана — укажите диск или папку в списке «Где искать».",
+                                               "No folder chosen — pick a drive or folder in “Scan”.");
+                    return;
+                }
+                path = DiskScopePath();
+                if (string.IsNullOrEmpty(path)) return;
+            }
+            if (Interlocked.CompareExchange(ref _diskScanBusy, 1, 0) != 0)
+            {
+                _lblDiskStatus.Text = _dupSearching
+                    ? Tr.S("Идёт поиск дубликатов — нажмите «Стоп», чтобы прервать его и начать обход.",
+                           "A duplicate search is running — click “Stop” to interrupt it and start a scan.")
+                    : Tr.S("Дождитесь окончания текущей операции.", "Wait for the current operation to finish.");
+                return;
+            }
             _engine.ResetDiskScanCancel();
+            _recycleCancel = false;
             _diskScan = null; _dupGroups = null; _dupScope = null; _diskSelected = null;
             _tvDisk.Nodes.Clear();
-            _lvDisk.Items.Clear();
+            FillDiskRows(new List<ListViewItem>());
             _btnDiskStop.Enabled = true;
             _btnDiskScan.Enabled = false;
-            _lblDiskStatus.Text = Tr.S("Сканирование ", "Scanning ") + path + "…";
+            StartDiskTicker(Tr.S("Сканирование ", "Scanning ") + path);
             long minBytes = DiskMinBytes;
 
             Thread t = new Thread(delegate()
             {
                 DiskScanResult r = null;
+                string err = null;
                 try
                 {
+                    // Строка состояния собирается таймером UI: отправлять BeginInvoke на каждый
+                    // отчёт обхода незачем — рабочий поток только кладёт текст в поле.
                     r = _engine.ScanDisk(path, minBytes, delegate(long bytes, int files, int dirs, string current)
                     {
                         DateTime now = DateTime.UtcNow;
                         if ((now - _diskProgressAt).TotalMilliseconds < 250) return;
                         _diskProgressAt = now;
-                        UiPost(delegate
-                        {
-                            _lblDiskStatus.Text = Tr.S("Сканирование… ", "Scanning… ") + Engine.FormatBytes(bytes)
-                                + Tr.S("  ·  файлов: ", "  ·  files: ") + files.ToString("N0", CultureInfo.CurrentCulture)
-                                + Tr.S("  ·  папок: ", "  ·  folders: ") + dirs.ToString("N0", CultureInfo.CurrentCulture)
-                                + "  ·  " + current;
-                        });
+                        _diskDetail = Engine.FormatBytes(bytes)
+                            + Tr.S("  ·  файлов: ", "  ·  files: ") + files.ToString("N0", CultureInfo.CurrentCulture)
+                            + Tr.S("  ·  папок: ", "  ·  folders: ") + dirs.ToString("N0", CultureInfo.CurrentCulture)
+                            + "  ·  " + current;
                     });
                 }
-                catch { }
+                catch (Exception ex) { err = ex.Message; }
                 Interlocked.Exchange(ref _diskScanBusy, 0);
                 UiPost(delegate
                 {
+                    StopDiskTicker();
                     _btnDiskStop.Enabled = false;
                     _btnDiskScan.Enabled = true;
-                    if (r == null) { _lblDiskStatus.Text = Tr.S("Сканирование не удалось.", "Scan failed."); return; }
+                    if (r == null)
+                    {
+                        _lblDiskStatus.Text = Tr.S("Сканирование не удалось", "Scan failed") + (err != null ? ": " + err : ".");
+                        return;
+                    }
                     _diskScan = r;
+                    _diskListQuiet = true;      // итог обхода в строке важнее подписи списка
                     BuildDiskTree(r);
                     UpdateDiskStatus();
+                    ApplyPendingDiskMin();
                 });
             });
             t.IsBackground = true;
@@ -400,51 +526,100 @@ namespace WindowsProcessCleaner
             RefreshDiskList();
         }
 
+        // Клик по дереву — и каждое нажатие стрелки при навигации — перестраивает список.
+        // Пока пользователь идёт по дереву клавишами, считать его на каждом промежуточном
+        // узле бессмысленно: запрос откладывается на 200 мс тишины. В режиме дубликатов это
+        // ещё и защита от запуска полного хэширования на каждом пройденном узле.
+        private void ScheduleDiskList()
+        {
+            if (_diskListTimer == null)
+            {
+                _diskListTimer = new System.Windows.Forms.Timer();
+                _diskListTimer.Interval = 200;
+                _diskListTimer.Tick += delegate { _diskListTimer.Stop(); RefreshDiskList(); };
+            }
+            _diskListTimer.Stop();
+            _diskListTimer.Start();
+        }
+
+        // Отбор строк идёт в фоне. «Пустые папки» проходят весь список каталогов обхода (для C:
+        // это сотни тысяч), приводя каждый путь к нижнему регистру и проверяя одиннадцать
+        // защищённых веток; «Крупные файлы» фильтруют десятки тысяч записей подъёмом по цепочке
+        // родителей. На UI-потоке это давало паузу до нескольких секунд на каждый клик по дереву.
+        // Ответ устаревшего запроса выбрасывается по номеру запроса и по тому же снимку обхода.
         private void RefreshDiskList()
         {
+            if (_diskListTimer != null) _diskListTimer.Stop();   // явный запрос отменяет отложенный
             if (_diskScan == null) return;
+            bool quiet = _diskListQuiet;        // снимается в любом случае: флаг живёт один запрос
+            _diskListQuiet = false;
             if (_diskMode == "dups") { RefreshDupList(); return; }
             DiskDir scope = _diskSelected ?? _diskScan.RootDir;
-            List<ListViewItem> rows = new List<ListViewItem>();
-            string note;
-            if (_diskMode == "empty")
+            DiskScanResult snap = _diskScan;
+            long min = DiskEffectiveMin();
+            bool empty = _diskMode == "empty";
+            int run = ++_diskListRun;
+            if (!quiet)
+                _lblDiskStatus.Text = empty ? Tr.S("Ищу пустые папки…", "Looking for empty folders…")
+                                            : Tr.S("Отбираю крупные файлы…", "Selecting large files…");
+
+            Thread t = new Thread(delegate()
             {
-                int nested;
-                List<DiskDir> empties = Engine.EmptyFolders(_diskScan, scope, out nested);
-                foreach (DiskDir d in empties)
+                List<DiskDir> empties = null;
+                List<DiskFile> files = null;
+                int nested = 0, total = 0;
+                try
                 {
-                    ListViewItem it = new ListViewItem(d.Name);
-                    it.SubItems.Add(d.Dirs > 0 ? Tr.S("папок: ", "folders: ") + (d.Dirs + 1) : "—");
-                    it.SubItems.Add("");
-                    it.SubItems.Add(d.Parent == null ? "" : d.Parent.Path);
-                    it.Tag = d;
-                    rows.Add(it);
+                    if (empty) empties = Engine.EmptyFolders(snap, scope, out nested);
+                    else
+                    {
+                        files = new List<DiskFile>();
+                        foreach (DiskFile f in snap.BigFiles)
+                        {
+                            if (f.Size < min || !Engine.IsUnder(f.Dir, scope)) continue;
+                            total++;
+                            if (files.Count < DiskListLimit) files.Add(f);
+                        }
+                    }
                 }
-                note = Tr.S("Пустых папок: ", "Empty folders: ") + empties.Count
-                     + (nested > 0 ? Tr.S("  (внутри них ещё ", "  (plus ") + nested + Tr.S(" вложенных)", " nested)") : "")
-                     + Tr.S("  ·  Windows, Program Files, ProgramData, Packages, node_modules и .git не показываются",
-                            "  ·  Windows, Program Files, ProgramData, Packages, node_modules and .git are not listed");
-            }
-            else
-            {
-                int total = 0;
-                long min = DiskEffectiveMin();
-                foreach (DiskFile f in _diskScan.BigFiles)
+                catch { return; }   // карту правили под нами (удаление) — следом придёт новый запрос
+                UiPost(delegate
                 {
-                    if (f.Size < min || !Engine.IsUnder(f.Dir, scope)) continue;
-                    total++;
-                    if (rows.Count >= DiskListLimit) continue;
-                    rows.Add(FileRow(f));
-                }
-                note = Tr.S("Крупных файлов (от ", "Large files (") + (min >> 20) + Tr.S(" МБ) в ", " MB and up) in ") + scope.Path + ": "
-                     + total.ToString("N0", CultureInfo.CurrentCulture)
-                     + (total > rows.Count ? Tr.S("  ·  показаны первые ", "  ·  showing the first ") + rows.Count : "")
-                     + Tr.S("  ·  двойной клик — открыть в Проводнике", "  ·  double-click opens Explorer")
-                     + DiskRescanHint();
-            }
-            FillDiskRows(rows);
-            _diskNote = note;
-            _lblDiskStatus.Text = note;
+                    if (run != _diskListRun || !ReferenceEquals(snap, _diskScan)) return;   // ответ устарел
+                    List<ListViewItem> rows = new List<ListViewItem>();
+                    string note;
+                    if (empty)
+                    {
+                        foreach (DiskDir d in empties)
+                        {
+                            ListViewItem it = new ListViewItem(d.Name);
+                            it.SubItems.Add(d.Dirs > 0 ? Tr.S("папок: ", "folders: ") + (d.Dirs + 1) : "—");
+                            it.SubItems.Add("");
+                            it.SubItems.Add(d.Parent == null ? "" : d.Parent.Path);
+                            it.Tag = d;
+                            rows.Add(it);
+                        }
+                        note = Tr.S("Пустых папок: ", "Empty folders: ") + empties.Count
+                             + (nested > 0 ? Tr.S("  (внутри них ещё ", "  (plus ") + nested + Tr.S(" вложенных)", " nested)") : "")
+                             + Tr.S("  ·  Windows, Program Files, ProgramData, Packages, node_modules и .git не показываются",
+                                    "  ·  Windows, Program Files, ProgramData, Packages, node_modules and .git are not listed");
+                    }
+                    else
+                    {
+                        foreach (DiskFile f in files) rows.Add(FileRow(f));
+                        note = Tr.S("Крупных файлов (от ", "Large files (") + (min >> 20) + Tr.S(" МБ) в ", " MB and up) in ") + scope.Path + ": "
+                             + total.ToString("N0", CultureInfo.CurrentCulture)
+                             + (total > rows.Count ? Tr.S("  ·  показаны первые ", "  ·  showing the first ") + rows.Count : "")
+                             + Tr.S("  ·  двойной клик — открыть в Проводнике", "  ·  double-click opens Explorer")
+                             + DiskRescanHint();
+                    }
+                    FillDiskRows(rows);
+                    _diskNote = note;
+                    if (!quiet) _lblDiskStatus.Text = note;
+                });
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
         private long DiskMinBytes { get { return (long)_numDiskMin.Value << 20; } }
@@ -462,7 +637,22 @@ namespace WindowsProcessCleaner
                  + Tr.S(" МБ — для меньшего порога пересканируйте", " MB — rescan for a lower threshold");
         }
 
+        // Каждый щелчок счётчика раньше писал config.json на диск и тут же перестраивал список;
+        // при удержании стрелки это десятки записей и перестроений подряд. Значение применяется
+        // один раз — через 400 мс тишины.
         private void DiskMinChanged()
+        {
+            if (_diskMinTimer == null)
+            {
+                _diskMinTimer = new System.Windows.Forms.Timer();
+                _diskMinTimer.Interval = 400;
+                _diskMinTimer.Tick += delegate { _diskMinTimer.Stop(); DiskMinCommit(); };
+            }
+            _diskMinTimer.Stop();
+            _diskMinTimer.Start();
+        }
+
+        private void DiskMinCommit()
         {
             int mb = (int)_numDiskMin.Value;
             if (_engine.Config.DiskMinMb != mb)
@@ -470,7 +660,30 @@ namespace WindowsProcessCleaner
                 _engine.Config.DiskMinMb = mb;
                 try { _engine.SaveConfig(); } catch { }
             }
-            if (_diskScan == null || _diskScanBusy != 0) return;
+            if (_diskScan == null) return;
+            if (_diskScanBusy != 0)
+            {
+                // Раньше новый порог здесь молча уходил в конфиг, а список оставался со старым.
+                _diskMinPending = _diskMode != "dups";
+                _diskDeferred = Tr.S("порог ", "threshold ") + mb + Tr.S(" МБ применится после текущей операции",
+                                                                        " MB will apply after the current operation");
+                return;
+            }
+            if (_diskMode == "dups")
+            {
+                // Пересчёт дубликатов — это минуты чтения диска: сам собой он не начинается.
+                _lblDiskStatus.Text = Tr.S("Порог: ", "Threshold: ") + mb
+                    + Tr.S(" МБ  ·  нажмите «Дубликаты», чтобы пересчитать с новым порогом",
+                           " MB  ·  click “Duplicates” to recount with the new threshold");
+                return;
+            }
+            RefreshDiskList();
+        }
+
+        private void ApplyPendingDiskMin()
+        {
+            if (!_diskMinPending) return;
+            _diskMinPending = false;
             RefreshDiskList();
         }
 
@@ -485,15 +698,32 @@ namespace WindowsProcessCleaner
             return it;
         }
 
+        // Память выбора для находок на диске: ключ — полный путь, полка сеансовая. Возвращать
+        // отметку «удалить» после перезапуска нельзя: по тому же пути к этому времени может
+        // лежать уже другой файл, а список здесь ведёт прямиком к удалению.
+        private const string DiskScope = "disk.row";
+
+        private static string DiskMemKey(ListViewItem it)
+        {
+            if (MemRowSkipped(it)) return null;
+            DiskFile f = it.Tag as DiskFile;
+            if (f != null) return f.Path;
+            DiskDir d = it.Tag as DiskDir;
+            return d != null ? d.Path : null;
+        }
+
         private void FillDiskRows(List<ListViewItem> rows)
         {
+            MemBeginFill();
             _lvDisk.BeginUpdate();
+            _suspendDiskChecked = true;    // очистка списка с отмеченными строками тоже шлёт ItemChecked
             try
             {
                 _lvDisk.Items.Clear();
                 _lvDisk.Items.AddRange(rows.ToArray());
+                MemEndFill(_lvDisk, DiskScope, false, DiskMemKey, null);
             }
-            finally { _lvDisk.EndUpdate(); }
+            finally { _suspendDiskChecked = false; _lvDisk.EndUpdate(); }
             AutoFillLastColumnDeferred(_lvDisk);
         }
 
@@ -504,13 +734,25 @@ namespace WindowsProcessCleaner
             if (_dupGroups != null && ReferenceEquals(_dupScope, scope) && _dupMin == min) { ShowDupGroups(scope); return; }
             if (Interlocked.CompareExchange(ref _diskScanBusy, 1, 0) != 0)
             {
-                _lblDiskStatus.Text = Tr.S("Дождитесь окончания текущей операции.", "Wait for the current operation to finish.");
+                // Выбор другой папки во время хэширования больше не пропадает: он ставится в
+                // очередь и пересчитывается сам. Раньше клик просто отклонялся, и готовый
+                // список принадлежал прошлой папке, тогда как в дереве подсвечена была новая.
+                if (_dupSearching)
+                {
+                    _dupRerun = true;
+                    _diskDeferred = Tr.S("после текущего поиска пересчитаю для ", "will recount for ") + scope.Path;
+                }
+                else _lblDiskStatus.Text = Tr.S("Дождитесь окончания текущей операции.", "Wait for the current operation to finish.");
                 return;
             }
+            _dupSearching = true;
             _engine.ResetDiskScanCancel();
+            _recycleCancel = false;
             _btnDiskStop.Enabled = true;
-            _lvDisk.Items.Clear();
-            _lblDiskStatus.Text = Tr.S("Поиск дубликатов: сравнение по размеру…", "Finding duplicates: comparing sizes…");
+            _btnDiskScan.Enabled = false;      // иначе «Сканировать» во время поиска выглядел мёртвым
+            FillDiskRows(new List<ListViewItem>());
+            StartDiskTicker(Tr.S("Поиск дубликатов в ", "Finding duplicates in ") + scope.Path);
+            _diskDetail = Tr.S("сравнение по размеру…", "comparing sizes…");
             DiskScanResult snap = _diskScan;
             Thread t = new Thread(delegate()
             {
@@ -522,11 +764,8 @@ namespace WindowsProcessCleaner
                         DateTime now = DateTime.UtcNow;
                         if ((now - _diskProgressAt).TotalMilliseconds < 250) return;
                         _diskProgressAt = now;
-                        UiPost(delegate
-                        {
-                            _lblDiskStatus.Text = Tr.S("Поиск дубликатов: прочитано ", "Finding duplicates: hashed ")
-                                + Engine.FormatBytes(done) + Tr.S(" из ", " of ") + Engine.FormatBytes(all);
-                        });
+                        _diskDetail = Tr.S("прочитано ", "hashed ") + Engine.FormatBytes(done)
+                                    + Tr.S(" из ", " of ") + Engine.FormatBytes(all);
                     });
                 }
                 catch { }
@@ -534,13 +773,21 @@ namespace WindowsProcessCleaner
                 Interlocked.Exchange(ref _diskScanBusy, 0);
                 UiPost(delegate
                 {
+                    StopDiskTicker();
+                    _dupSearching = false;
                     _btnDiskStop.Enabled = false;
+                    _btnDiskScan.Enabled = true;
+                    bool rerun = _dupRerun;
+                    _dupRerun = false;
                     if (!ReferenceEquals(snap, _diskScan)) return;      // за это время начали новый обход
                     _dupGroups = groups ?? new List<DupGroup>();
                     _dupScope = cancelled ? null : scope;               // прерванный поиск не кэшируем
                     _dupCancelled = cancelled;
                     _dupMin = min;
                     if (_diskMode == "dups") ShowDupGroups(scope);
+                    // Остановленный поиск не перезапускаем: «Стоп» значит «хватит».
+                    if (rerun && !cancelled && _diskMode == "dups") RefreshDupList();
+                    else ApplyPendingDiskMin();
                 });
             });
             t.IsBackground = true;
@@ -586,6 +833,7 @@ namespace WindowsProcessCleaner
         private void SetDiskChecks(bool value)
         {
             _lvDisk.BeginUpdate();
+            _suspendDiskChecked = true;
             try
             {
                 // В дубликатах «Все» никогда не отмечает всю группу: первый (самый старый)
@@ -598,7 +846,7 @@ namespace WindowsProcessCleaner
                     it.Checked = value;
                 }
             }
-            finally { _lvDisk.EndUpdate(); }
+            finally { _suspendDiskChecked = false; _lvDisk.EndUpdate(); }
             UpdateDiskChecked();
         }
 
@@ -658,54 +906,69 @@ namespace WindowsProcessCleaner
                 picked.Add(it);
             }
             if (picked.Count == 0) { MsgInfo(Tr.S("Отметьте файлы или папки галочками.", "Tick files or folders first."), title); return; }
-            // пустые папки перепроверяются перед удалением — с момента обхода там могло что-то появиться
-            List<string> skipped = new List<string>();
-            List<ListViewItem> ok = new List<ListViewItem>();
-            foreach (ListViewItem it in picked)
-            {
-                DiskDir d = it.Tag as DiskDir;
-                if (d != null && !DirStillEmpty(d.Path)) { skipped.Add(d.Path); continue; }
-                ok.Add(it);
-            }
-            if (ok.Count == 0)
-            {
-                MsgInfo(Tr.S("Папки уже не пусты — ничего не удалено.", "The folders are no longer empty — nothing deleted."), title);
-                return;
-            }
+            bool anyDir = false;
+            foreach (ListViewItem it in picked) if (it.Tag is DiskDir) { anyDir = true; break; }
             // На сетевом или съёмном томе Корзины нет: оболочка удалит безвозвратно — говорим это прямо в вопросе
             bool bin = Engine.RecycleBinAvailable(_diskScan.Root);
             string q = (bin ? Tr.S("Переместить в Корзину ", "Move to the Recycle Bin: ")
-                            : Tr.S("УДАЛИТЬ БЕЗВОЗВРАТНО ", "DELETE PERMANENTLY: ")) + ok.Count
+                            : Tr.S("УДАЛИТЬ БЕЗВОЗВРАТНО ", "DELETE PERMANENTLY: ")) + picked.Count
                      + Tr.S(" элемент(ов)", " item(s)") + (size > 0 ? " (" + Engine.FormatBytes(size) + ")" : "") + "?"
                      + (bin ? "" : Tr.S("\r\n\r\n⚠ На этом томе (сетевой диск или съёмный носитель) Windows не ведёт Корзину: восстановить файлы будет нельзя.",
                                         "\r\n\r\n⚠ This volume (network drive or removable media) has no Recycle Bin: the files cannot be restored."))
-                     + (skipped.Count > 0 ? Tr.S("\r\n\r\nПропущено (уже не пусты): ", "\r\n\r\nSkipped (no longer empty): ") + skipped.Count : "");
+                     + (anyDir ? Tr.S("\r\n\r\nПапки, в которых что-то появилось после обхода, будут пропущены — их число покажем в итоге.",
+                                      "\r\n\r\nFolders that gained content since the scan will be skipped — the count is reported at the end.") : "");
             if (!MsgAsk(q, title)) return;
             // На время переноса страница занята: второй клик по «В Корзину» или пересканирование
             // поверх идущего SHFileOperation давали «не удалось» на уже перенесённых путях.
             if (Interlocked.CompareExchange(ref _diskScanBusy, 1, 0) != 0) return;
+            _recycleCancel = false;
             _btnDiskScan.Enabled = false;
+            _btnDiskStop.Enabled = true;
             string op = Tr.S("перемещение в Корзину", "moving to the Recycle Bin");
             BeginWrite(op);
-
-            List<string> paths = new List<string>();
-            foreach (ListViewItem it in ok)
-            {
-                DiskFile f = it.Tag as DiskFile; DiskDir d = it.Tag as DiskDir;
-                paths.Add(f != null ? f.Path : d.Path);
-            }
-            _lblDiskStatus.Text = Tr.S("Перемещение в Корзину…", "Moving to the Recycle Bin…");
+            StartDiskTicker(bin ? Tr.S("Перемещение в Корзину", "Moving to the Recycle Bin")
+                                : Tr.S("Удаление безвозвратно", "Deleting permanently"));
             DiskScanResult snap = _diskScan;
             Thread t = new Thread(delegate()
             {
-                string message; int gone = 0;
-                try { gone = Engine.RecycleToBin(paths, out message); }
-                catch (Exception ex) { message = ex.Message; }
+                // Перепроверка «пуста ли ещё папка» тоже здесь: она рекурсивно обходит каждую
+                // отмеченную папку (страховка — сто тысяч записей), и на UI-потоке окно
+                // замирало ещё ДО того, как пользователь увидит вопрос.
+                List<ListViewItem> ok = new List<ListViewItem>();
+                List<string> paths = new List<string>();
+                int skipped = 0;
+                if (anyDir) _diskDetail = Tr.S("проверяю, пусты ли ещё папки…", "re-checking that the folders are still empty…");
+                foreach (ListViewItem it in picked)
+                {
+                    if (_recycleCancel) break;
+                    DiskFile f = it.Tag as DiskFile; DiskDir d = it.Tag as DiskDir;
+                    if (d != null && !DirStillEmpty(d.Path)) { skipped++; continue; }
+                    ok.Add(it);
+                    paths.Add(f != null ? f.Path : d.Path);
+                }
+
+                // Порциями: оболочка вызывается без своего окна прогресса, и на большом списке
+                // одна операция висела молча, без счётчика и без возможности прерваться.
+                string message = null;
+                int sent = 0;
+                for (int i = 0; i < paths.Count && !_recycleCancel; i += RecycleChunk)
+                {
+                    int n = Math.Min(RecycleChunk, paths.Count - i);
+                    string m = null;
+                    try { Engine.RecycleToBin(paths.GetRange(i, n), out m); }
+                    catch (Exception ex) { m = ex.Message; }
+                    if (m != null && message == null) message = m;
+                    sent += n;
+                    _diskDetail = sent + Tr.S(" из ", " of ") + paths.Count;
+                }
+                bool cancelled = _recycleCancel;
                 EndWrite(op);
                 Interlocked.Exchange(ref _diskScanBusy, 0);
                 UiPost(delegate
                 {
+                    StopDiskTicker();
                     _btnDiskScan.Enabled = true;
+                    _btnDiskStop.Enabled = false;
                     if (!ReferenceEquals(snap, _diskScan)) return;
                     long freed = 0; int removed = 0;
                     List<DiskDir> removedDirs = new List<DiskDir>();
@@ -721,12 +984,15 @@ namespace WindowsProcessCleaner
                     if (removed > 0) { _dupGroups = null; _dupScope = null; }
                     PruneDiskTree(removedDirs);
                     RefreshDiskTreeText();
+                    _diskListQuiet = true;          // итог переноса в строке важнее подписи списка
                     RefreshDiskList();
-                    _drives = null; _diskBars.Invalidate();
+                    _drivesAt = DateTime.MinValue; _diskBars.Invalidate();
                     _lblDiskStatus.Text = Tr.S("В Корзину: ", "Recycled: ") + removed + (freed > 0 ? " (" + Engine.FormatBytes(freed) + ")" : "")
-                        + (removed < paths.Count ? Tr.S("  ·  не удалось: ", "  ·  failed: ") + (paths.Count - removed)
+                        + (removed < sent ? Tr.S("  ·  не удалось: ", "  ·  failed: ") + (sent - removed)
                                                     + (message != null ? " — " + message : "") : "")
-                        + (skipped.Count > 0 ? Tr.S("  ·  пропущено: ", "  ·  skipped: ") + skipped.Count : "");
+                        + (skipped > 0 ? Tr.S("  ·  пропущено (уже не пусты): ", "  ·  skipped (no longer empty): ") + skipped : "")
+                        + (cancelled ? Tr.S("  ·  ОСТАНОВЛЕНО — перенесено не всё отмеченное",
+                                            "  ·  STOPPED — not everything ticked was moved") : "");
                 });
             });
             t.SetApartmentState(ApartmentState.STA);
@@ -806,19 +1072,50 @@ namespace WindowsProcessCleaner
                 + (r.Skipped > 0 ? Tr.S("  ·  пропущено ссылок/junction: ", "  ·  links/junctions skipped: ") + r.Skipped : "")
                 + (r.Cancelled ? Tr.S("  ·  ОСТАНОВЛЕНО — данные неполные", "  ·  STOPPED — data is incomplete") : "");
             _lblDiskStatus.Text = s;
-            _drives = null;                       // свободное место изменилось — полоски заново
+            _drivesAt = DateTime.MinValue;        // свободное место изменилось — полоски перечитать
             _diskBars.Invalidate();
         }
 
         // ---------- Полоски дисков ----------
+        // Опрос дисков (DriveInfo.GetDrives + IsReady + TotalFreeSpace) стоял прямо в Paint:
+        // на уснувшем или заблокированном фиксированном диске он блокирует перерисовку, то есть
+        // весь UI-поток. Теперь Paint рисует только готовый снимок, а устаревший обновляется
+        // в фоне — до его прихода на экране остаётся прежний.
+        // Список областей поиска берёт тот же снимок, что и полоски: повторный опрос дисков
+        // в обработчике — ещё одна возможная остановка UI на неотвечающем томе. Первый раз
+        // (окно ещё строится) снимок всё же читается синхронно: без него нечего показать.
+        private List<DriveRow> DrivesCached()
+        {
+            List<DriveRow> d = _drives;
+            if (d != null) return d;
+            d = Engine.Drives();
+            _drives = d;
+            _drivesAt = DateTime.UtcNow;
+            return d;
+        }
+
+        private void EnsureDrives()
+        {
+            if ((DateTime.UtcNow - _drivesAt).TotalSeconds <= 10) return;
+            if (Interlocked.CompareExchange(ref _drivesBusy, 1, 0) != 0) return;
+            Thread t = new Thread(delegate()
+            {
+                List<DriveRow> rows = null;
+                try { rows = Engine.Drives(); }
+                catch { }
+                if (rows != null) _drives = rows;
+                Interlocked.Exchange(ref _drivesBusy, 0);
+                UiPost(delegate { _drivesAt = DateTime.UtcNow; _diskBars.Invalidate(); });
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
         private void DiskBars_Paint(object sender, PaintEventArgs e)
         {
-            if (_drives == null || (DateTime.UtcNow - _drivesAt).TotalSeconds > 10)
-            {
-                _drives = Engine.Drives();
-                _drivesAt = DateTime.UtcNow;
-            }
+            EnsureDrives();
             List<DriveRow> drives = _drives;
+            if (drives == null) return;            // первый снимок ещё читается — рисовать нечего
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             int x = 0, y = 6;

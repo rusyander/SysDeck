@@ -46,8 +46,8 @@ namespace WindowsProcessCleaner
             btnAll.Click += delegate { SetCleanChecks(true); };
             Button btnNone = MkFlowButton(Tr.S("Ничего", "None"), 90, false);
             btnNone.Click += delegate { SetCleanChecks(false); };
-            Button btnRules = MkFlowButton(Tr.S("Правила winapp2", "winapp2 rules"), 170, false);
-            btnRules.Click += delegate { DoLoadWinapp2(); };
+            _btnCleanRules = MkFlowButton(Tr.S("Правила winapp2", "winapp2 rules"), 170, false);
+            _btnCleanRules.Click += delegate { DoLoadWinapp2(); };
             Button btnLog = MkFlowButton(Tr.S("Лог", "Log"), 80, false);
             btnLog.Click += delegate { OpenCleanLog(); };
             Button btnDetails = MkFlowButton(Tr.S("Состав…", "Contents…"), 110, false);
@@ -62,7 +62,7 @@ namespace WindowsProcessCleaner
             top.Controls.Add(_btnCleanCancel);
             top.Controls.Add(btnAll);
             top.Controls.Add(btnNone);
-            top.Controls.Add(btnRules);
+            top.Controls.Add(_btnCleanRules);
             top.Controls.Add(btnLog);
             top.Controls.Add(btnDetails);
 
@@ -93,8 +93,17 @@ namespace WindowsProcessCleaner
             {
                 if (e.KeyCode == Keys.Enter) { e.Handled = true; ShowCleanDetails(SelectedCleanCategory()); }
             };
-            // итог «отмечено к удалению» следует за галочками
-            _lvClean.ItemChecked += delegate { if (_diskBusy == 0 && _cleanCats != null) UpdateCleanTotal(true); };
+            // Итог «отмечено к удалению» следует за галочками. BeginUpdate не гасит ItemChecked,
+            // поэтому «Все»/«Ничего» пересчитывали итог на каждой строке, а каждый пересчёт —
+            // это два прохода DistinctSize по всем целям (с winapp2 их тысячи). Пересчёт на
+            // время массовой простановки выключается флагом и делается один раз в конце.
+            _lvClean.ItemChecked += delegate
+            {
+                if (!_suspendCleanTotal && _diskBusy == 0 && _cleanCats != null) UpdateCleanTotal(true);
+            };
+            // Отмеченные категории переживают и повторный анализ, и перезапуск: раньше выбор
+            // сбрасывался к «рекомендованным» на каждом обновлении строки.
+            MemWatch(_lvClean, CleanScope, true, CleanMemKey);
 
             tab.Controls.Add(_lvClean);
             tab.Controls.Add(_lblCleanTotal);
@@ -104,19 +113,110 @@ namespace WindowsProcessCleaner
         }
 
         private int _diskBusy;
+        private System.Windows.Forms.Timer _cleanTick;
+        private DateTime _cleanStarted;
+        private string _cleanPhase;         // «Анализ» / «Удаление» — для строки состояния
+        private int _cleanDone, _cleanTotal;
+        private Button _btnCleanRules;      // гасим на время загрузки winapp2.ini
+        private bool _suspendCleanTotal;    // идёт массовая простановка галочек — итог считаем один раз в конце
+        private bool _cleanStopped;         // последняя работа прервана «Стопом» — итог неполный, и это надо сказать
+        private string _cleanResultText;    // «✓ Освобождено: …» — держится в строке, пока идёт перепроверка после удаления
 
         // Анализ идёт в фоне и показывает категории по мере готовности, а не одним
         // куском в конце: обход .nuget\packages или Windows.old — это минуты, и раньше
         // всё это время список был пуст без признаков жизни.
+        //
+        // Счётчика «сделано/всего» для этого мало: последней категорией может остаться одна
+        // очень долгая (DISM по хранилищу компонентов), и надпись «13/14» стоит неподвижно
+        // минутами. Поэтому пока идёт работа, тикает таймер: секундомер, что именно сейчас
+        // считается и живые цифры в строках.
+        private void StartCleanTicker(string phase, int total)
+        {
+            _cleanPhase = phase;
+            _cleanDone = 0;
+            _cleanTotal = total;
+            _cleanStarted = DateTime.UtcNow;
+            // Статус движка от прошлой работы (последний шаг DISM/pnputil) остаётся в поле:
+            // без сброса новая фаза первые секунды показывала бы чужую строку.
+            _engine.DiskStatus = null;
+            if (_cleanTick == null)
+            {
+                _cleanTick = new System.Windows.Forms.Timer();
+                _cleanTick.Interval = 500;
+                _cleanTick.Tick += delegate { CleanTick(); };
+            }
+            _cleanTick.Start();
+            CleanTick();
+        }
+
+        private void StopCleanTicker()
+        {
+            if (_cleanTick != null) _cleanTick.Stop();
+        }
+
+        private static string Elapsed(TimeSpan ts)
+        {
+            return ((int)ts.TotalMinutes) + ":" + ts.Seconds.ToString("00");
+        }
+
+        private void CleanTick()
+        {
+            if (_diskBusy == 0) { StopCleanTicker(); return; }
+            string el = Elapsed(DateTime.UtcNow - _cleanStarted);
+
+            if (_cleanTotal > 0 && _cleanCats != null)
+            {
+                // живые цифры в строках ещё не досчитанных категорий
+                List<string> running = new List<string>();
+                foreach (ListViewItem it in _lvClean.Items)
+                {
+                    CleanCategory c = it.Tag as CleanCategory;
+                    if (c == null || c.Analyzed) continue;
+                    string p = c.Progress;
+                    it.SubItems[1].Text = p != null ? p : (c.Size > 0 ? Engine.FormatBytes(c.Size) : "…");
+                    it.SubItems[2].Text = c.FileCount > 0 ? c.FileCount.ToString() : "";
+                    if (running.Count < 2) running.Add(c.Title);
+                }
+                _lblCleanTotal.Text = CleanLine(_cleanPhase + " " + _cleanDone + "/" + _cleanTotal + "   ·   " + el
+                    + (running.Count > 0 ? "   ·   " + Tr.S("считается: ", "working on: ") + string.Join(", ", running.ToArray()) : ""));
+            }
+            else
+            {
+                string s = _engine.DiskStatus;
+                _lblCleanTotal.Text = CleanLine(_cleanPhase + "   ·   " + el + (string.IsNullOrEmpty(s) ? "" : "   ·   " + s));
+            }
+        }
+
+        // Результат последнего удаления держится в начале строки, пока идёт перепроверка:
+        // раньше «✓ Освобождено: …» затиралось первым же «Анализ…» в том же обработчике и
+        // не успевало отрисоваться — цифру показывал только всплывающий значок в трее.
+        private string CleanLine(string s)
+        {
+            return string.IsNullOrEmpty(_cleanResultText) ? s : _cleanResultText + "   ·   " + s;
+        }
 
         private void DoAnalyzeDisk()
         {
-            if (Interlocked.CompareExchange(ref _diskBusy, 1, 0) != 0) return;
+            DoAnalyzeDisk(false);
+        }
+
+        // keepResult — перепроверка сразу после удаления: итог очистки остаётся в строке.
+        private void DoAnalyzeDisk(bool keepResult)
+        {
+            if (Interlocked.CompareExchange(ref _diskBusy, 1, 0) != 0)
+            {
+                _lblCleanTotal.Text = CleanLine(Tr.S("Уже идёт работа с диском — дождитесь её окончания или нажмите «Стоп».",
+                                                     "Disk work is already running — wait for it or click “Stop”."));
+                return;
+            }
+            if (!keepResult) _cleanResultText = null;
+            _cleanStopped = false;
             _engine.ResetDiskCancel();
-            _lblCleanTotal.Text = Tr.S("Анализ…", "Analyzing…");
+            _lblCleanTotal.Text = CleanLine(Tr.S("Анализ…", "Analyzing…"));
             _lvClean.Items.Clear();
             _cleanCats = null;
             if (_btnCleanCancel != null) _btnCleanCancel.Enabled = true;
+            StartCleanTicker(Tr.S("Анализ", "Analyzing"), 0);
 
             Thread t = new Thread(delegate()
             {
@@ -124,7 +224,7 @@ namespace WindowsProcessCleaner
                 try { cats = _engine.BuildCleanCategories(); }
                 catch { cats = new List<CleanCategory>(); }
 
-                UiPost(delegate { _cleanCats = cats; PopulateClean(cats); });
+                UiPost(delegate { _cleanCats = cats; PopulateClean(cats); _cleanTotal = cats.Count; });
 
                 int done = 0;
                 try
@@ -137,12 +237,13 @@ namespace WindowsProcessCleaner
                 }
                 catch { }
 
+                Interlocked.Exchange(ref _diskBusy, 0);
                 UiPost(delegate
                 {
+                    StopCleanTicker();
                     UpdateCleanTotal(true);
                     if (_btnCleanCancel != null) _btnCleanCancel.Enabled = false;
                 });
-                Interlocked.Exchange(ref _diskBusy, 0);
             });
             t.IsBackground = true;
             t.Start();
@@ -151,19 +252,46 @@ namespace WindowsProcessCleaner
         private void SetCleanChecks(bool value)
         {
             _lvClean.BeginUpdate();
+            _suspendCleanTotal = true;
             try { foreach (ListViewItem it in _lvClean.Items) it.Checked = value; }
-            finally { _lvClean.EndUpdate(); }
+            finally { _suspendCleanTotal = false; _lvClean.EndUpdate(); }
+            if (_diskBusy == 0 && _cleanCats != null) UpdateCleanTotal(true);
             AutoFillLastColumnDeferred(_lvClean);
         }
 
+        // «Стоп» не останавливает работу мгновенно: обход текущей папки и запущенная утилита
+        // (DISM, pnputil) доигрывают до ближайшей проверки флага. Пока это происходит, кнопка
+        // гаснет, а строка честно говорит «останавливаю», иначе нажатие выглядит проигнорированным.
         private void CancelDisk()
         {
             _engine.CancelDiskWork();
-            _lblCleanTotal.Text = Tr.S("Остановлено пользователем.", "Cancelled by user.");
+            _cleanStopped = true;
+            if (_btnCleanCancel != null) _btnCleanCancel.Enabled = false;
+            _cleanPhase = Tr.S("Останавливаю…", "Stopping…");
+            _lblCleanTotal.Text = CleanLine(_diskBusy != 0
+                ? Tr.S("Останавливаю… (жду завершения текущего шага)", "Stopping… (waiting for the current step)")
+                : Tr.S("Остановлено пользователем.", "Cancelled by user."));
+        }
+
+        // Область и ключ памяти выбора для списка категорий (см. MainForm.Memory.cs).
+        private const string CleanScope = "clean.cat";
+
+        private static string CleanMemKey(ListViewItem it)
+        {
+            CleanCategory c = it.Tag as CleanCategory;
+            return c == null ? null : c.Id;
+        }
+
+        // Как категория выглядит, если про неё ничего не помним: рекомендованная и непустая.
+        private static bool CleanMemDefault(ListViewItem it)
+        {
+            CleanCategory c = it.Tag as CleanCategory;
+            return c != null && c.Recommended && c.Size > 0;
         }
 
         private void PopulateClean(List<CleanCategory> cats)
         {
+            MemBeginFill();
             _lvClean.BeginUpdate();
             try
             {
@@ -181,6 +309,7 @@ namespace WindowsProcessCleaner
                     rows.Add(it);
                 }
                 _lvClean.Items.AddRange(rows.ToArray());
+                MemEndFill(_lvClean, CleanScope, true, CleanMemKey, CleanMemDefault);
             }
             finally { _lvClean.EndUpdate(); }
             AutoFillLastColumnDeferred(_lvClean);
@@ -192,9 +321,17 @@ namespace WindowsProcessCleaner
             if (it != null)
             {
                 FillCleanRow(it, c);
-                it.Checked = c.Recommended && c.Size > 0;
+                // Размер категории становится известен только сейчас, поэтому умолчание
+                // «рекомендована и непустая» применяется здесь же — но лишь пока пользователь
+                // сам ничего не решил: его галочку анализ больше не сбивает.
+                MemBeginFill();
+                try { it.Checked = MemBool(CleanScope, c.Id, c.Recommended && c.Size > 0, true); }
+                finally { MemEndFillPlain(); }
             }
-            _lblCleanTotal.Text = Tr.S("Анализ… ", "Analyzing… ") + done + "/" + total;
+            // саму надпись рисует тикер (он же показывает секундомер и текущую категорию)
+            _cleanDone = done; _cleanTotal = total;
+            if (_cleanTick == null || !_cleanTick.Enabled)
+                _lblCleanTotal.Text = CleanLine(Tr.S("Анализ… ", "Analyzing… ") + done + "/" + total);
             if (done == total) UpdateCleanTotal(true);
         }
 
@@ -274,6 +411,16 @@ namespace WindowsProcessCleaner
         private void ShowCleanDetails(CleanCategory c)
         {
             string title = Tr.S("Состав категории", "Category contents");
+            // Пока идёт анализ, пул потоков движка считает эту же категорию: «OK» переписал бы
+            // t.Enabled и пересчитал итоги под работающим анализом — данные разъезжались.
+            if (_diskBusy != 0)
+            {
+                MessageBox.Show(this,
+                    Tr.S("Идёт работа с диском: состав категории можно менять после её окончания — или нажмите «Стоп».",
+                         "Disk work is running: category contents can be changed after it finishes — or click “Stop”."),
+                    title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             if (c == null)
             {
                 MessageBox.Show(this, Tr.S("Выберите категорию в списке.", "Select a category in the list."),
@@ -440,17 +587,24 @@ namespace WindowsProcessCleaner
                 e.Item.ForeColor = e.Item.Checked ? _theme.Text : _theme.Subtle;
                 refreshSum();
             };
+            // Тот же приём, что и в списке категорий: ItemChecked не гасится через BeginUpdate,
+            // а каждый его вызов пересчитывает всю сумму — на тысячах строк winapp2 «Все» и
+            // «Ничего» стоили квадрата от числа строк. Считаем один раз в конце.
             all.Click += delegate
             {
                 lv.BeginUpdate();
-                try { foreach (ListViewItem it in lv.Items) it.Checked = true; }
-                finally { lv.EndUpdate(); }
+                ready = false;
+                try { foreach (ListViewItem it in lv.Items) { it.Checked = true; it.ForeColor = _theme.Text; } }
+                finally { ready = true; lv.EndUpdate(); }
+                refreshSum();
             };
             none.Click += delegate
             {
                 lv.BeginUpdate();
-                try { foreach (ListViewItem it in lv.Items) it.Checked = false; }
-                finally { lv.EndUpdate(); }
+                ready = false;
+                try { foreach (ListViewItem it in lv.Items) { it.Checked = false; it.ForeColor = _theme.Subtle; } }
+                finally { ready = true; lv.EndUpdate(); }
+                refreshSum();
             };
             MethodInvoker openSel = delegate
             {
@@ -488,24 +642,44 @@ namespace WindowsProcessCleaner
             DialogResult dr = dlg.ShowDialog(this);
             if (dr == DialogResult.OK)
             {
+                // Ключи пишутся только для реально изменённых строк, а пересчёт и запись конфига —
+                // только если что-то изменилось: SetTargetEnabled линейно просматривает список
+                // исключений, и на тысячах строк winapp2 «OK» заметно подвисал даже без правок.
+                bool changed = false;
                 foreach (ListViewItem it in lv.Items)
                 {
                     CleanTarget t = it.Tag as CleanTarget;
                     DriverPackage d = it.Tag as DriverPackage;
-                    if (t != null) { t.Enabled = it.Checked; _engine.SetTargetEnabled(t.Key, it.Checked); }
-                    else if (d != null) { d.Enabled = it.Checked; _engine.SetTargetEnabled(Engine.DriverKey(d), it.Checked); }
-                    else { c.BinEnabled = it.Checked; _engine.SetTargetEnabled(Engine.BinKey(c), it.Checked); }
+                    if (t != null)
+                    {
+                        if (t.Enabled == it.Checked) continue;
+                        t.Enabled = it.Checked; _engine.SetTargetEnabled(t.Key, it.Checked);
+                    }
+                    else if (d != null)
+                    {
+                        if (d.Enabled == it.Checked) continue;
+                        d.Enabled = it.Checked; _engine.SetTargetEnabled(Engine.DriverKey(d), it.Checked);
+                    }
+                    else
+                    {
+                        if (c.BinEnabled == it.Checked) continue;
+                        c.BinEnabled = it.Checked; _engine.SetTargetEnabled(Engine.BinKey(c), it.Checked);
+                    }
+                    changed = true;
                 }
-                Engine.RecalcCategory(c);
-                _engine.SaveConfig();
-                ListViewItem row = FindCleanRow(c);
-                if (row != null)
+                if (changed)
                 {
-                    if (c.Analyzed) FillCleanRow(row, c); else row.SubItems[3].Text = CleanRowDesc(c);
-                    if (c.Analyzed && c.Size == 0) row.Checked = false;
+                    Engine.RecalcCategory(c);
+                    _engine.SaveConfig();
+                    ListViewItem row = FindCleanRow(c);
+                    if (row != null)
+                    {
+                        if (c.Analyzed) FillCleanRow(row, c); else row.SubItems[3].Text = CleanRowDesc(c);
+                        if (c.Analyzed && c.Size == 0) row.Checked = false;
+                    }
+                    if (_diskBusy == 0 && _cleanCats != null) UpdateCleanTotal(true);
+                    AutoFillLastColumnDeferred(_lvClean);
                 }
-                if (_diskBusy == 0 && _cleanCats != null) UpdateCleanTotal(true);
-                AutoFillLastColumnDeferred(_lvClean);
             }
             _flexColumn.Remove(lv);
             _pathColumns.Remove(lv);
@@ -526,12 +700,23 @@ namespace WindowsProcessCleaner
             long chosen = Engine.DistinctSize(checkedCats);
             string extra = "";
             if (_engine.Winapp2RuleCount > 0)
+            {
                 extra = Tr.S("   ·   правил winapp2: ", "   ·   winapp2 rules: ") + _engine.Winapp2RuleCount;
-            _lblCleanTotal.Text = (finished ? Tr.S("Всего мусора найдено: ", "Total junk found: ")
-                                            : Tr.S("Найдено пока: ", "Found so far: "))
+                // Откуда взяты правила — это вопрос доверия: файл вне защищённой папки может
+                // переписать любой процесс пользователя, а чистим мы от администратора.
+                if (!_engine.Winapp2Protected)
+                    extra += Tr.S("   ·   файл правил вне защищённой папки — системные пути для него закрыты",
+                                  "   ·   the rule file is outside the protected folder — system paths are closed to it");
+            }
+            // Прерванный «Стопом» анализ даёт заведомо неполные цифры — молчать об этом нельзя:
+            // итог выглядел бы как честный результат полного прохода.
+            if (_cleanStopped)
+                extra += Tr.S("   ·   ОСТАНОВЛЕНО — посчитано не всё", "   ·   STOPPED — not everything was counted");
+            _lblCleanTotal.Text = CleanLine((finished ? Tr.S("Всего мусора найдено: ", "Total junk found: ")
+                                                      : Tr.S("Найдено пока: ", "Found so far: "))
                 + Engine.FormatBytes(total)
                 + (finished ? Tr.S("   ·   отмечено к удалению: ", "   ·   checked for deletion: ") + Engine.FormatBytes(chosen) : "")
-                + Tr.S("   ·   двойной клик — состав категории", "   ·   double-click a category for its contents") + extra;
+                + Tr.S("   ·   двойной клик — состав категории", "   ·   double-click a category for its contents") + extra);
         }
 
         private void DoCleanDisk()
@@ -557,31 +742,49 @@ namespace WindowsProcessCleaner
             if (dr != DialogResult.Yes) return;
 
             if (Interlocked.CompareExchange(ref _diskBusy, 1, 0) != 0) return;
+            _cleanResultText = null;
+            _cleanStopped = false;
             _engine.ResetDiskCancel();
             _lblCleanTotal.Text = Tr.S("Удаление…", "Deleting…");
             string op = Tr.S("очистка диска (удаление файлов)", "disk cleanup (deleting files)");
             BeginWrite(op);
             if (_btnCleanCancel != null) _btnCleanCancel.Enabled = true;
+            StartCleanTicker(Tr.S("Удаление", "Deleting"), 0);
 
             Thread t = new Thread(delegate()
             {
                 CleanResult res = null;
+                string err = null;
                 try { res = _engine.CleanCategories(sel); }
-                catch { }
+                catch (Exception ex) { err = ex.Message; }
+                // Признак неполного итога несёт сам итог: флаг движка к моменту отрисовки
+                // уже мог быть сброшен следующей операцией.
+                bool cancelled = res != null ? res.Cancelled : _engine.DiskCancelled;
                 EndWrite(op);
                 Interlocked.Exchange(ref _diskBusy, 0);
                 UiPost(delegate
                 {
+                    StopCleanTicker();
                     if (_btnCleanCancel != null) _btnCleanCancel.Enabled = false;
-                    if (res == null) { _lblCleanTotal.Text = Tr.S("Очистка не выполнена.", "Cleanup failed."); return; }
-                    _lblCleanTotal.Text = Tr.S("✓ Освобождено: ", "✓ Freed: ") + Engine.FormatBytes(res.Freed)
+                    if (res == null)
+                    {
+                        _lblCleanTotal.Text = Tr.S("Очистка не выполнена", "Cleanup failed")
+                            + (err != null ? ": " + err : ".");
+                        return;
+                    }
+                    // Итог держится в строке и во время перепроверки: она стартует тут же и
+                    // раньше затирала его своим «Анализ…» ещё до отрисовки.
+                    _cleanResultText = Tr.S("✓ Освобождено: ", "✓ Freed: ") + Engine.FormatBytes(res.Freed)
                         + Tr.S("   ·   файлов: ", "   ·   files: ") + res.FilesDeleted
                         + (res.Errors > 0 ? Tr.S("   ·   пропущено (заняты/нет доступа): ",
-                                                 "   ·   skipped (locked/no access): ") + res.Errors : "");
+                                                 "   ·   skipped (locked/no access): ") + res.Errors : "")
+                        + (cancelled ? Tr.S("   ·   ОСТАНОВЛЕНО — удалено не всё отмеченное",
+                                            "   ·   STOPPED — not everything ticked was deleted") : "");
+                    _lblCleanTotal.Text = _cleanResultText;
                     if (_tray != null)
                         _tray.ShowBalloonTip(3000, Tr.S("Очистка диска", "Disk Cleanup"),
                             Tr.S("Освобождено ~", "Freed ~") + Engine.FormatBytes(res.Freed), ToolTipIcon.Info);
-                    DoAnalyzeDisk();
+                    DoAnalyzeDisk(true);
                 });
             });
             t.IsBackground = true;
@@ -603,17 +806,57 @@ namespace WindowsProcessCleaner
                        + "the same format FluentCleaner uses. The registry is never cleaned, whatever a rule says.");
             if (!MsgAsk(msg, "winapp2.ini")) return;
 
-            _lblCleanTotal.Text = Tr.S("Загрузка базы правил…", "Downloading rule database…");
+            // Каждый клик раньше запускал ещё одну загрузку: все они писали один и тот же
+            // winapp2.ini.tmp и дрались за File.Replace. Флаг занятости страницы (тот же, что
+            // у анализа и удаления) не даёт запустить вторую и заодно разводит загрузку с
+            // анализом; кнопка гаснет, а секундомер показывает, что загрузка идёт.
+            if (Interlocked.CompareExchange(ref _diskBusy, 1, 0) != 0)
+            {
+                _lblCleanTotal.Text = CleanLine(Tr.S("Идёт работа с диском — дождитесь её окончания.",
+                                                     "Disk work is running — wait for it to finish."));
+                return;
+            }
+            _cleanResultText = null;
+            _cleanStopped = false;
+            _engine.ResetDiskCancel();   // «Стоп» работает и на загрузке — она идёт через тот же флаг
+            if (_btnCleanRules != null) _btnCleanRules.Enabled = false;
+            if (_btnCleanCancel != null) _btnCleanCancel.Enabled = true;
+            StartCleanTicker(Tr.S("Загрузка базы правил (~5 МБ)", "Downloading the rule database (~5 MB)"), 0);
+
             Thread t = new Thread(delegate()
             {
                 string err = null;
-                try { _engine.DownloadWinapp2(); }
+                bool stopped = false;
+                try
+                {
+                    // Счётчик байтов — единственный признак живой загрузки: пять мегабайт
+                    // на медленном канале это минуты, и раньше строка всё это время не менялась.
+                    _engine.DownloadWinapp2(delegate(long got, long total)
+                    {
+                        _engine.DiskStatus = total > 0
+                            ? Engine.FormatBytes(got) + Tr.S(" из ", " of ") + Engine.FormatBytes(total)
+                            : Tr.S("получено ", "received ") + Engine.FormatBytes(got);
+                    }, delegate { return _engine.DiskCancelled || _closing; });
+                }
+                catch (OperationCanceledException) { stopped = true; }
                 catch (Exception ex) { err = ex.Message; }
+                _engine.DiskStatus = null;
+                Interlocked.Exchange(ref _diskBusy, 0);
+                bool stoppedCopy = stopped;
                 UiPost(delegate
                 {
+                    StopCleanTicker();
+                    if (_btnCleanRules != null) _btnCleanRules.Enabled = true;
+                    if (_btnCleanCancel != null) _btnCleanCancel.Enabled = false;
+                    if (stoppedCopy)
+                    {
+                        _lblCleanTotal.Text = CleanLine(Tr.S("Загрузка остановлена — прежняя база правил осталась как была.",
+                                                             "Download stopped — the previous rule database is unchanged."));
+                        return;
+                    }
                     if (err != null)
                     {
-                        _lblCleanTotal.Text = Tr.S("Не удалось скачать: ", "Download failed: ") + err;
+                        _lblCleanTotal.Text = Tr.S("Не удалось скачать базу правил: ", "Rule database download failed: ") + err;
                         return;
                     }
                     DoAnalyzeDisk();

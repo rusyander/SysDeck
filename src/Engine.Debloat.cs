@@ -123,15 +123,54 @@ namespace WindowsProcessCleaner
             catch { return false; }
         }
 
+        // Отмена и живой статус вкладки «Windows: лишнее». Раньше ни одна операция здесь
+        // не умела останавливаться: PS() всегда передавал cancel = null, а DISM с таймаутом
+        // в 30 минут на пункт мог держать всю вкладку часами при единственной надписи на экране.
+        private volatile bool _cancelDebloat;
+        public void CancelDebloatWork() { _cancelDebloat = true; }
+        public void ResetDebloatCancel() { _cancelDebloat = false; _debloatStatus = null; }
+        public bool DebloatCancelled { get { return _cancelDebloat; } }
+
+        private volatile string _debloatStatus;
+        public string DebloatStatus { get { return _debloatStatus; } }
+
+        private Func<bool> DebloatCancelPoll() { return delegate { return _cancelDebloat; }; }
+
+        private Action<string, long> DebloatProgressPoll(string what)
+        {
+            return delegate(string line, long ms)
+            {
+                string t = (line ?? "").Trim();
+                if (t.Length > 80) t = t.Substring(0, 80) + "…";
+                _debloatStatus = what + (t.Length > 0 ? "  ·  " + t : "");
+            };
+        }
+
+        // DISM на этой вкладке — с теми же тремя мерами от зависания, что и на вкладке очистки:
+        // опрос отмены, живой вывод и выход сразу после итоговой строки.
+        private bool DebloatDism(string args, int timeoutMs, out string so, out int code)
+        {
+            bool ran = RunCapture(DismPath(), args, timeoutMs, out so, out code, null,
+                                  DebloatCancelPoll(), DebloatProgressPoll("DISM"), DismFinishedLine);
+            _debloatStatus = null;
+            return ran;
+        }
+
         // PowerShell без profile, скрипт через -EncodedCommand: никаких кавычек в командной строке,
         // вывод в UTF-8. Возвращает false, если не запустился или не уложился в timeout.
         private static bool PS(string script, int timeoutMs, out string stdout, out int code)
+        {
+            return PS(script, timeoutMs, out stdout, out code, null, null);
+        }
+
+        private static bool PS(string script, int timeoutMs, out string stdout, out int code,
+                               Func<bool> cancel, Action<string, long> progress)
         {
             string full = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $ErrorActionPreference='Continue'; " + script;
             string enc = Convert.ToBase64String(Encoding.Unicode.GetBytes(full));
             return RunCapture(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell\\v1.0\\powershell.exe"),
                               "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + enc, timeoutMs,
-                              out stdout, out code, Encoding.UTF8, null);
+                              out stdout, out code, Encoding.UTF8, cancel, progress, null);
         }
 
         private static string PsQuote(string s) { return "'" + (s ?? "").Replace("'", "''") + "'"; }
@@ -154,7 +193,7 @@ namespace WindowsProcessCleaner
             string so; int code;
             if (PS("Get-AppxPackage | ForEach-Object { 'A|' + $_.Name + '|' + $_.PackageFullName + '|' + $_.InstallLocation + '|' + $_.NonRemovable }; "
                    + "try { Get-AppxProvisionedPackage -Online -ErrorAction Stop | ForEach-Object { 'P|' + $_.DisplayName + '|' + $_.PackageName } } catch { 'PERR|' + $_.Exception.Message }",
-                   180000, out so, out code))
+                   180000, out so, out code, DebloatCancelPoll(), null))
             {
                 s.AppxOk = true; s.ProvOk = true;
                 foreach (string raw in so.Split('\n'))
@@ -183,7 +222,7 @@ namespace WindowsProcessCleaner
                 StringBuilder arr = new StringBuilder();
                 foreach (string t in taskNames) { if (arr.Length > 0) arr.Append(','); arr.Append(PsQuote(t)); }
                 if (PS("$w = @(" + arr + "); Get-ScheduledTask -ErrorAction SilentlyContinue | ForEach-Object { $p = $_.TaskPath + $_.TaskName; if ($w -contains $p) { $p + '|' + $_.State } }",
-                       120000, out so, out code))
+                       120000, out so, out code, DebloatCancelPoll(), null))
                 {
                     s.TasksOk = true;
                     foreach (string raw in so.Split('\n'))
@@ -203,7 +242,7 @@ namespace WindowsProcessCleaner
             if (s.Admin && needFeatures)
             {
                 if (progress != null) progress(Tr.S("компоненты Windows (DISM)…", "Windows features (DISM)…"));
-                if (RunCapture(DismPath(), "/Online /Get-Features /Format:Table /English", 300000, out so, out code, null, null) && code == 0)
+                if (DebloatDism("/Online /Get-Features /Format:Table /English", 120000, out so, out code) && code == 0)
                 {
                     s.FeaturesOk = true;
                     ParseDismTable(so, s.Features);
@@ -213,7 +252,7 @@ namespace WindowsProcessCleaner
             if (s.Admin && needCaps)
             {
                 if (progress != null) progress(Tr.S("возможности Windows (DISM)…", "Windows capabilities (DISM)…"));
-                if (RunCapture(DismPath(), "/Online /Get-Capabilities /Format:Table /English", 300000, out so, out code, null, null) && code == 0)
+                if (DebloatDism("/Online /Get-Capabilities /Format:Table /English", 120000, out so, out code) && code == 0)
                 {
                     s.CapsOk = true;
                     Dictionary<string, string> raw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -615,15 +654,16 @@ namespace WindowsProcessCleaner
         private static string Sc(string args)
         {
             string so; int code;
-            RunCapture(Path.Combine(Environment.SystemDirectory, "sc.exe"), args, 60000, out so, out code, null, null);
-            return code == 0 ? null : "sc " + args + " → " + code;
+            bool ran = RunCapture(Path.Combine(Environment.SystemDirectory, "sc.exe"), args, 60000, out so, out code, null, null);
+            // раньше результат запуска отбрасывался, и «не запустился» показывалось как «sc … → -1»
+            return code == 0 ? null : "sc " + args + " → " + RunFailText(ran, code);
         }
 
         private static string Schtasks(string task, bool enable)
         {
             string so; int code;
-            RunCapture(Path.Combine(Environment.SystemDirectory, "schtasks.exe"), "/Change /TN \"" + task + "\" " + (enable ? "/Enable" : "/Disable"), 60000, out so, out code, null, null);
-            return code == 0 ? null : "schtasks " + task + " → " + code;
+            bool ran = RunCapture(Path.Combine(Environment.SystemDirectory, "schtasks.exe"), "/Change /TN \"" + task + "\" " + (enable ? "/Enable" : "/Disable"), 60000, out so, out code, null, null);
+            return code == 0 ? null : "schtasks " + task + " → " + RunFailText(ran, code);
         }
 
         private string ApplyOp(DebloatItem it, DebloatOp o, int action)
@@ -659,7 +699,7 @@ namespace WindowsProcessCleaner
                         script += "try { Get-AppxPackage -AllUsers -Name $n | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue } catch {}; "
                                 + "try { Get-AppxProvisionedPackage -Online -ErrorAction Stop | Where-Object { $_.DisplayName -eq $n } | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue | Out-Null } catch {}; ";
                     script += "if (Get-AppxPackage -Name $n) { 'STILL' } else { 'GONE' }";
-                    if (!PS(script, 300000, out so, out code)) throw new IOException("PowerShell: " + (code == RunTimeout ? "timeout" : "exit " + code));
+                    if (!PS(script, 300000, out so, out code, DebloatCancelPoll(), DebloatProgressPoll("PowerShell"))) throw new IOException("PowerShell: " + RunFailText(false, code));
                     if (so.IndexOf("GONE") < 0) throw new IOException(Tr.S("пакет остался: ", "package still present: ") + LastMeaningfulLine(so));
                     return (action == DebloatRemove ? Tr.S("пакет удалён у пользователя и из образа: ", "package removed for the user and deprovisioned: ")
                                                     : Tr.S("пакет снят у текущего пользователя: ", "package removed for the current user: ")) + o.Name;
@@ -674,21 +714,21 @@ namespace WindowsProcessCleaner
                 {
                     if (o.State == DebloatState.Absent || o.State == DebloatState.Off) return null;
                     string args = "/Online /Disable-Feature /FeatureName:" + o.Name + " /NoRestart /English" + (o.RemovePayload ? " /Remove" : "");
-                    if (!RunCapture(DismPath(), args, 1800000, out so, out code, null, null)) throw new IOException("DISM timeout");
-                    if (code != 0 && code != 3010) throw new IOException("DISM " + code + ": " + LastMeaningfulLine(so));
+                    bool dr = DebloatDism(args, 1800000, out so, out code);
+                    if (!DismOk(dr, code, so)) throw new IOException("DISM " + RunFailText(dr, code) + ": " + LastMeaningfulLine(so));
                     return Tr.S("компонент выключен: ", "feature disabled: ") + o.Name + (code == 3010 ? Tr.S(" (нужна перезагрузка)", " (reboot required)") : "");
                 }
                 case "cap":
                 {
                     if (o.State != DebloatState.On || o.Found == null) return null;
-                    if (!RunCapture(DismPath(), "/Online /Remove-Capability /CapabilityName:" + o.Found + " /NoRestart /English", 1800000, out so, out code, null, null)) throw new IOException("DISM timeout");
-                    if (code != 0 && code != 3010) throw new IOException("DISM " + code + ": " + LastMeaningfulLine(so));
+                    bool dr = DebloatDism("/Online /Remove-Capability /CapabilityName:" + o.Found + " /NoRestart /English", 1800000, out so, out code);
+                    if (!DismOk(dr, code, so)) throw new IOException("DISM " + RunFailText(dr, code) + ": " + LastMeaningfulLine(so));
                     return Tr.S("возможность удалена: ", "capability removed: ") + o.Found;
                 }
                 case "onedrive":
                 {
                     RegWrite("HKLM", OneDrivePolicyKey, "DisableFileSyncNGSC", 1);
-                    RunCapture(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/IM OneDrive.exe /F", 30000, out so, out code, null, null);
+                    RunCapture(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/IM OneDrive.exe /F", 30000, out so, out code, null, DebloatCancelPoll());
                     if (RegRead("HKCU", "Software\\Microsoft\\Windows\\CurrentVersion\\Run", "OneDrive") != null)
                     {
                         using (RegistryKey k = Registry.CurrentUser.CreateSubKey(ApprovedRunKey))
@@ -698,7 +738,8 @@ namespace WindowsProcessCleaner
                     {
                         string setup = OneDriveSetup();
                         if (setup == null) throw new IOException(Tr.S("OneDriveSetup.exe не найден — удалите через «Программы»", "OneDriveSetup.exe not found — uninstall via “Programs”"));
-                        if (!RunCapture(setup, "/uninstall", 600000, out so, out code, null, null)) throw new IOException("OneDriveSetup timeout");
+                        bool osr = RunCapture(setup, "/uninstall", 600000, out so, out code, null, DebloatCancelPoll());
+                        if (!osr || !IsInstallOk(code)) throw new IOException("OneDriveSetup: " + RunFailText(osr, code));
                         return Tr.S("OneDrive удалён (", "OneDrive uninstalled (") + setup + ")";
                     }
                     return Tr.S("OneDrive остановлен, синхронизация запрещена политикой, автозапуск отключён", "OneDrive stopped, sync blocked by policy, autostart disabled");
@@ -776,7 +817,7 @@ namespace WindowsProcessCleaner
                         + "elseif (" + PsQuote(loc) + " -ne '' -and (Test-Path (" + PsQuote(loc) + " + '\\AppxManifest.xml'))) { Add-AppxPackage -DisableDevelopmentMode -Register (" + PsQuote(loc) + " + '\\AppxManifest.xml'); 'REGISTERED' } "
                         + "elseif (" + PsQuote(fam) + " -ne '') { try { Add-AppxPackage -RegisterByFamilyName -MainPackage " + PsQuote(fam) + " -ErrorAction Stop; 'REGISTERED' } catch { 'MISSING' } } "
                         + "else { 'MISSING' }";
-                    if (!PS(script, 300000, out so, out code)) throw new IOException("PowerShell: " + (code == RunTimeout ? "timeout" : "exit " + code));
+                    if (!PS(script, 300000, out so, out code, DebloatCancelPoll(), DebloatProgressPoll("PowerShell"))) throw new IOException("PowerShell: " + RunFailText(false, code));
                     if (so.IndexOf("REGISTERED") >= 0) return Tr.S("пакет заново зарегистрирован: ", "package re-registered: ") + o.Name;
                     // файлов уже нет — только Microsoft Store; открываем поиск, ставить будет пользователь
                     try { using (Process.Start("ms-windows-store://search/?query=" + Uri.EscapeDataString(it.Title))) { } } catch { }
@@ -795,8 +836,8 @@ namespace WindowsProcessCleaner
                     if (o.State == DebloatState.Absent || o.State == DebloatState.On) return null;
                     string[] f = SnapLine(snap, "feature", o.Name);
                     if (f != null && f.Length >= 3 && f[2].StartsWith("Disabled", StringComparison.OrdinalIgnoreCase)) return Tr.S("компонент был выключен и до нас: ", "feature was already disabled before: ") + o.Name;
-                    if (!RunCapture(DismPath(), "/Online /Enable-Feature /FeatureName:" + o.Name + " /All /NoRestart /English", 1800000, out so, out code, null, null)) throw new IOException("DISM timeout");
-                    if (code != 0 && code != 3010) throw new IOException("DISM " + code + ": " + LastMeaningfulLine(so));
+                    bool dr = DebloatDism("/Online /Enable-Feature /FeatureName:" + o.Name + " /All /NoRestart /English", 1800000, out so, out code);
+                    if (!DismOk(dr, code, so)) throw new IOException("DISM " + RunFailText(dr, code) + ": " + LastMeaningfulLine(so));
                     return Tr.S("компонент включён: ", "feature enabled: ") + o.Name;
                 }
                 case "cap":
@@ -806,8 +847,8 @@ namespace WindowsProcessCleaner
                     if (f != null && f.Length >= 4 && f[3] != "Installed") return Tr.S("возможности не было и до нас: ", "capability was absent before: ") + o.Name;
                     string id = o.Found ?? (f != null && f.Length >= 3 && f[2].Length > 0 ? f[2] : null);
                     if (id == null) throw new IOException(Tr.S("имя возможности неизвестно", "capability identity unknown"));
-                    if (!RunCapture(DismPath(), "/Online /Add-Capability /CapabilityName:" + id + " /NoRestart /English", 1800000, out so, out code, null, null)) throw new IOException("DISM timeout");
-                    if (code != 0 && code != 3010) throw new IOException("DISM " + code + ": " + LastMeaningfulLine(so));
+                    bool dr = DebloatDism("/Online /Add-Capability /CapabilityName:" + id + " /NoRestart /English", 1800000, out so, out code);
+                    if (!DismOk(dr, code, so)) throw new IOException("DISM " + RunFailText(dr, code) + ": " + LastMeaningfulLine(so));
                     return Tr.S("возможность установлена: ", "capability installed: ") + id;
                 }
                 case "onedrive":
@@ -830,7 +871,8 @@ namespace WindowsProcessCleaner
                             try { using (Process.Start("ms-windows-store://search/?query=OneDrive")) { } } catch { }
                             return Tr.S("установщик OneDrive не найден — открыт Microsoft Store", "OneDrive installer not found — Microsoft Store opened");
                         }
-                        if (!RunCapture(setup, "/silent", 900000, out so, out code, null, null)) throw new IOException("OneDriveSetup timeout");
+                        bool osr = RunCapture(setup, "/silent", 900000, out so, out code, null, DebloatCancelPoll());
+                        if (!osr || !IsInstallOk(code)) throw new IOException("OneDriveSetup: " + RunFailText(osr, code));
                         return Tr.S("OneDrive установлен заново (", "OneDrive reinstalled (") + setup + ")";
                     }
                     try { using (Process.Start(exe, "/background")) { } } catch { }

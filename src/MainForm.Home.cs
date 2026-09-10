@@ -101,10 +101,19 @@ namespace WindowsProcessCleaner
         private CheckBox _chkBoostTemp, _chkSmartHome;
         private Label _lblBoostResult, _lblHealthInfo, _lblNavAdmin;
         private ListView _lvHealth;
-        private Button _btnHealthRun, _btnHealthAct;
+        private Button _btnHealthRun, _btnHealthAct, _btnHomeStop;
         private List<HealthItem> _health;
         private int _healthBusy, _boostBusy, _smartBusy;
         private volatile bool _healthCancel;
+        private volatile bool _boostCancel;
+        private int _homeDrivesBusy;                 // фоновое чтение томов для карточки «Системный диск»
+        private DateTime _lastHealthOpen;        // защита от повторов при удержании Enter на строке
+        // Секундомер «Главной»: и проверка состояния, и «Ускорить» обходят мусор минутами,
+        // а на экране висела одна и та же строка без признаков жизни.
+        private System.Windows.Forms.Timer _homeTick;
+        private DateTime _healthStarted, _boostStarted;
+        // volatile: этап пишет рабочий поток (движок зовёт колбэк оттуда), читает таймер UI
+        private volatile string _healthPhase, _boostPhase;
         private System.Windows.Forms.Timer _homeTimer;
         private SystemSnapshot _snap;
         private DateTime _homeDrivesAt = DateTime.MinValue, _healthAt = DateTime.MinValue;
@@ -137,6 +146,8 @@ namespace WindowsProcessCleaner
             _chkBoostTemp.Text = Tr.S("и временные файлы (спросит)", "and temp files (asks first)");
             _chkBoostTemp.AutoSize = true;
             _chkBoostTemp.Left = 2; _chkBoostTemp.Top = 54;
+            _chkBoostTemp.Checked = MemBool("home", "boostTemp", false, true);
+            _chkBoostTemp.CheckedChanged += delegate { MemSetBool("home", "boostTemp", _chkBoostTemp.Checked, true); };
             _chkSmartHome = new CheckBox();
             _chkSmartHome.Text = Tr.S("умное ускорение при RAM ≥ 90 %", "smart boost at RAM ≥ 90 %");
             _chkSmartHome.AutoSize = true;
@@ -166,9 +177,13 @@ namespace WindowsProcessCleaner
             _btnHealthRun.Click += delegate { RunHealthCheck(); };
             _btnHealthAct = MkFlowButton(Tr.S("Выполнить действие", "Run the action"), 180, false);
             _btnHealthAct.Click += delegate { HealthActSelected(); };
+            _btnHomeStop = MkFlowButton(Tr.S("Остановить", "Stop"), 130, false);
+            _btnHomeStop.Enabled = false;
+            _btnHomeStop.Click += delegate { CancelHomeWork(); };
             Label hint = MkFlowLabel(Tr.S("двойной щелчок по строке — выполнить её действие", "double-click a row to run its action"), true);
             top.Controls.Add(_btnHealthRun);
             top.Controls.Add(_btnHealthAct);
+            top.Controls.Add(_btnHomeStop);
             top.Controls.Add(hint);
 
             _lblHealthInfo = MkNote(Tr.S("Проверка состояния запустится при открытии окна", "The health check runs when the window opens"), false);
@@ -250,15 +265,19 @@ namespace WindowsProcessCleaner
         private void HomeLeave()
         {
             if (_homeTimer != null) _homeTimer.Stop();
+            // Проверку состояния догонять некому: страницы не видно, а обход мусора и опрос
+            // PowerShell продолжали грузить диск ещё минуты. Уходим — останавливаем.
+            if (_healthBusy != 0) { _healthCancel = true; UpdateHomeStopButton(); }
         }
 
         private void UpdateHomeCards()
         {
             if (_closing || _cardRam == null) return;
-            bool drives = _snap == null || (DateTime.Now - _homeDrivesAt).TotalSeconds > 30;
-            SystemSnapshot s = Engine.Snapshot(drives);
-            if (drives) { _homeDrivesAt = DateTime.Now; }
-            else if (_snap != null) { s.Drives = _snap.Drives; s.SystemDrive = _snap.SystemDrive; }
+            // Snapshot(false) — только счётчики памяти и аптайм. Раз в 30 секунд здесь же
+            // читались тома: IsReady/VolumeLabel/TotalSize будят спящий HDD и упираются в
+            // заблокированный BitLocker, то есть подвешивали цикл сообщений на секунды.
+            SystemSnapshot s = Engine.Snapshot(false);
+            if (_snap != null) { s.Drives = _snap.Drives; s.SystemDrive = _snap.SystemDrive; }
             _snap = s;
 
             _cardRam.Value = s.MemoryLoad + " %";
@@ -267,7 +286,15 @@ namespace WindowsProcessCleaner
             _cardRam.Warn = s.MemoryLoad >= 85;
             _cardRam.Invalidate();
 
-            DriveRow d = s.SystemDrive;
+            UpdateDiskCard();
+            RefreshHomeDrives();
+            UpdateStatusCard();
+        }
+
+        private void UpdateDiskCard()
+        {
+            if (_cardDisk == null) return;
+            DriveRow d = _snap != null ? _snap.SystemDrive : null;
             if (d != null)
             {
                 _cardDisk.Title = Tr.S("Системный диск ", "System drive ") + d.Name.TrimEnd('\\');
@@ -279,11 +306,84 @@ namespace WindowsProcessCleaner
             else
             {
                 _cardDisk.Value = "—";
-                _cardDisk.Sub = Tr.S("диски не прочитаны", "drives not read");
+                // пустая карточка без объяснения читалась как поломка
+                _cardDisk.Sub = _homeDrivesBusy != 0 ? Tr.S("читаю диски…", "reading drives…") : Tr.S("диски не прочитаны", "drives not read");
                 _cardDisk.Fraction = -1;
             }
             _cardDisk.Invalidate();
-            UpdateStatusCard();
+        }
+
+        // Перечисление томов ушло в фоновый поток; карточка получает готовые значения.
+        private void RefreshHomeDrives()
+        {
+            if (_snap != null && (DateTime.Now - _homeDrivesAt).TotalSeconds <= 30) return;
+            if (Interlocked.CompareExchange(ref _homeDrivesBusy, 1, 0) != 0) return;
+            Thread t = new Thread(delegate()
+            {
+                SystemSnapshot d = null;
+                try { d = Engine.Snapshot(true); }
+                catch { }
+                SystemSnapshot copy = d;
+                UiPost(delegate
+                {
+                    Interlocked.Exchange(ref _homeDrivesBusy, 0);
+                    _homeDrivesAt = DateTime.Now;
+                    if (copy != null && _snap != null) { _snap.Drives = copy.Drives; _snap.SystemDrive = copy.SystemDrive; }
+                    UpdateDiskCard();
+                });
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        // Ни проверка состояния, ни «Ускорить» останавливаться не умели: _healthCancel только
+        // сбрасывался, а обход мусора внутри обеих слушает общий дисковый флаг движка.
+        private void CancelHomeWork()
+        {
+            if (_healthBusy == 0 && _boostBusy == 0) return;
+            _healthCancel = true;
+            _boostCancel = true;
+            // Флаг общий с вкладкой очистки, поэтому поднимаем его только пока работает сама
+            // «Главная» — иначе оборвали бы чужой анализ, запущенный на другой странице.
+            _engine.CancelDiskWork();
+            UpdateHomeStopButton();
+        }
+
+        private void UpdateHomeStopButton()
+        {
+            if (_btnHomeStop == null) return;
+            _btnHomeStop.Enabled = (_healthBusy != 0 && !_healthCancel) || (_boostBusy != 0 && !_boostCancel);
+        }
+
+        private void StartHomeTicker()
+        {
+            if (_homeTick == null)
+            {
+                _homeTick = new System.Windows.Forms.Timer();
+                _homeTick.Interval = 500;
+                _homeTick.Tick += delegate { HomeTick(); };
+            }
+            _homeTick.Start();
+            HomeTick();
+        }
+
+        // Одна строка на обе работы: у каждой своя подпись и свой секундомер, живой этап берём
+        // из DiskStatus движка — там видно, какую папку он сейчас считает или чистит.
+        private void HomeTick()
+        {
+            if (_closing) return;
+            if (_healthBusy == 0 && _boostBusy == 0)
+            {
+                if (_homeTick != null) _homeTick.Stop();
+                return;
+            }
+            string st = _engine.DiskStatus;
+            string live = string.IsNullOrEmpty(st) ? "" : "   ·   " + st;
+            string stopping = Tr.S("   ·   останавливаюсь…", "   ·   stopping…");
+            if (_healthBusy != 0)
+                _lblHealthInfo.Text = _healthPhase + "   ·   " + Elapsed(DateTime.UtcNow - _healthStarted) + live + (_healthCancel ? stopping : "");
+            if (_boostBusy != 0)
+                _lblBoostResult.Text = _boostPhase + "   ·   " + Elapsed(DateTime.UtcNow - _boostStarted) + live + (_boostCancel ? stopping : "");
         }
 
         private void UpdateStatusCard()
@@ -311,13 +411,21 @@ namespace WindowsProcessCleaner
         // ---------- Проверка состояния ----------
         private void RunHealthCheck()
         {
-            if (Interlocked.CompareExchange(ref _healthBusy, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _healthBusy, 1, 0) != 0)
+            {
+                _lblHealthInfo.Text = Tr.S("Проверка уже идёт — дождитесь её или нажмите «Остановить».",
+                                           "A check is already running — wait for it or click “Stop”.");
+                return;
+            }
             _healthCancel = false;
             _health = new List<HealthItem>();
             _lvHealth.Items.Clear();
-            _lblHealthInfo.Text = Tr.S("Проверяю… пункты появляются по мере готовности (Защитник, обновления и точки восстановления опрашиваются последними).",
-                                       "Checking… items appear as they are ready (Defender, updates and restore points are queried last).");
+            _healthPhase = Tr.S("Проверяю (Защитник, обновления и точки восстановления — последними)",
+                                "Checking (Defender, updates and restore points come last)");
+            _healthStarted = DateTime.UtcNow;
             _btnHealthRun.Enabled = false;
+            UpdateHomeStopButton();
+            StartHomeTicker();
             UpdateStatusCard();
             Thread t = new Thread(delegate()
             {
@@ -328,18 +436,24 @@ namespace WindowsProcessCleaner
                                         delegate { return _healthCancel || _closing; });
                 }
                 catch (Exception ex) { err = ex.Message; }
-                Interlocked.Exchange(ref _healthBusy, 0);
                 string errCopy = err;
+                bool stopped = _healthCancel;
                 UiPost(delegate
                 {
+                    // флаг снимаем внутри UiPost: снятый в потоке, он пускал новую проверку,
+                    // которой этот же обработчик тут же затирал строку итога
+                    Interlocked.Exchange(ref _healthBusy, 0);
+                    UpdateHomeStopButton();
                     AddHealthRow(HealthUpdatesItem());
                     _healthAt = DateTime.Now;
                     int warn = 0, info = 0;
                     foreach (HealthItem h in _health) { if (h.Level == HealthLevel.Warn) warn++; else if (h.Level == HealthLevel.Info) info++; }
-                    _lblHealthInfo.Text = Tr.S("Проверено: ", "Checked: ") + _health.Count
+                    _lblHealthInfo.Text = (stopped ? Tr.S("Остановлено, проверено частично: ", "Stopped, partially checked: ") : Tr.S("Проверено: ", "Checked: "))
+                        + _health.Count
                         + Tr.S("   ·   требуют внимания: ", "   ·   need attention: ") + warn
                         + Tr.S("   ·   советов: ", "   ·   tips: ") + info
                         + Tr.S("   ·   в порядке: ", "   ·   fine: ") + (_health.Count - warn - info)
+                        + Tr.S("   ·   заняло ", "   ·   took ") + Elapsed(DateTime.UtcNow - _healthStarted)
                         + (errCopy != null ? Tr.S("   ·   ошибка: ", "   ·   error: ") + errCopy : "");
                     _btnHealthRun.Enabled = true;
                     UpdateStatusCard();
@@ -444,8 +558,12 @@ namespace WindowsProcessCleaner
                 string path = k.Substring(5);
                 ShowPage(PageDisk);
                 bool exists = false;
-                try { exists = Directory.Exists(path); } catch { }
+                try { exists = Directory.Exists(path); }
+                catch { }
                 if (exists) { FillDiskScopes(path); DoDiskScan(); }
+                // раньше здесь не было ветки else: переехавшая или удалённая папка означала
+                // переход на «Диск» и полную тишину — щелчок выглядел ничего не сделавшим
+                else _lblHealthInfo.Text = Tr.S("Папка не найдена: ", "Folder not found: ") + path;
                 return;
             }
             if (k.StartsWith("tool:"))
@@ -456,13 +574,36 @@ namespace WindowsProcessCleaner
             }
             if (k.StartsWith("open:"))
             {
-                try
+                // Двойной щелчок и удержанный Enter повторяют действие: без задержки каждое
+                // повторение поднимало ещё одну копию окна.
+                if ((DateTime.UtcNow - _lastHealthOpen).TotalMilliseconds < 1000) return;
+                _lastHealthOpen = DateTime.UtcNow;
+                string target = k.Substring(5);
+                _lblHealthInfo.Text = Tr.S("Открываю: ", "Opening: ") + target + "…";
+                // ShellExecute на UI-потоке подвешивал окно на время холодного старта цели
+                Thread t = new Thread(delegate()
                 {
-                    ProcessStartInfo psi = new ProcessStartInfo(k.Substring(5));
-                    psi.UseShellExecute = true;
-                    Process.Start(psi);
-                }
-                catch (Exception ex) { MsgError(ex.Message); }
+                    string err = null;
+                    try
+                    {
+                        ProcessStartInfo psi = new ProcessStartInfo(target);
+                        psi.UseShellExecute = true;
+                        Process.Start(psi);
+                    }
+                    catch (Exception ex) { err = ex.Message; }
+                    string errCopy = err;
+                    UiPost(delegate
+                    {
+                        if (errCopy == null) _lblHealthInfo.Text = Tr.S("Открыто: ", "Opened: ") + target;
+                        else
+                        {
+                            _lblHealthInfo.Text = Tr.S("Не удалось открыть ", "Could not open ") + target + ": " + errCopy;
+                            MsgError(errCopy);
+                        }
+                    });
+                });
+                t.IsBackground = true;
+                t.Start();
             }
         }
 
@@ -471,12 +612,21 @@ namespace WindowsProcessCleaner
         // файлы — только по галочке, и всё равно через подтверждение с размерами: файлы менее обратимы.
         private void DoBoost()
         {
-            if (Interlocked.CompareExchange(ref _boostBusy, 1, 0) != 0) return;
+            if (Interlocked.CompareExchange(ref _boostBusy, 1, 0) != 0)
+            {
+                _lblBoostResult.Text = Tr.S("Ускорение уже идёт — дождитесь его или нажмите «Остановить».",
+                                            "A boost is already running — wait for it or click “Stop”.");
+                return;
+            }
+            _boostCancel = false;
             bool temp = _chkBoostTemp != null && _chkBoostTemp.Checked;
             string was = _btnBoost.Text;
             _btnBoost.Enabled = false;
             _btnBoost.Text = Tr.S("Ускоряю…", "Boosting…");
-            _lblBoostResult.Text = Tr.S("Завершаю заброшенные процессы и очищаю Standby Memory…", "Terminating abandoned processes and purging Standby Memory…");
+            _boostPhase = Tr.S("Завершаю заброшенные процессы и очищаю Standby Memory", "Terminating abandoned processes and purging Standby Memory");
+            _boostStarted = DateTime.UtcNow;
+            UpdateHomeStopButton();
+            StartHomeTicker();
             Thread t = new Thread(delegate()
             {
                 int killed = 0; long freedProc = 0, freedMem = 0, freedDisk = 0; int files = 0;
@@ -488,14 +638,17 @@ namespace WindowsProcessCleaner
                     List<int> pids = new List<int>();
                     foreach (ProcInfo p in _engine.Scan(_engine.Config.GlobalScan))
                         if (p.IsCandidate) { pids.Add(p.Pid); names.Add(p.Name + " (pid " + p.Pid + ")"); }
-                    if (pids.Count > 0) killed = _engine.TerminateMany(pids, out freedProc);
+                    if (pids.Count > 0)
+                        killed = _engine.TerminateMany(pids, out freedProc,
+                            delegate(string s) { _boostPhase = Tr.S("Завершаю процессы: ", "Terminating processes: ") + s; },
+                            delegate { return _boostCancel || _closing; });
                     Engine.MemResult mr = _engine.PurgeStandby();
                     freedMem = mr.FreedBytes;
                     if (!mr.Ok) memNote = mr.Message;
 
-                    if (temp)
+                    if (temp && !_boostCancel)
                     {
-                        UiPost(delegate { _lblBoostResult.Text = Tr.S("Считаю временные файлы…", "Measuring temporary files…"); });
+                        UiPost(delegate { _boostPhase = Tr.S("Считаю временные файлы", "Measuring temporary files"); });
                         CleanCategory sys = null;
                         foreach (CleanCategory c in _engine.BuildCleanCategories()) if (c.Id == "sys") { sys = c; break; }
                         if (sys != null)
@@ -503,7 +656,8 @@ namespace WindowsProcessCleaner
                             // не сбрасывать чужой «Стоп»: флаг общий с вкладкой очистки
                             _engine.TryResetDiskCancel();
                             _engine.AnalyzeCategory(sys);
-                            if (sys.Size > 0)
+                            if (_boostCancel) tempSkipped = true;
+                            else if (sys.Size > 0)
                             {
                                 bool yes = false;
                                 string q = Tr.S("Удалить временные файлы?\r\n\r\n", "Delete temporary files?\r\n\r\n")
@@ -516,6 +670,9 @@ namespace WindowsProcessCleaner
                                 if (yes)
                                 {
                                     string op = Tr.S("удаление временных файлов", "temporary files deletion");
+                                    // подпись оставалась «Считаю временные файлы…» всё удаление,
+                                    // то есть врала как раз в самой необратимой фазе
+                                    UiPost(delegate { _boostPhase = Tr.S("Удаляю временные файлы", "Deleting temporary files"); });
                                     BeginWrite(op);
                                     try
                                     {
@@ -533,23 +690,32 @@ namespace WindowsProcessCleaner
                 catch (Exception ex) { err = ex.Message; }
                 try { if (killed > 0 || freedMem > 0) SaveHistory(killed, freedProc + freedMem, names); } catch { }
 
-                Interlocked.Exchange(ref _boostBusy, 0);
+                bool stopped = _boostCancel;
                 UiPost(delegate
                 {
-                    string msg = Tr.S("Готово: процессов завершено ", "Done: processes terminated ") + killed
+                    // флаг снимаем здесь, а не в потоке: снятый раньше, он пускал второе
+                    // ускорение, которому этот же обработчик тут же возвращал кнопку и подпись
+                    Interlocked.Exchange(ref _boostBusy, 0);
+                    UpdateHomeStopButton();
+                    string msg = (stopped ? Tr.S("Остановлено: процессов завершено ", "Stopped: processes terminated ")
+                                          : Tr.S("Готово: процессов завершено ", "Done: processes terminated ")) + killed
                                + Tr.S("  ·  памяти освобождено ~", "  ·  memory freed ~") + Engine.FormatBytes(freedProc + freedMem);
                     if (temp && !tempSkipped) msg += Tr.S("  ·  файлов удалено ", "  ·  files deleted ") + files + " (" + Engine.FormatBytes(freedDisk) + ")";
-                    if (tempSkipped) msg += Tr.S("  ·  временные файлы пропущены", "  ·  temp files skipped");
+                    if (tempSkipped) msg += stopped ? Tr.S("  ·  временные файлы не тронуты: остановлено", "  ·  temp files untouched: stopped")
+                                                    : Tr.S("  ·  временные файлы пропущены", "  ·  temp files skipped");
                     if (memNote != null) msg += "  ·  " + memNote;
                     if (err != null) msg += Tr.S("  ·  ошибка: ", "  ·  error: ") + err;
+                    msg += Tr.S("  ·  заняло ", "  ·  took ") + Elapsed(DateTime.UtcNow - _boostStarted);
                     _lblBoostResult.Text = msg;
                     _btnBoost.Text = was;
                     _btnBoost.Enabled = true;
-                    if (_tray != null) _tray.ShowBalloonTip(3000, Tr.S("Ускорение выполнено", "Boost done"), msg, ToolTipIcon.Info);
+                    if (_tray != null) _tray.ShowBalloonTip(3000, stopped ? Tr.S("Ускорение остановлено", "Boost stopped") : Tr.S("Ускорение выполнено", "Boost done"), msg, ToolTipIcon.Info);
                     UpdateHomeCards();
                     RefreshHistory();
                     UpdateTrayState();
-                    if (_health != null && Visible) RunHealthCheck();
+                    // после остановки не запускаем следом проверку состояния: пользователь
+                    // только что попросил перестать грузить диск
+                    if (_health != null && Visible && !stopped) RunHealthCheck();
                 });
             });
             t.IsBackground = true;

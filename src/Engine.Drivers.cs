@@ -57,9 +57,13 @@ namespace WindowsProcessCleaner
             error = null;
             List<DriverPackage> all = new List<DriverPackage>();
             string so; int code;
-            if (!RunCapture(PnpUtilPath(), "/enum-drivers", 90000, out so, out code, OemEncoding(), null) || code != 0)
+            // Перечисление пакетов занимает секунды; полторы минуты ожидания означали только то,
+            // что при зависшем pnputil строка «Пакеты драйверов» стояла в «…» полторы минуты.
+            bool ran = RunCapture(PnpUtilPath(), "/enum-drivers", 30000, out so, out code, OemEncoding(),
+                                  delegate { return _cancelDisk; });
+            if (!ran || code != 0)
             {
-                error = "pnputil: " + code;
+                error = "pnputil: " + RunFailText(ran, code);
                 return all;
             }
 
@@ -218,8 +222,10 @@ namespace WindowsProcessCleaner
 
         private void AnalyzeDriverStore(CleanCategory c)
         {
+            c.Progress = "pnputil…";
             string err;
             List<DriverPackage> old = OldDriverPackages(out err);
+            c.Progress = null;
             c.Drivers = old;
             foreach (DriverPackage d in old) d.Enabled = !IsTargetOff(DriverKey(d));
             RecalcCategory(c);
@@ -257,16 +263,21 @@ namespace WindowsProcessCleaner
         {
             long freed = 0;
             if (c.Drivers == null) return 0;
+            int i = 0;
             foreach (DriverPackage d in c.Drivers)
             {
                 if (_cancelDisk) break;
+                i++;
                 if (!d.Enabled)
                 {
                     res.Log.Add("SKIP (off)   DriverStore " + d.Published + "  " + d.Original + " " + d.Version);
                     continue;
                 }
+                c.Progress = Tr.S("пакет ", "package ") + i + "/" + c.Drivers.Count;
+                DiskStatus = c.Title + " · " + c.Progress + " · " + d.Original + " " + d.Version;
                 string so; int code;
-                bool ran = RunCapture(PnpUtilPath(), "/delete-driver " + d.Published, 180000, out so, out code, OemEncoding(), null);
+                bool ran = RunCapture(PnpUtilPath(), "/delete-driver " + d.Published, 180000, out so, out code,
+                                      OemEncoding(), delegate { return _cancelDisk; });
                 // 3010 = ERROR_SUCCESS_REBOOT_REQUIRED — пакет удалён, полный эффект после перезагрузки
                 bool ok = ran && (code == 0 || code == 3010);
                 if (ok) { freed += d.Size; res.FilesDeleted++; }
@@ -275,6 +286,7 @@ namespace WindowsProcessCleaner
                             + "  " + d.Original + " " + (d.Provider ?? "") + " " + d.Version
                             + (ok ? "" : "  pnputil: " + RunFailText(ran, code)));
             }
+            c.Progress = null;
             return freed;
         }
 
@@ -296,30 +308,113 @@ namespace WindowsProcessCleaner
             return (long)(n * mul);
         }
 
+        // Доля процентов из прогресс-бара DISM: «[====   42.0%   ====]».
+        private static readonly Regex _rxDismPercent = new Regex(@"(\d{1,3}(?:[.,]\d+)?)\s*%", RegexOptions.Compiled);
+
+        private static string DismStatus(string task, string line, long ms)
+        {
+            string pct = null;
+            if (!string.IsNullOrEmpty(line))
+            {
+                Match m = _rxDismPercent.Match(line);
+                if (m.Success) pct = m.Groups[1].Value.Replace(',', '.') + "%";
+            }
+            long sec = ms / 1000;
+            return task + " " + (pct ?? "…") + "  " + (sec / 60) + ":" + (sec % 60).ToString("00");
+        }
+
+        // DISM своё отработал: дальше он либо молчит, либо спрашивает про перезагрузку.
+        // Ждать после этой строки нечего — см. комментарий у RunCapture.
+        private static bool DismFinishedLine(string line)
+        {
+            string s = line.Trim();
+            return s.StartsWith("The operation completed successfully", StringComparison.OrdinalIgnoreCase)
+                || s.StartsWith("Error:", StringComparison.OrdinalIgnoreCase)
+                || s.IndexOf("Restart Windows to complete", StringComparison.OrdinalIgnoreCase) >= 0
+                || s.IndexOf("restart the computer now", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool DismSaidOk(string so)
+        {
+            return so != null && so.IndexOf("The operation completed successfully", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        // 3010 = ERROR_SUCCESS_REBOOT_REQUIRED: работа сделана, системе нужна перезагрузка.
+        // Раньше он считался ошибкой, и разобранный отчёт выбрасывался.
+        private static bool DismOk(bool ran, int code, string so)
+        {
+            return DismSaidOk(so) || (ran && (code == 0 || code == 3010));
+        }
+
+        private static bool DismRebootPending(string so)
+        {
+            return so != null && (so.IndexOf("Restart Windows to complete", StringComparison.OrdinalIgnoreCase) >= 0
+                               || so.IndexOf("restart is required", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool DismBadOption(string so, int code)
+        {
+            return code == 87 || (so != null && so.IndexOf("Error: 87", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        // /NoRestart гасит вопрос о перезагрузке в корне. Ключ глобальный, но если сборка DISM
+        // его вдруг не примет (ошибка 87), повторяем без него: второй рубеж — закрытый stdin и
+        // выход сразу после итоговой строки — от зависания защищает и без ключа.
+        private bool RunDism(string verb, int timeoutMs, string task, Action<string> status,
+                             out string so, out int code)
+        {
+            bool ran = RunDismOnce(verb + " /NoRestart", timeoutMs, task, status, out so, out code);
+            if (DismBadOption(so, code)) ran = RunDismOnce(verb, timeoutMs, task, status, out so, out code);
+            return ran;
+        }
+
+        private bool RunDismOnce(string args, int timeoutMs, string task, Action<string> status,
+                                 out string so, out int code)
+        {
+            Action<string, long> prog = null;
+            if (status != null)
+            {
+                status(DismStatus(task, null, 0));
+                prog = delegate(string line, long ms) { status(DismStatus(task, line, ms)); };
+            }
+            return RunCapture(DismPath(), args, timeoutMs, out so, out code, null,
+                              delegate { return _cancelDisk; }, prog, DismFinishedLine);
+        }
+
         private void AnalyzeComponentStore(CleanCategory c)
         {
+            c.Size = 0; c.FileCount = 0; c.Note = null;
             string so; int code;
-            bool ran = RunCapture(DismPath(), "/Online /Cleanup-Image /AnalyzeComponentStore /English", 1200000,
-                                  out so, out code, null, delegate { return _cancelDisk; });
+            // Отчёт готовится за десятки секунд (в разобранном случае — 39 с). Двадцать минут
+            // ожидания были не «на всякий случай», а ровно тем, что пользователь видел как зависание;
+            // выход теперь и так происходит по итоговой строке отчёта, а это — последний рубеж.
+            bool ran = RunDism("/Online /Cleanup-Image /AnalyzeComponentStore /English", 600000,
+                               Tr.S("DISM считает", "DISM analyzing"),
+                               delegate(string s) { c.Progress = s; }, out so, out code);
+            c.Progress = null;
             c.Analyzed = !_cancelDisk;
-            c.Size = 0; c.FileCount = 0;
-            if (!ran || code != 0)
-            {
-                c.Note = "DISM: " + RunFailText(ran, code);
-                return;
-            }
-            long store = 0, reclaim = 0; bool rec = false; string last = null; int pkgs = -1;
-            foreach (string raw in so.Split('\n'))
+
+            long store = 0, reclaim = 0; bool rec = false, got = false; string last = null; int pkgs = -1;
+            foreach (string raw in (so ?? "").Split('\n'))
             {
                 string line = raw.Trim();
                 int colon = line.IndexOf(':');
                 if (colon <= 0) continue;
                 string label = line.Substring(0, colon).Trim(), val = line.Substring(colon + 1).Trim();
                 if (label.StartsWith("Backups and Disabled Features", StringComparison.OrdinalIgnoreCase)) reclaim = ParseDismSize(val);
-                else if (label.StartsWith("Actual Size of Component Store", StringComparison.OrdinalIgnoreCase)) store = ParseDismSize(val);
+                else if (label.StartsWith("Actual Size of Component Store", StringComparison.OrdinalIgnoreCase)) { store = ParseDismSize(val); got = true; }
                 else if (label.StartsWith("Component Store Cleanup Recommended", StringComparison.OrdinalIgnoreCase)) rec = val.StartsWith("Yes", StringComparison.OrdinalIgnoreCase);
                 else if (label.StartsWith("Number of Reclaimable Packages", StringComparison.OrdinalIgnoreCase)) int.TryParse(val, out pkgs);
                 else if (label.StartsWith("Date of Last Cleanup", StringComparison.OrdinalIgnoreCase)) last = val;
+            }
+            // Годность решает разобранный отчёт, а не код возврата: DISM отдаёт 3010, когда
+            // системе нужна перезагрузка, и это не ошибка.
+            if (!got)
+            {
+                c.Note = "DISM: " + (_cancelDisk ? Tr.S("остановлено", "cancelled")
+                                   : ran && code == 0 ? Tr.S("отчёт не получен", "no report returned")
+                                   : RunFailText(ran, code));
+                return;
             }
             c.Size = reclaim;
             c.FileCount = pkgs > 0 ? pkgs : 0;
@@ -327,18 +422,26 @@ namespace WindowsProcessCleaner
                    + Tr.S(", устаревшие компоненты: ", ", superseded components: ") + FormatBytes(reclaim)
                    + (rec ? Tr.S(" · DISM рекомендует очистку", " · DISM recommends cleanup") : "")
                    + (string.IsNullOrEmpty(last) ? "" : Tr.S(" · последняя очистка: ", " · last cleanup: ") + last)
+                   + (DismRebootPending(so) ? Tr.S(" · системе нужна перезагрузка", " · the system needs a restart") : "")
                    + Tr.S(" — после очистки уже заменённые обновления нельзя откатить", " — superseded updates cannot be rolled back afterwards");
         }
 
         private long CleanComponentStore(CleanCategory c, CleanResult res)
         {
             string so; int code;
-            bool ran = RunCapture(DismPath(), "/Online /Cleanup-Image /StartComponentCleanup /English", 3600000,
-                                  out so, out code, null, delegate { return _cancelDisk; });
-            bool ok = ran && (code == 0 || code == 3010);
+            // Сама очистка на большом WinSxS идёт минуты, редко — десятки минут; час ожидания
+            // отличал «работает» от «встало» только по секундомеру пользователя. Прогресс DISM
+            // виден в строке категории, «Стоп» опрашивается — получаса с запасом хватает.
+            bool ran = RunDism("/Online /Cleanup-Image /StartComponentCleanup /English", 1800000,
+                               Tr.S("DISM чистит", "DISM cleaning"),
+                               delegate(string s) { c.Progress = s; DiskStatus = c.Title + " · " + s; },
+                               out so, out code);
+            c.Progress = null;
+            bool ok = DismOk(ran, code, so);
             if (!ok) res.Errors++;
             res.Log.Add((ok ? FormatBytes(c.Size) : "ERR").PadLeft(10) + "  DISM /StartComponentCleanup"
-                        + (ok ? "" : "  " + RunFailText(ran, code)));
+                        + (ok ? (DismRebootPending(so) ? Tr.S("  (нужна перезагрузка)", "  (restart required)") : "")
+                              : "  " + RunFailText(ran, code)));
             return ok ? c.Size : 0;
         }
 
@@ -351,11 +454,17 @@ namespace WindowsProcessCleaner
         //  - RegKey* игнорируются: чистка реестра не делается вообще;
         //  - секции с ExcludeKey* и Warning= пропускаются целиком — правило само
         //    сообщает, что там есть чего не трогать, и угадывать мы не будем.
+        // Порядок поиска: сначала защищённая копия в %ProgramData% (её не может переписать
+        // процесс без прав администратора), затем старое место в %APPDATA% и файл рядом с exe.
+        // Оба последних доступны на запись обычному процессу, поэтому правила из них проходят
+        // тот же строгий предохранитель IsRuleTargetAllowed — см. Engine.DiskWork.cs.
         public string Winapp2Path
         {
             get
             {
-                string local = Path.Combine(_dir, "winapp2.ini");
+                string prot = Path.Combine(ProtectedRulesDir, "winapp2.ini");
+                if (File.Exists(prot)) return prot;
+                string local = LegacyWinapp2Path;
                 if (File.Exists(local)) return local;
                 try
                 {

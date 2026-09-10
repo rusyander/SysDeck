@@ -378,6 +378,16 @@ namespace WindowsProcessCleaner
         // всем сразу и ожидание общее, поэтому 20 процессов стоят ~6 с, а не 20*6 с.
         public int TerminateMany(List<int> pids, out long freed)
         {
+            return TerminateMany(pids, out freed, null, null);
+        }
+
+        // stage — что происходит прямо сейчас (для строки состояния), cancel опрашивается на
+        // границах этапов и внутри пауз. Без них кнопки Dev Cleanup молчали все 3–20 секунд:
+        // рассылка WM_CLOSE, общая пауза 2,5 с и добивание выглядели одним зависанием.
+        // Отмена означает «не переходить к принудительному завершению»: уже закрывшиеся
+        // процессы посчитаны, живые остаются жить.
+        public int TerminateMany(List<int> pids, out long freed, Action<string> stage, Func<bool> cancel)
+        {
             freed = 0;
             int killed = 0;
             if (pids == null || pids.Count == 0) return 0;
@@ -389,8 +399,12 @@ namespace WindowsProcessCleaner
 
             try
             {
+                int opened = 0;
                 foreach (int pid in unique)
                 {
+                    if (cancel != null && cancel()) break;
+                    opened++;
+                    if (stage != null) stage(Tr.S("открываю процессы: ", "opening processes: ") + opened + "/" + unique.Count);
                     if (pid <= 4 || pid == _selfPid) continue;
                     IntPtr h = Native.OpenProcess(KillAccess | Native.PROCESS_VM_READ, false, pid);
                     if (h == IntPtr.Zero) h = Native.OpenProcess(KillAccess, false, pid);
@@ -406,6 +420,7 @@ namespace WindowsProcessCleaner
 
                 // 1) мягко: WM_CLOSE всем окнам всех процессов сразу
                 bool anyWindow = false;
+                if (stage != null) stage(Tr.S("прошу закрыться по-хорошему", "asking to close politely"));
                 foreach (KeyValuePair<int, IntPtr> kv in handles)
                 {
                     List<IntPtr> wins;
@@ -419,12 +434,20 @@ namespace WindowsProcessCleaner
                 }
 
                 // 2) одно общее ожидание на всех
-                if (anyWindow) Thread.Sleep(2500);
+                if (anyWindow) SleepCancellable(2500, stage, cancel,
+                                                Tr.S("жду закрытия окон", "waiting for the windows to close"));
 
-                // 3) кто не ушёл — принудительно
+                // 3) кто не ушёл — принудительно. Нажатый «Стоп» останавливает именно здесь:
+                // добивать процессы после отмены — не то, чего ждёт нажавший.
+                bool stop = cancel != null && cancel();
                 List<int> forced = new List<int>();
                 foreach (KeyValuePair<int, IntPtr> kv in handles)
                 {
+                    if (stop)
+                    {
+                        if (Native.WaitForSingleObject(kv.Value, 0) == Native.WAIT_OBJECT_0) { killed++; freed += ws[kv.Key]; }
+                        continue;
+                    }
                     if (Native.WaitForSingleObject(kv.Value, 0) == Native.WAIT_OBJECT_0)
                     {
                         killed++; freed += ws[kv.Key];
@@ -435,7 +458,8 @@ namespace WindowsProcessCleaner
                 }
                 if (forced.Count > 0)
                 {
-                    Thread.Sleep(500);
+                    if (stage != null) stage(Tr.S("завершаю принудительно: ", "terminating by force: ") + forced.Count);
+                    SleepCancellable(500, null, null, null);
                     foreach (int pid in forced)
                     {
                         IntPtr h = handles[pid];
@@ -509,15 +533,41 @@ namespace WindowsProcessCleaner
             finally { Marshal.FreeHGlobal(p); }
         }
 
+        // Пауза, которую можно прервать: 2,5 секунды сна на UI-потоке или без опроса отмены —
+        // это то самое «нажал и ничего не происходит», ради которого всё и переписывалось.
+        private static void SleepCancellable(int ms, Action<string> stage, Func<bool> cancel, string what)
+        {
+            int left = ms;
+            while (left > 0)
+            {
+                if (cancel != null && cancel()) return;
+                if (stage != null && what != null) stage(what + " (" + ((left + 999) / 1000) + Tr.S(" с)", " s)"));
+                int slice = left > 250 ? 250 : left;
+                Thread.Sleep(slice);
+                left -= slice;
+            }
+        }
+
         // ---------- Массовое завершение по группе (Dev Cleanup) ----------
         public int TerminateByNames(string[] names, out long freed)
+        {
+            int matched;
+            return TerminateByNames(names, out freed, out matched, null, null);
+        }
+
+        // matched — сколько процессов группы вообще нашлось. Без этого «завершено: 0» одинаково
+        // означало и «нечего было завершать», и «не хватило прав»; на экране это выглядело
+        // как кнопка, которая ничего не делает.
+        public int TerminateByNames(string[] names, out long freed, out int matched,
+                                    Action<string> stage, Func<bool> cancel)
         {
             HashSet<string> want = new HashSet<string>(names.Select(n => n.ToLowerInvariant()));
             List<int> pids = new List<int>();
             foreach (RawProc r in Snapshot())
                 if (want.Contains(r.Name.ToLowerInvariant()) && !IsWhitelisted(r.Name))
                     pids.Add(r.Pid);
-            return TerminateMany(pids, out freed);
+            matched = pids.Count;
+            return TerminateMany(pids, out freed, stage, cancel);
         }
 
         // ---------- Занятые dev-порты ----------

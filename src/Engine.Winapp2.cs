@@ -16,6 +16,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -27,20 +28,94 @@ namespace WindowsProcessCleaner
 {
     public partial class Engine
     {
-        public string Winapp2TargetPath { get { return Path.Combine(_dir, "winapp2.ini"); } }
+        // Куда кладём базу правил. %APPDATA% открыт на запись любому процессу, работающему от имени
+        // пользователя, а чистим мы от администратора: подложенный туда winapp2.ini означал бы
+        // удаление чужих файлов нашими правами. Рабочая копия поэтому живёт в
+        // %ProgramData%\WindowsProcessCleaner с явным DACL: SYSTEM и администраторы — полный доступ,
+        // пользователи — только чтение. Если папку создать не удалось (запуск без прав), откатываемся
+        // на старое место, а сами правила всё равно проходят строгий предохранитель
+        // IsRuleTargetAllowed — подмена файла не даёт ничего сверх того, что процесс мог и сам.
+        public string ProtectedRulesDir
+        {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                                    "WindowsProcessCleaner");
+            }
+        }
+
+        public string LegacyWinapp2Path { get { return Path.Combine(_dir, "winapp2.ini"); } }
+
+        public string Winapp2TargetPath
+        {
+            get
+            {
+                string dir = ProtectedRulesDir;
+                if (EnsureProtectedRulesDir(dir)) return Path.Combine(dir, "winapp2.ini");
+                return LegacyWinapp2Path;
+            }
+        }
+
+        // true = каталог существует и защищён от записи непривилегированным процессом.
+        private static bool EnsureProtectedRulesDir(string dir)
+        {
+            try
+            {
+                DirectorySecurity sec = new DirectorySecurity();
+                // Наследование выключаем сознательно: в самом %ProgramData% у группы «Пользователи»
+                // есть право создавать файлы, и унаследованный DACL сохранил бы дыру.
+                sec.SetAccessRuleProtection(true, false);
+                SecurityIdentifier sys = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                SecurityIdentifier adm = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                SecurityIdentifier usr = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+                InheritanceFlags inh = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+                sec.AddAccessRule(new FileSystemAccessRule(sys, FileSystemRights.FullControl, inh, PropagationFlags.None, AccessControlType.Allow));
+                sec.AddAccessRule(new FileSystemAccessRule(adm, FileSystemRights.FullControl, inh, PropagationFlags.None, AccessControlType.Allow));
+                sec.AddAccessRule(new FileSystemAccessRule(usr, FileSystemRights.ReadAndExecute, inh, PropagationFlags.None, AccessControlType.Allow));
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir, sec);
+                DirectoryInfo di = new DirectoryInfo(dir);
+                di.SetAccessControl(sec);   // папка могла остаться от прошлой версии с наследованием
+
+                // Владелец — администраторы: владелец всегда может переписать DACL обратно, поэтому
+                // каталог, созданный когда-то обычным процессом, без смены владельца защитой не является.
+                // Смена владельца — отдельным вызовом: без прав она не должна отменять уже поставленный DACL.
+                try
+                {
+                    DirectorySecurity own = new DirectorySecurity();
+                    own.SetOwner(adm);
+                    di.SetAccessControl(own);
+                }
+                catch { }
+
+                // Защитой считаем только то, что проверено: владелец — администраторы или SYSTEM.
+                // Иначе честно откатываемся на старое место и не называем каталог защищённым.
+                IdentityReference owner = di.GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier));
+                return owner != null && (owner.Value == adm.Value || owner.Value == sys.Value);
+            }
+            catch { return false; }
+        }
+
         public int Winapp2RuleCount { get; private set; }
+
+        // Файл правил взят из папки, защищённой от записи обычным процессом.
+        public bool Winapp2Protected { get; private set; }
 
         private const string Winapp2Url =
             "https://raw.githubusercontent.com/MoscaDotTo/Winapp2/master/Winapp2.ini";
 
-        public void DownloadWinapp2()
+        public void DownloadWinapp2() { DownloadWinapp2(null, null); }
+
+        // progress(получено, всего) — всего = -1, если сервер не сообщил размер; cancel опрашивается
+        // на каждом блоке. Раньше здесь стоял WebClient.DownloadData без единого таймаута: на
+        // «залипшем» соединении кнопка «Правила winapp2» висела на «Загрузка базы правил…»
+        // сколько угодно долго и не отменялась.
+        public void DownloadWinapp2(Action<long, long> progress, Func<bool> cancel)
         {
             // .NET 4.0 по умолчанию не умеет TLS 1.2, а GitHub принимает только его
             try { ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; } catch { }
-            using (WebClient wc = new WebClient())
             {
-                wc.Headers.Add("User-Agent", "WindowsProcessCleaner");
-                byte[] data = wc.DownloadData(Winapp2Url);
+                byte[] data = HttpGet(Winapp2Url, 30000, 60000, progress, cancel);
+                if (data == null) throw new OperationCanceledException(Tr.S("Загрузка остановлена.", "Download stopped."));
                 // Это должен быть ini с правилами, а не страница ошибки или заглушка: иначе
                 // битый файл заменил бы рабочий, и все правила исчезли бы до следующей загрузки.
                 string head = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, 65536));
@@ -50,10 +125,51 @@ namespace WindowsProcessCleaner
                 if (data.Length < 10000 || !looksIni)
                     throw new InvalidDataException(Tr.S("получен не winapp2.ini (", "the response is not a winapp2.ini (")
                                                    + data.Length + Tr.S(" байт)", " bytes)"));
-                string tmp = Winapp2TargetPath + ".tmp";
-                File.WriteAllBytes(tmp, data);
-                if (File.Exists(Winapp2TargetPath)) File.Replace(tmp, Winapp2TargetPath, null);
-                else File.Move(tmp, Winapp2TargetPath);
+                string dest = Winapp2TargetPath;
+                // Имя временного файла уникально: два одновременных нажатия «Правила winapp2»
+                // писали в один и тот же .tmp и мешали друг другу на File.Replace.
+                string tmp = dest + "." + Process.GetCurrentProcess().Id + "-" + Environment.TickCount + ".tmp";
+                try
+                {
+                    File.WriteAllBytes(tmp, data);
+                    if (File.Exists(dest)) File.Replace(tmp, dest, null);
+                    else File.Move(tmp, dest);
+                }
+                finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { } }
+                // Старая копия в %APPDATA% больше не используется и только сбивает с толку:
+                // её мог переписать любой процесс пользователя.
+                if (!string.Equals(dest, LegacyWinapp2Path, StringComparison.OrdinalIgnoreCase))
+                    try { if (File.Exists(LegacyWinapp2Path)) File.Delete(LegacyWinapp2Path); } catch { }
+            }
+        }
+
+        // Скачивание блоками: срок на соединение и срок на КАЖДОЕ чтение (без второго
+        // «живое, но молчащее» соединение висит бесконечно), плюс опрос отмены между блоками.
+        // null = остановлено пользователем.
+        private static byte[] HttpGet(string url, int connectTimeoutMs, int readTimeoutMs,
+                                      Action<long, long> progress, Func<bool> cancel)
+        {
+            HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+            req.UserAgent = "WindowsProcessCleaner";
+            req.Timeout = connectTimeoutMs;
+            req.ReadWriteTimeout = readTimeoutMs;
+            req.AllowAutoRedirect = true;
+            using (WebResponse resp = req.GetResponse())
+            using (Stream s = resp.GetResponseStream())
+            {
+                long total = resp.ContentLength;
+                MemoryStream ms = new MemoryStream(total > 0 ? (int)Math.Min(total, 64 * 1024 * 1024) : 1024 * 1024);
+                byte[] buf = new byte[64 * 1024];
+                long got = 0;
+                int n;
+                while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                {
+                    if (cancel != null && cancel()) return null;
+                    ms.Write(buf, 0, n);
+                    got += n;
+                    if (progress != null) progress(got, total);
+                }
+                return ms.ToArray();
             }
         }
 
@@ -155,9 +271,11 @@ namespace WindowsProcessCleaner
         private List<CleanCategory> LoadWinapp2Categories()
         {
             Winapp2RuleCount = 0;
+            Winapp2Protected = false;
             List<CleanCategory> result = new List<CleanCategory>();
             string ini = Winapp2Path;
             if (ini == null) return result;
+            Winapp2Protected = ini.StartsWith(ProtectedRulesDir, StringComparison.OrdinalIgnoreCase);
 
             // группируем правила по Section=, иначе в списке будут сотни строк
             Dictionary<string, CleanCategory> groups = new Dictionary<string, CleanCategory>(StringComparer.OrdinalIgnoreCase);
@@ -210,7 +328,7 @@ namespace WindowsProcessCleaner
                         int before = cat.Targets.Count;
                         // Порог «не удалять свежее N минут» распространяется и на winapp2:
                         // пользователь задаёт его в настройках и ждёт, что он действует везде.
-                        AddDir(cat, dir, !removeSelf, all ? null : mask, Config.CleanSkipRecentMinutes, recurse);
+                        AddDir(cat, dir, !removeSelf, all ? null : mask, Config.CleanSkipRecentMinutes, recurse, true);
                         if (cat.Targets.Count > before) added++;
                     }
                 }

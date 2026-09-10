@@ -33,9 +33,16 @@ namespace WindowsProcessCleaner
         private ListView _lvBrowser;
         private Label _lblBrowserInfo;
         private Button _btnBrowserStop;
+        private Button _btnBrowserRefresh, _btnBrowserDelete, _btnBrowserMove, _btnBrowserDup, _btnBrowserLinks;
         private List<BrowserSnapshot> _snapshots;
+        // Один флаг на всю вкладку: чтение, проверка ссылок и запись закладок не должны
+        // идти вперемешку (см. BeginBrowserOp).
         private int _browserBusy;
-        private volatile bool _linkCancel;
+        private volatile bool _browserCancel;
+        private BusyTicker _browserTicker;
+        // Начатые HTTP-запросы проверки: «Стоп» рвёт их, иначе кнопка молчала бы
+        // до истечения десятисекундного таймаута каждого.
+        private readonly List<HttpWebRequest> _linkRequests = new List<HttpWebRequest>();
         private ContextMenu _browserMenu;
 
         // Что именно выбрано в дереве. Одного enum мало: нужен и снимок профиля,
@@ -56,29 +63,29 @@ namespace WindowsProcessCleaner
 
             FlowLayoutPanel top = MkToolbar();
 
-            Button btnRefresh = MkFlowButton(Tr.S("Прочитать браузеры", "Read browsers"), 190, true);
-            btnRefresh.Click += delegate { RefreshBrowsers(true); };
-            Button btnDelete = MkFlowButton(Tr.S("Удалить выбранное", "Delete selected"), 180, false);
-            btnDelete.Click += delegate { DeleteSelectedBookmarks(); };
-            Button btnMove = MkFlowButton(Tr.S("Переместить…", "Move to…"), 150, false);
-            btnMove.Click += delegate { MoveSelectedBookmarks(); };
-            Button btnDup = MkFlowButton(Tr.S("Дубликаты", "Duplicates"), 130, false);
-            btnDup.Click += delegate { ShowDuplicates(); };
-            Button btnLinks = MkFlowButton(Tr.S("Проверить ссылки", "Check links"), 175, false);
-            btnLinks.Click += delegate { CheckLinks(); };
+            _btnBrowserRefresh = MkFlowButton(Tr.S("Прочитать браузеры", "Read browsers"), 190, true);
+            _btnBrowserRefresh.Click += delegate { RefreshBrowsers(true); };
+            _btnBrowserDelete = MkFlowButton(Tr.S("Удалить выбранное", "Delete selected"), 180, false);
+            _btnBrowserDelete.Click += delegate { DeleteSelectedBookmarks(); };
+            _btnBrowserMove = MkFlowButton(Tr.S("Переместить…", "Move to…"), 150, false);
+            _btnBrowserMove.Click += delegate { MoveSelectedBookmarks(); };
+            _btnBrowserDup = MkFlowButton(Tr.S("Дубликаты", "Duplicates"), 130, false);
+            _btnBrowserDup.Click += delegate { ShowDuplicates(); };
+            _btnBrowserLinks = MkFlowButton(Tr.S("Проверить ссылки", "Check links"), 175, false);
+            _btnBrowserLinks.Click += delegate { CheckLinks(); };
             _btnBrowserStop = MkFlowButton(Tr.S("Стоп", "Stop"), 80, false);
             _btnBrowserStop.Enabled = false;
-            _btnBrowserStop.Click += delegate { _linkCancel = true; };
+            _btnBrowserStop.Click += delegate { StopBrowserWork(); };
 
             Label warn = MkNote(Tr.S("Правятся только закладки и только при закрытом браузере (перед записью — копия). Группы вкладок и список чтения — просмотр: они в базе синхронизации, удаление оттуда браузер откатит.",
                                      "Only bookmarks are edited, and only while the browser is closed (a backup is taken first). Tab groups and the reading list are view-only: they live in the sync database, so a deletion there gets rolled back."), true);
             _lblBrowserInfo = MkNote(Tr.S("Нажмите «Прочитать браузеры»", "Click “Read browsers”"), false);
 
-            top.Controls.Add(btnRefresh);
-            top.Controls.Add(btnDelete);
-            top.Controls.Add(btnMove);
-            top.Controls.Add(btnDup);
-            top.Controls.Add(btnLinks);
+            top.Controls.Add(_btnBrowserRefresh);
+            top.Controls.Add(_btnBrowserDelete);
+            top.Controls.Add(_btnBrowserMove);
+            top.Controls.Add(_btnBrowserDup);
+            top.Controls.Add(_btnBrowserLinks);
             top.Controls.Add(_btnBrowserStop);
 
             SplitContainer split = new SplitContainer();
@@ -110,6 +117,7 @@ namespace WindowsProcessCleaner
             _lvBrowser.View = View.Details;
             _lvBrowser.CheckBoxes = true;
             _lvBrowser.FullRowSelect = true;
+            MemWatch(_lvBrowser, BrowserScope, false, BrowserMemKey);
             // Ширины подобраны так, чтобы все шесть колонок влезали в правую панель
             // при ширине окна по умолчанию. Остаток забирает URL, а не последняя
             // колонка: «Ссылка» держит результат проверки («нет домена», «сертификат»),
@@ -150,32 +158,127 @@ namespace WindowsProcessCleaner
             return tab;
         }
 
+        // ---------- занятость вкладки ----------
+
+        // Все длинные операции вкладки ходят через эти ворота. Раньше флаг брали только
+        // чтение и проверка ссылок, а запись закладок — нет: удаление во время проверки
+        // подменяло снимок профиля, дерево и список перестраивались, и восемь потоков
+        // проверки дописывали результаты в уже отсоединённые строки — проверка «заканчивалась»,
+        // а её результат исчезал бесследно.
+        private bool BeginBrowserOp(string stage, bool cancellable)
+        {
+            if (Interlocked.CompareExchange(ref _browserBusy, 1, 0) != 0)
+            {
+                _lblBrowserInfo.Text = Tr.S("Уже идёт чтение, проверка ссылок или запись закладок — дождитесь окончания или нажмите «Стоп».",
+                                            "A read, a link check or a bookmarks write is already running — wait for it or press “Stop”.");
+                return false;
+            }
+            _browserCancel = false;
+            SetBrowserButtons(false);
+            _btnBrowserStop.Enabled = cancellable;
+            _browserTicker = new BusyTicker(_lblBrowserInfo, stage);
+            return true;
+        }
+
+        // Только из UI-потока. report == null — текст метки оставляем как есть
+        // (его пишет тот, кто заполняет дерево).
+        private void EndBrowserOp(string report)
+        {
+            if (_browserTicker != null) { _browserTicker.Stop(); _browserTicker = null; }
+            _btnBrowserStop.Enabled = false;
+            SetBrowserButtons(true);
+            Interlocked.Exchange(ref _browserBusy, 0);
+            if (report != null) _lblBrowserInfo.Text = report;
+        }
+
+        // Зовётся из фоновых потоков, поэтому поле читается в локальную переменную.
+        private void BrowserStage(string stage)
+        {
+            BusyTicker t = _browserTicker;
+            if (t != null) t.SetStage(stage);
+        }
+
+        private void SetBrowserButtons(bool enabled)
+        {
+            if (_btnBrowserRefresh != null) _btnBrowserRefresh.Enabled = enabled;
+            if (_btnBrowserDelete != null) _btnBrowserDelete.Enabled = enabled;
+            if (_btnBrowserMove != null) _btnBrowserMove.Enabled = enabled;
+            if (_btnBrowserDup != null) _btnBrowserDup.Enabled = enabled;
+            if (_btnBrowserLinks != null) _btnBrowserLinks.Enabled = enabled;
+        }
+
+        // «Стоп» обязан отзываться мгновенно. Одного флага мало: HEAD-запрос висит до
+        // 10 секунд, и всё это время кнопка выглядела живой, но бесполезной. Поэтому
+        // гасим саму кнопку, называем стадию и рвём уже начатые запросы.
+        private void StopBrowserWork()
+        {
+            _browserCancel = true;
+            _btnBrowserStop.Enabled = false;
+            BrowserStage(Tr.S("Останавливаю", "Stopping"));
+            AbortLinkRequests();
+        }
+
+        private void AbortLinkRequests()
+        {
+            HttpWebRequest[] arr;
+            lock (_linkRequests) { arr = _linkRequests.ToArray(); _linkRequests.Clear(); }
+            foreach (HttpWebRequest r in arr) { try { r.Abort(); } catch { } }
+        }
+
         // ---------- чтение ----------
 
         private void RefreshBrowsers(bool force)
         {
             if (!force && _snapshots != null) return;
-            if (Interlocked.CompareExchange(ref _browserBusy, 1, 0) != 0)
-            {
-                _lblBrowserInfo.Text = Tr.S("Уже идёт чтение или проверка ссылок — дождитесь окончания или нажмите «Стоп».",
-                                            "Reading or a link check is already running — wait for it or press “Stop”.");
-                return;
-            }
-            _lblBrowserInfo.Text = Tr.S("Чтение профилей браузеров…", "Reading browser profiles…");
+            if (!BeginBrowserOp(Tr.S("Чтение профилей браузеров", "Reading browser profiles"), true)) return;
             Thread t = new Thread(delegate()
             {
                 List<BrowserSnapshot> res = new List<BrowserSnapshot>();
+                string err = null;
+                int total = 0, read = 0;
+                bool stopped = false;
                 try
                 {
-                    foreach (BrowserProfile p in BrowserData.FindProfiles())
+                    List<BrowserProfile> profiles = BrowserData.FindProfiles();
+                    total = profiles.Count;
+                    for (int i = 0; i < profiles.Count; i++)
                     {
-                        try { res.Add(BrowserData.Load(p)); }
-                        catch { }
+                        // Один профиль — это чтение всей папки Sync Data\LevelDB и разбор
+                        // файлов сеанса, то есть секунды. Проверяем «Стоп» между профилями:
+                        // внутри BrowserData.Load прерваться нечем.
+                        if (_browserCancel) { stopped = true; break; }
+                        BrowserProfile p = profiles[i];
+                        BrowserStage(string.Format(Tr.S("Чтение профилей: {0} из {1} · {2}", "Reading profiles: {0} of {1} · {2}"),
+                                                   i + 1, total, p.Display));
+                        try { res.Add(BrowserData.Load(p)); read++; }
+                        catch (Exception ex) { if (err == null) err = p.Display + ": " + ex.Message; }
                     }
                 }
-                catch { }
-                UiPost(delegate { _snapshots = res; PopulateBrowserTree(); });
-                Interlocked.Exchange(ref _browserBusy, 0);
+                catch (Exception ex) { err = ex.Message; }
+                List<BrowserSnapshot> found = res;
+                string emsg = err;
+                bool cancelled = stopped;
+                int okCount = read, all = total;
+                UiPost(delegate
+                {
+                    // Таймер гасим ДО заполнения дерева: иначе его следующий тик затрёт итог.
+                    EndBrowserOp(null);
+                    // Прерванное на первом же профиле чтение не должно стирать уже прочитанное:
+                    // пустой результат в этом случае не подменяет старое дерево.
+                    if (found.Count > 0 || !cancelled || _snapshots == null)
+                    {
+                        _snapshots = found;
+                        PopulateBrowserTree();
+                    }
+                    else _lblBrowserInfo.Text = Tr.S("Прежний список профилей оставлен без изменений.",
+                                                     "The previous profile list was left unchanged.");
+                    string note = null;
+                    if (cancelled)
+                        note = string.Format(Tr.S("чтение прервано: прочитано {0} из {1} профилей", "reading stopped: {0} of {1} profiles read"), okCount, all);
+                    else if (emsg != null)
+                        note = Tr.S("часть профилей прочитать не удалось: ", "some profiles could not be read: ") + emsg;
+                    if (note != null) _lblBrowserInfo.Text = _lblBrowserInfo.Text + "   ·   " + note;
+                });
             });
             t.IsBackground = true;
             t.Start();
@@ -346,14 +449,27 @@ namespace WindowsProcessCleaner
                     break;
             }
 
+            MemBeginFill();
             _lvBrowser.BeginUpdate();
             try
             {
                 _lvBrowser.Items.Clear();
                 _lvBrowser.Items.AddRange(rows.ToArray());
+                MemEndFill(_lvBrowser, BrowserScope, false, BrowserMemKey, null);
             }
             finally { _lvBrowser.EndUpdate(); }
             AutoFillLastColumnDeferred(_lvBrowser);
+        }
+
+        // Память выбора для списка браузера. Строки тут разной природы — закладки, вкладки,
+        // список для чтения, — но у всех первые две колонки это название и адрес, чего для
+        // опознания хватает. Полка сеансовая: снимок профиля перечитывается каждый раз.
+        private const string BrowserScope = "browser.row";
+
+        private static string BrowserMemKey(ListViewItem it)
+        {
+            if (MemRowSkipped(it)) return null;
+            return it.Text + "" + (it.SubItems.Count > 1 ? it.SubItems[1].Text : "");
         }
 
         private static string Dt(DateTime? d)
@@ -515,15 +631,56 @@ namespace WindowsProcessCleaner
         private void OpenSelectedUrl()
         {
             string url = SelectedUrl();
-            if (string.IsNullOrEmpty(url)) return;
-            try { Process.Start(url); } catch { }
+            if (string.IsNullOrEmpty(url))
+            {
+                // Двойной клик по папке, по информационной строке или по записи без адреса
+                // раньше не делал вообще ничего — и это было неотличимо от поломки.
+                _lblBrowserInfo.Text = _lvBrowser.SelectedItems.Count == 0
+                    ? Tr.S("Выберите строку со ссылкой.", "Select a row with a link.")
+                    : Tr.S("У этой строки нет адреса — открывать нечего.", "This row has no address — nothing to open.");
+                return;
+            }
+            _lblBrowserInfo.Text = Tr.S("Открываю: ", "Opening: ") + url;
+            string target = url;
+            // ShellExecute держит поток, пока поднимается холодный браузер, — это секунды
+            // с намертво замершим окном, поэтому запуск уходит в фоновый поток.
+            Thread t = new Thread(delegate()
+            {
+                string err = null;
+                try { Process.Start(target); }
+                catch (Exception ex) { err = ex.Message; }
+                string emsg = err;
+                UiPost(delegate
+                {
+                    if (emsg != null)
+                        _lblBrowserInfo.Text = Tr.S("Открыть ссылку не удалось: ", "Failed to open the link: ") + emsg;
+                });
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
         private void CopySelectedUrl()
         {
             string url = SelectedUrl();
-            if (string.IsNullOrEmpty(url)) return;
-            try { Clipboard.SetText(url); } catch { }
+            if (string.IsNullOrEmpty(url))
+            {
+                _lblBrowserInfo.Text = _lvBrowser.SelectedItems.Count == 0
+                    ? Tr.S("Выберите строку со ссылкой.", "Select a row with a link.")
+                    : Tr.S("У этой строки нет адреса — копировать нечего.", "This row has no address — nothing to copy.");
+                return;
+            }
+            // Буфер обмена занимает другая программа — это обычное дело, и молчаливый
+            // отказ выглядел как удачное копирование.
+            try
+            {
+                Clipboard.SetText(url);
+                _lblBrowserInfo.Text = Tr.S("Скопировано: ", "Copied: ") + url;
+            }
+            catch (Exception ex)
+            {
+                _lblBrowserInfo.Text = Tr.S("Скопировать не удалось: ", "Copy failed: ") + ex.Message;
+            }
         }
 
         private void SetAllBrowserChecks(bool on)
@@ -535,7 +692,22 @@ namespace WindowsProcessCleaner
 
         // ---------- изменение закладок ----------
 
-        private bool CanWrite(BrowserSnapshot s)
+        // Общая проверка «есть с чем работать». Без прочитанного дерева все кнопки правки
+        // молча возвращались из-за пустого CurrentTag(), и клик выглядел как поломка.
+        private BrowseTag CurrentWritableTag()
+        {
+            BrowseTag t = CurrentTag();
+            if (t == null || t.Snap == null)
+            {
+                _lblBrowserInfo.Text = Tr.S("Сначала нажмите «Прочитать браузеры» и выберите профиль или папку в дереве слева.",
+                                            "Click “Read browsers” first, then pick a profile or a folder in the tree on the left.");
+                return null;
+            }
+            return t;
+        }
+
+        // Дешёвая часть проверки: она смотрит только на уже прочитанные данные.
+        private bool CanWriteSync(BrowserSnapshot s)
         {
             if (s == null || s.BookmarksDoc == null)
             {
@@ -552,16 +724,43 @@ namespace WindowsProcessCleaner
                     Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
             }
-            if (BrowserData.IsRunning(s.Profile))
-            {
-                MessageBox.Show(this,
-                    string.Format(Tr.S("{0} сейчас запущен. Он держит закладки в памяти и перезапишет файл при выходе — правка будет потеряна.\n\nЗакройте браузер полностью и повторите.",
-                                       "{0} is running. It keeps bookmarks in memory and rewrites the file on exit, so the edit would be lost.\n\nClose the browser completely and try again."),
-                                  s.Profile.Browser),
-                    Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return false;
-            }
             return true;
+        }
+
+        // Дорогая часть: Process.GetProcessesByName перебирает процессы всей системы и на
+        // нагруженной машине даёт заметную паузу. Раньше она шла в UI-потоке перед каждым
+        // диалогом подтверждения — окно замирало ещё до того, как пользователя о чём-то спросили.
+        // Продолжение действия (onClosed) возвращается в UI-поток, порядок шагов сохранён:
+        // проверка «браузер закрыт» была и остаётся ДО вопроса «удалить?».
+        // Вызывать только внутри взятых BeginBrowserOp ворот: отказ их отпускает.
+        private void CheckBrowserClosed(BrowserSnapshot s, MethodInvoker onClosed)
+        {
+            BrowserStage(Tr.S("Проверка, закрыт ли браузер", "Checking whether the browser is closed"));
+            Thread t = new Thread(delegate()
+            {
+                bool running;
+                string err = null;
+                try { running = BrowserData.IsRunning(s.Profile); }
+                catch (Exception ex) { running = true; err = ex.Message; }   // не смогли проверить — считаем запущенным
+                bool run = running;
+                string emsg = err;
+                UiPost(delegate
+                {
+                    if (!run) { onClosed(); return; }
+                    EndBrowserOp(emsg != null
+                        ? Tr.S("Проверить, запущен ли браузер, не удалось: ", "Could not check whether the browser is running: ") + emsg
+                        : Tr.S("Браузер запущен — правка отменена.", "The browser is running — the edit was cancelled."));
+                    MessageBox.Show(this,
+                        emsg != null
+                            ? Tr.S("Не удалось проверить, запущен ли браузер: ", "Could not check whether the browser is running: ") + emsg
+                            : string.Format(Tr.S("{0} сейчас запущен. Он держит закладки в памяти и перезапишет файл при выходе — правка будет потеряна.\n\nЗакройте браузер полностью и повторите.",
+                                                 "{0} is running. It keeps bookmarks in memory and rewrites the file on exit, so the edit would be lost.\n\nClose the browser completely and try again."),
+                                          s.Profile.Browser),
+                        Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                });
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
         private List<BmNode> CheckedBookmarks()
@@ -603,7 +802,7 @@ namespace WindowsProcessCleaner
 
         private void DeleteSelectedBookmarks()
         {
-            BrowseTag t = CurrentTag();
+            BrowseTag t = CurrentWritableTag();
             if (t == null) return;
             List<BmNode> sel = TopMostNodes(CheckedBookmarks());
             if (sel.Count == 0)
@@ -613,49 +812,77 @@ namespace WindowsProcessCleaner
                                 Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (!CanWrite(t.Snap)) return;
+            if (!CanWriteSync(t.Snap)) return;
+            if (!BeginBrowserOp(Tr.S("Подготовка удаления", "Preparing the deletion"), false)) return;
 
-            int links = 0, folders = 0, inside = 0;
-            foreach (BmNode n in sel)
+            BrowserSnapshot snap = t.Snap;
+            CheckBrowserClosed(snap, delegate
             {
-                if (n.IsFolder) { folders++; inside += n.TotalUrls; }
-                else links++;
-            }
-            string msg = string.Format(
-                Tr.S("Удалить: ссылок — {0}, папок — {1} (внутри них ещё {2} ссылок)?\n\nБудет сохранена копия файла закладок.",
-                     "Delete {0} links and {1} folders (holding {2} more links)?\n\nA backup of the bookmarks file will be saved."),
-                links, folders, inside);
-            if (MessageBox.Show(this, msg, Tr.S("Удаление закладок", "Delete bookmarks"),
-                                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                int links = 0, folders = 0, inside = 0;
+                foreach (BmNode n in sel)
+                {
+                    if (n.IsFolder) { folders++; inside += n.TotalUrls; }
+                    else links++;
+                }
+                string msg = string.Format(
+                    Tr.S("Удалить: ссылок — {0}, папок — {1} (внутри них ещё {2} ссылок)?\n\nБудет сохранена копия файла закладок.",
+                         "Delete {0} links and {1} folders (holding {2} more links)?\n\nA backup of the bookmarks file will be saved."),
+                    links, folders, inside);
+                BrowserStage(Tr.S("Ожидание подтверждения", "Waiting for confirmation"));
+                if (MessageBox.Show(this, msg, Tr.S("Удаление закладок", "Delete bookmarks"),
+                                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                { EndBrowserOp(Tr.S("Удаление отменено.", "Deletion cancelled.")); return; }
 
-            int done = 0;
-            foreach (BmNode n in sel) if (DetachNode(n)) done++;
-            CommitBookmarks(t.Snap, string.Format(Tr.S("Удалено записей: {0}", "Deleted entries: {0}"), done));
+                int done = 0;
+                foreach (BmNode n in sel) if (DetachNode(n)) done++;
+                if (done == 0)
+                { EndBrowserOp(Tr.S("Удалять нечего: отмеченных записей в дереве уже нет.", "Nothing to delete: the ticked entries are no longer in the tree.")); return; }
+                CommitBookmarks(snap, string.Format(Tr.S("Удалено записей: {0}", "Deleted entries: {0}"), done));
+            });
         }
 
         private void DeleteSelectedFolderNode()
         {
-            BrowseTag t = CurrentTag();
-            if (t == null || t.Kind != "folder" || t.Bm == null) return;
+            BrowseTag t = CurrentWritableTag();
+            if (t == null) return;
+            if (t.Kind != "folder" || t.Bm == null)
+            {
+                // Пункт меню есть на каждом узле дерева, поэтому на профиле, «Закладках»
+                // или «Группах вкладок» он раньше просто ничего не делал.
+                _lblBrowserInfo.Text = Tr.S("Выберите в дереве папку закладок — этот узел удалить нельзя.",
+                                            "Pick a bookmarks folder in the tree — this node cannot be deleted.");
+                return;
+            }
             if (t.Bm.Parent == null)
             {
                 MessageBox.Show(this, Tr.S("Это корневая папка браузера, её удалить нельзя.", "This is a browser root folder, it cannot be deleted."),
                                 Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (!CanWrite(t.Snap)) return;
-            string msg = string.Format(Tr.S("Удалить папку «{0}» вместе с {1} ссылками внутри?", "Delete folder “{0}” with {1} links inside?"),
-                                       t.Bm.Name, t.Bm.TotalUrls);
-            if (MessageBox.Show(this, msg, Tr.S("Удаление папки", "Delete folder"),
-                                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-            if (DetachNode(t.Bm)) CommitBookmarks(t.Snap, Tr.S("Папка удалена", "Folder deleted"));
+            if (!CanWriteSync(t.Snap)) return;
+            if (!BeginBrowserOp(Tr.S("Подготовка удаления папки", "Preparing the folder deletion"), false)) return;
+
+            BrowserSnapshot snap = t.Snap;
+            BmNode folder = t.Bm;
+            CheckBrowserClosed(snap, delegate
+            {
+                string msg = string.Format(Tr.S("Удалить папку «{0}» вместе с {1} ссылками внутри?", "Delete folder “{0}” with {1} links inside?"),
+                                           folder.Name, folder.TotalUrls);
+                BrowserStage(Tr.S("Ожидание подтверждения", "Waiting for confirmation"));
+                if (MessageBox.Show(this, msg, Tr.S("Удаление папки", "Delete folder"),
+                                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                { EndBrowserOp(Tr.S("Удаление отменено.", "Deletion cancelled.")); return; }
+                if (!DetachNode(folder))
+                { EndBrowserOp(Tr.S("Папку удалить не удалось: её уже нет в файле закладок.", "The folder could not be deleted: it is no longer in the bookmarks file.")); return; }
+                CommitBookmarks(snap, Tr.S("Папка удалена", "Folder deleted"));
+            });
         }
 
         private void RemoveEmptyFolders()
         {
-            BrowseTag t = CurrentTag();
-            if (t == null || t.Snap == null) return;
-            if (!CanWrite(t.Snap)) return;
+            BrowseTag t = CurrentWritableTag();
+            if (t == null) return;
+            if (!CanWriteSync(t.Snap)) return;
             List<BmNode> empty = new List<BmNode>();
             foreach (BmNode r in t.Snap.Roots) CollectEmpty(r, empty);
             if (empty.Count == 0)
@@ -664,12 +891,22 @@ namespace WindowsProcessCleaner
                                 Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (MessageBox.Show(this, string.Format(Tr.S("Удалить пустых папок: {0}?", "Delete {0} empty folders?"), empty.Count),
-                                Tr.S("Пустые папки", "Empty folders"),
-                                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            int done = 0;
-            foreach (BmNode n in empty) if (DetachNode(n)) done++;
-            CommitBookmarks(t.Snap, string.Format(Tr.S("Удалено пустых папок: {0}", "Empty folders deleted: {0}"), done));
+            if (!BeginBrowserOp(Tr.S("Подготовка удаления пустых папок", "Preparing the empty folders deletion"), false)) return;
+
+            BrowserSnapshot snap = t.Snap;
+            CheckBrowserClosed(snap, delegate
+            {
+                BrowserStage(Tr.S("Ожидание подтверждения", "Waiting for confirmation"));
+                if (MessageBox.Show(this, string.Format(Tr.S("Удалить пустых папок: {0}?", "Delete {0} empty folders?"), empty.Count),
+                                    Tr.S("Пустые папки", "Empty folders"),
+                                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                { EndBrowserOp(Tr.S("Удаление отменено.", "Deletion cancelled.")); return; }
+                int done = 0;
+                foreach (BmNode n in empty) if (DetachNode(n)) done++;
+                if (done == 0)
+                { EndBrowserOp(Tr.S("Удалять нечего: этих папок в файле закладок уже нет.", "Nothing to delete: those folders are no longer in the bookmarks file.")); return; }
+                CommitBookmarks(snap, string.Format(Tr.S("Удалено пустых папок: {0}", "Empty folders deleted: {0}"), done));
+            });
         }
 
         // Снизу вверх: папка, в которой остались только пустые папки, тоже пустая.
@@ -682,8 +919,8 @@ namespace WindowsProcessCleaner
 
         private void MoveSelectedBookmarks()
         {
-            BrowseTag t = CurrentTag();
-            if (t == null || t.Snap == null) return;
+            BrowseTag t = CurrentWritableTag();
+            if (t == null) return;
             List<BmNode> sel = TopMostNodes(CheckedBookmarks());
             if (sel.Count == 0)
             {
@@ -691,49 +928,63 @@ namespace WindowsProcessCleaner
                                 Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (!CanWrite(t.Snap)) return;
+            if (!CanWriteSync(t.Snap)) return;
+            if (!BeginBrowserOp(Tr.S("Подготовка переноса", "Preparing the move"), false)) return;
 
-            bool mergeFolders;
-            BmNode target = PickFolder(t.Snap, sel, out mergeFolders);
-            if (target == null) return;
-
-            JVal targetKids = target.Raw.Get("children");
-            if (targetKids == null) { targetKids = JVal.NewArr(); target.Raw.Set("children", targetKids); }
-
-            int moved = 0, merged = 0;
-            foreach (BmNode n in sel)
+            BrowserSnapshot snap = t.Snap;
+            CheckBrowserClosed(snap, delegate
             {
-                if (n == target) continue;
-                if (IsAncestor(n, target)) continue;             // папку нельзя перенести внутрь себя
+                bool mergeFolders;
+                BrowserStage(Tr.S("Выбор папки-приёмника", "Picking the destination folder"));
+                BmNode target = PickFolder(snap, sel, out mergeFolders);
+                if (target == null) { EndBrowserOp(Tr.S("Перенос отменён.", "Move cancelled.")); return; }
 
-                if (mergeFolders && n.IsFolder)
+                JVal targetKids = target.Raw.Get("children");
+                if (targetKids == null) { targetKids = JVal.NewArr(); target.Raw.Set("children", targetKids); }
+
+                int moved = 0, merged = 0, skipped = 0;
+                foreach (BmNode n in sel)
                 {
-                    JVal kids = n.Raw.Get("children");
-                    if (kids != null && kids.Kind == JKind.Arr)
-                    {
-                        List<BmNode> childCopy = new List<BmNode>(n.Children);
-                        foreach (BmNode c in childCopy)
-                        {
-                            if (!DetachNode(c)) continue;
-                            targetKids.V.Add(c.Raw);
-                            c.Parent = target;
-                            target.Children.Add(c);
-                            moved++;
-                        }
-                    }
-                    if (DetachNode(n)) merged++;
-                    continue;
-                }
+                    if (n == target) { skipped++; continue; }
+                    if (IsAncestor(n, target)) { skipped++; continue; }   // папку нельзя перенести внутрь себя
 
-                if (!DetachNode(n)) continue;
-                targetKids.V.Add(n.Raw);
-                n.Parent = target;
-                target.Children.Add(n);
-                moved++;
-            }
-            CommitBookmarks(t.Snap, string.Format(
-                Tr.S("Перенесено: {0}, папок объединено: {1} → «{2}»", "Moved: {0}, folders merged: {1} → “{2}”"),
-                moved, merged, target.Name));
+                    if (mergeFolders && n.IsFolder)
+                    {
+                        JVal kids = n.Raw.Get("children");
+                        if (kids != null && kids.Kind == JKind.Arr)
+                        {
+                            List<BmNode> childCopy = new List<BmNode>(n.Children);
+                            foreach (BmNode c in childCopy)
+                            {
+                                if (!DetachNode(c)) continue;
+                                targetKids.V.Add(c.Raw);
+                                c.Parent = target;
+                                target.Children.Add(c);
+                                moved++;
+                            }
+                        }
+                        if (DetachNode(n)) merged++;
+                        continue;
+                    }
+
+                    if (!DetachNode(n)) { skipped++; continue; }
+                    targetKids.V.Add(n.Raw);
+                    n.Parent = target;
+                    target.Children.Add(n);
+                    moved++;
+                }
+                if (moved == 0 && merged == 0)
+                {
+                    // Отмеченной была сама папка-приёмник или её предок: переносить в себя нельзя.
+                    EndBrowserOp(Tr.S("Переносить нечего: выбрана та же папка или её родитель.",
+                                      "Nothing to move: the target folder itself or its parent was ticked."));
+                    return;
+                }
+                CommitBookmarks(snap, string.Format(
+                    Tr.S("Перенесено: {0}, папок объединено: {1} → «{2}»", "Moved: {0}, folders merged: {1} → “{2}”"),
+                    moved, merged, target.Name)
+                    + (skipped > 0 ? string.Format(Tr.S("  ·  пропущено: {0}", "  ·  skipped: {0}"), skipped) : ""));
+            });
         }
 
         private static bool IsAncestor(BmNode maybeAncestor, BmNode node)
@@ -776,9 +1027,27 @@ namespace WindowsProcessCleaner
 
             Button ok = MkButton(Tr.S("Перенести", "Move"), 250, 46, 120, true);
             Button cancel = MkButton(Tr.S("Отмена", "Cancel"), 380, 46, 110, false);
-            ok.DialogResult = DialogResult.OK;
+            // «Перенести» без выбранной папки раньше просто закрывало диалог, и перенос
+            // пропадал молча — ровно как при «Отмене». Теперь диалог не закрывается,
+            // пока папка не выбрана, и говорит, чего от пользователя ждёт.
+            Label pick = MkNote(Tr.S("Выберите папку-приёмник в дереве.", "Pick a destination folder in the tree."), true);
+            pick.Dock = DockStyle.None;
+            pick.Left = 12; pick.Top = 52; pick.Width = 230; pick.Height = 34;
+            ok.DialogResult = DialogResult.None;
+            ok.Click += delegate
+            {
+                BmNode sel = tv.SelectedNode != null ? tv.SelectedNode.Tag as BmNode : null;
+                if (sel == null)
+                {
+                    pick.ForeColor = _theme.Accent;
+                    pick.Text = Tr.S("Папка не выбрана — отметьте её в дереве выше.", "No folder picked — select one in the tree above.");
+                    return;
+                }
+                dlg.DialogResult = DialogResult.OK;
+            };
             cancel.DialogResult = DialogResult.Cancel;
             bottom.Controls.Add(chk);
+            bottom.Controls.Add(pick);
             bottom.Controls.Add(ok);
             bottom.Controls.Add(cancel);
 
@@ -821,56 +1090,75 @@ namespace WindowsProcessCleaner
                                 Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (!CanWrite(t.Snap)) return;
+            if (!CanWriteSync(t.Snap)) return;
+            if (!BeginBrowserOp(Tr.S("Подготовка сохранения группы", "Preparing the group export"), false)) return;
 
-            BmNode other = null;
-            foreach (BmNode r in t.Snap.Roots)
+            BrowserSnapshot snap = t.Snap;
+            TabGroupRec grp = t.Grp;
+            CheckBrowserClosed(snap, delegate
             {
-                if (other == null) other = r;
-                // У всех Chromium-браузеров корень «Другие закладки» имеет фиксированный GUID;
-                // имя зависит от языка интерфейса, поэтому по нему — только запасной вариант.
-                if (string.Equals(r.Guid, "82b081ec-3dd3-529c-8475-ab6c344590dd", StringComparison.OrdinalIgnoreCase)) { other = r; break; }
-                if (r.Name.IndexOf("ругие", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    r.Name.IndexOf("Other", StringComparison.OrdinalIgnoreCase) >= 0) { other = r; break; }
-            }
-            if (other == null) return;
+                BmNode other = null;
+                foreach (BmNode r in snap.Roots)
+                {
+                    if (other == null) other = r;
+                    // У всех Chromium-браузеров корень «Другие закладки» имеет фиксированный GUID;
+                    // имя зависит от языка интерфейса, поэтому по нему — только запасной вариант.
+                    if (string.Equals(r.Guid, "82b081ec-3dd3-529c-8475-ab6c344590dd", StringComparison.OrdinalIgnoreCase)) { other = r; break; }
+                    if (r.Name.IndexOf("ругие", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        r.Name.IndexOf("Other", StringComparison.OrdinalIgnoreCase) >= 0) { other = r; break; }
+                }
+                if (other == null)
+                {
+                    // Корни закладок разобрать не удалось — раньше команда после всех проверок
+                    // просто ничего не делала.
+                    EndBrowserOp(Tr.S("В этом профиле нет корневой папки закладок — сохранять некуда.",
+                                      "This profile has no root bookmarks folder — there is nowhere to save."));
+                    return;
+                }
 
-            long nextId = MaxBookmarkId(t.Snap.BookmarksDoc) + 1;
-            string now = ((ulong)(DateTime.UtcNow - new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Ticks / 10).ToString();
+                long nextId = MaxBookmarkId(snap.BookmarksDoc) + 1;
+                string now = ((ulong)(DateTime.UtcNow - new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Ticks / 10).ToString();
 
-            JVal folder = JVal.NewObj();
-            folder.Set("children", JVal.NewArr());
-            folder.Set("date_added", JVal.NewStr(now));
-            folder.Set("date_last_used", JVal.NewStr("0"));
-            folder.Set("date_modified", JVal.NewStr(now));
-            folder.Set("guid", JVal.NewStr(Guid.NewGuid().ToString()));
-            folder.Set("id", JVal.NewStr((nextId++).ToString()));
-            folder.Set("name", JVal.NewStr(t.Grp.Title));
-            folder.Set("type", JVal.NewStr("folder"));
+                JVal folder = JVal.NewObj();
+                folder.Set("children", JVal.NewArr());
+                folder.Set("date_added", JVal.NewStr(now));
+                folder.Set("date_last_used", JVal.NewStr("0"));
+                folder.Set("date_modified", JVal.NewStr(now));
+                folder.Set("guid", JVal.NewStr(Guid.NewGuid().ToString()));
+                folder.Set("id", JVal.NewStr((nextId++).ToString()));
+                folder.Set("name", JVal.NewStr(grp.Title));
+                folder.Set("type", JVal.NewStr("folder"));
 
-            JVal kids = folder.Get("children");
-            foreach (TabRec tr in t.Grp.Tabs)
-            {
-                if (string.IsNullOrEmpty(tr.Url)) continue;
-                JVal b = JVal.NewObj();
-                b.Set("date_added", JVal.NewStr(now));
-                b.Set("date_last_used", JVal.NewStr("0"));
-                b.Set("guid", JVal.NewStr(Guid.NewGuid().ToString()));
-                b.Set("id", JVal.NewStr((nextId++).ToString()));
-                b.Set("name", JVal.NewStr(string.IsNullOrEmpty(tr.Title) ? tr.Url : tr.Title));
-                b.Set("type", JVal.NewStr("url"));
-                b.Set("url", JVal.NewStr(tr.Url));
-                kids.V.Add(b);
-            }
+                JVal kids = folder.Get("children");
+                foreach (TabRec tr in grp.Tabs)
+                {
+                    if (string.IsNullOrEmpty(tr.Url)) continue;
+                    JVal b = JVal.NewObj();
+                    b.Set("date_added", JVal.NewStr(now));
+                    b.Set("date_last_used", JVal.NewStr("0"));
+                    b.Set("guid", JVal.NewStr(Guid.NewGuid().ToString()));
+                    b.Set("id", JVal.NewStr((nextId++).ToString()));
+                    b.Set("name", JVal.NewStr(string.IsNullOrEmpty(tr.Title) ? tr.Url : tr.Title));
+                    b.Set("type", JVal.NewStr("url"));
+                    b.Set("url", JVal.NewStr(tr.Url));
+                    kids.V.Add(b);
+                }
+                if (kids.V.Count == 0)
+                {
+                    EndBrowserOp(Tr.S("В этой группе нет вкладок с адресами — сохранять нечего.",
+                                      "This group has no tabs with addresses — nothing to save."));
+                    return;
+                }
 
-            JVal otherKids = other.Raw.Get("children");
-            if (otherKids == null) { otherKids = JVal.NewArr(); other.Raw.Set("children", otherKids); }
-            otherKids.V.Add(folder);
+                JVal otherKids = other.Raw.Get("children");
+                if (otherKids == null) { otherKids = JVal.NewArr(); other.Raw.Set("children", otherKids); }
+                otherKids.V.Add(folder);
 
-            CommitBookmarks(t.Snap, string.Format(
-                Tr.S("Группа «{0}» сохранена в «{1}» ({2} ссылок). Саму группу удалите в браузере.",
-                     "Group “{0}” saved into “{1}” ({2} links). Delete the group itself in the browser."),
-                t.Grp.Title, other.Name, kids.V.Count));
+                CommitBookmarks(snap, string.Format(
+                    Tr.S("Группа «{0}» сохранена в «{1}» ({2} ссылок). Саму группу удалите в браузере.",
+                         "Group “{0}” saved into “{1}” ({2} links). Delete the group itself in the browser."),
+                    grp.Title, other.Name, kids.V.Count));
+            });
         }
 
         private static long MaxBookmarkId(JVal doc)
@@ -892,67 +1180,95 @@ namespace WindowsProcessCleaner
                 foreach (JVal c in kids.V) if (c.Kind == JKind.Obj) MaxIdWalk(c, ref max);
         }
 
+        // Запись закладок и перечитывание профиля идут в фоне. На UI-потоке это было самым
+        // тяжёлым местом всей вкладки: MD5 по всему дереву закладок, копия файла, атомарная
+        // замена — и следом ПОЛНЫЙ повторный разбор профиля (вся папка Sync Data\LevelDB
+        // плюс файлы сеанса). Окно умирало на секунды и не перерисовывалось вообще.
+        // Ворота BeginBrowserOp к этому моменту уже взяты вызывающим — отпускаем их здесь.
         private void CommitBookmarks(BrowserSnapshot s, string report)
         {
-            string backup;
-            try { backup = BrowserData.SaveBookmarks(s.Profile, s.BookmarksDoc); }
-            catch (Exception ex)
+            BrowserStage(Tr.S("Сохранение закладок", "Saving bookmarks"));
+            string op = Tr.S("запись закладок", "writing bookmarks");
+            BeginWrite(op);
+            Thread t = new Thread(delegate()
             {
-                MessageBox.Show(this, Tr.S("Записать закладки не удалось: ", "Failed to write bookmarks: ") + ex.Message,
-                                Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-            // Перечитываем профиль целиком: после правки id, пути и счётчики уже другие.
-            BrowserSnapshot fresh;
-            try { fresh = BrowserData.Load(s.Profile); }
-            catch { fresh = s; }
-            int idx = _snapshots.IndexOf(s);
-            if (idx >= 0) _snapshots[idx] = fresh;
-            PopulateBrowserTree();
-            _lblBrowserInfo.Text = report + Tr.S("  ·  копия: ", "  ·  backup: ") + Path.GetFileName(backup);
+                string backup = null, err = null;
+                try { backup = BrowserData.SaveBookmarks(s.Profile, s.BookmarksDoc); }
+                catch (Exception ex) { err = ex.Message; }
+                // Перечитываем профиль целиком: после правки id, пути и счётчики уже другие.
+                // Читаем и после неудачной записи — иначе дерево в окне показывало бы правку,
+                // которой на диске нет.
+                BrowserStage(Tr.S("Перечитывание профиля", "Re-reading the profile"));
+                BrowserSnapshot fresh;
+                try { fresh = BrowserData.Load(s.Profile); }
+                catch { fresh = s; }
+                EndWrite(op);
+                BrowserSnapshot loaded = fresh;
+                string bak = backup, emsg = err;
+                UiPost(delegate
+                {
+                    EndBrowserOp(null);
+                    int idx = _snapshots != null ? _snapshots.IndexOf(s) : -1;
+                    if (idx >= 0) _snapshots[idx] = loaded;
+                    PopulateBrowserTree();
+                    _lblBrowserInfo.Text = emsg != null
+                        ? Tr.S("Записать закладки не удалось: ", "Failed to write bookmarks: ") + emsg
+                          + Tr.S("  ·  файл закладок не изменён", "  ·  the bookmarks file is unchanged")
+                        : report + Tr.S("  ·  копия: ", "  ·  backup: ") + Path.GetFileName(bak);
+                });
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
         // ---------- проверка ссылок ----------
 
         private void CheckLinks()
         {
-            if (Interlocked.CompareExchange(ref _browserBusy, 1, 0) != 0) return;
+            if (!BeginBrowserOp(Tr.S("Подготовка проверки ссылок", "Preparing the link check"), true)) return;
 
             List<object> targets = new List<object>();
             List<string> urls = new List<string>();
-            foreach (ListViewItem it in _lvBrowser.Items)
+            // Без Begin/EndUpdate список с owner-draw перерисовывался целиком на КАЖДУЮ
+            // строку (дважды: «не http» и «…»), и на тысяче закладок клик по кнопке
+            // выглядел как зависание ещё до первого запроса.
+            _lvBrowser.BeginUpdate();
+            try
             {
-                string u = null;
-                BmNode b = it.Tag as BmNode;
-                if (b != null && !b.IsFolder) u = b.Url;
-                TabRec t = it.Tag as TabRec;
-                if (t != null) u = t.Url;
-                ReadingRec r = it.Tag as ReadingRec;
-                if (r != null) u = r.Url;
-                OpenTabRec o = it.Tag as OpenTabRec;
-                if (o != null) u = o.Url;
-                if (string.IsNullOrEmpty(u)) continue;
-                if (!u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                    !u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                foreach (ListViewItem it in _lvBrowser.Items)
                 {
-                    it.SubItems[5].Text = Tr.S("не http", "not http");
-                    continue;
+                    string u = null;
+                    BmNode b = it.Tag as BmNode;
+                    if (b != null && !b.IsFolder) u = b.Url;
+                    TabRec t = it.Tag as TabRec;
+                    if (t != null) u = t.Url;
+                    ReadingRec r = it.Tag as ReadingRec;
+                    if (r != null) u = r.Url;
+                    OpenTabRec o = it.Tag as OpenTabRec;
+                    if (o != null) u = o.Url;
+                    if (string.IsNullOrEmpty(u)) continue;
+                    if (!u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                        !u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        it.SubItems[5].Text = Tr.S("не http", "not http");
+                        continue;
+                    }
+                    it.SubItems[5].Text = "…";
+                    targets.Add(it);
+                    urls.Add(u);
                 }
-                targets.Add(it);
-                urls.Add(u);
             }
+            finally { _lvBrowser.EndUpdate(); }
+
             if (urls.Count == 0)
             {
-                Interlocked.Exchange(ref _browserBusy, 0);
+                EndBrowserOp(Tr.S("Проверять нечего: в списке нет http-ссылок.", "Nothing to check: the list has no http links."));
                 MessageBox.Show(this, Tr.S("В списке нет http-ссылок для проверки.", "No http links in the list."),
                                 Tr.S("Браузеры", "Browsers"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            _linkCancel = false;
-            _btnBrowserStop.Enabled = true;
-            _lblBrowserInfo.Text = string.Format(Tr.S("Проверка ссылок: 0 из {0}…", "Checking links: 0 of {0}…"), urls.Count);
-            foreach (ListViewItem it in targets.Cast<ListViewItem>()) it.SubItems[5].Text = "…";
+            BrowserStage(string.Format(Tr.S("Проверка ссылок: 0 из {0}", "Checking links: 0 of {0}"), urls.Count));
 
             Thread t2 = new Thread(delegate()
             {
@@ -968,13 +1284,19 @@ namespace WindowsProcessCleaner
                 {
                     pool[w] = new Thread(delegate()
                     {
-                        while (!_linkCancel)
+                        while (!_browserCancel)
                         {
                             int i = Interlocked.Increment(ref next);
                             if (i >= urls.Count) break;
                             string state = ProbeUrl(urls[i]);
+                            if (_browserCancel) break;    // оборванный запрос — не результат, писать его нельзя
                             ListViewItem row = (ListViewItem)targets[i];
                             int d = Interlocked.Increment(ref done);
+                            // Счётчик обновляем на КАЖДОЙ готовой ссылке. Раньше он двигался
+                            // раз в десять штук, а один адрес стоит до 20 с — на коротком
+                            // списке цифра не менялась ни разу за всю проверку.
+                            BrowserStage(string.Format(Tr.S("Проверка ссылок: {0} из {1}, осталось {2}",
+                                                            "Checking links: {0} of {1}, {2} left"), d, urls.Count, urls.Count - d));
                             UiPost(delegate
                             {
                                 try
@@ -984,9 +1306,6 @@ namespace WindowsProcessCleaner
                                     TabRec tr = row.Tag as TabRec; if (tr != null) tr.LinkState = state;
                                     ReadingRec rr = row.Tag as ReadingRec; if (rr != null) rr.LinkState = state;
                                     OpenTabRec or = row.Tag as OpenTabRec; if (or != null) or.LinkState = state;
-                                    if (d % 10 == 0 || d == urls.Count)
-                                        _lblBrowserInfo.Text = string.Format(
-                                            Tr.S("Проверка ссылок: {0} из {1}…", "Checking links: {0} of {1}…"), d, urls.Count);
                                 }
                                 catch { }
                             });
@@ -996,40 +1315,59 @@ namespace WindowsProcessCleaner
                     pool[w].Start();
                 }
                 foreach (Thread p in pool) p.Join();
+                AbortLinkRequests();                       // на случай, если что-то осталось в списке
+                int checkedCount = done;
                 UiPost(delegate
                 {
-                    _btnBrowserStop.Enabled = false;
-                    _lblBrowserInfo.Text = _linkCancel
-                        ? string.Format(Tr.S("Проверка прервана: {0} из {1}", "Check stopped: {0} of {1}"), done, urls.Count)
+                    bool stopped = _browserCancel;
+                    if (stopped)
+                    {
+                        // Непроверенные строки так и остались бы с многоточием, будто проверка идёт.
+                        _lvBrowser.BeginUpdate();
+                        try
+                        {
+                            foreach (ListViewItem it in _lvBrowser.Items)
+                                if (it.SubItems.Count > 5 && it.SubItems[5].Text == "…")
+                                    it.SubItems[5].Text = Tr.S("не проверено", "not checked");
+                        }
+                        finally { _lvBrowser.EndUpdate(); }
+                    }
+                    EndBrowserOp(stopped
+                        ? string.Format(Tr.S("Проверка прервана: проверено {0} из {1}, остальные помечены «не проверено».",
+                                             "Check stopped: {0} of {1} checked, the rest are marked “not checked”."), checkedCount, urls.Count)
                         : string.Format(Tr.S("Проверено ссылок: {0}. Отметьте нерабочие и удалите.",
-                                             "Links checked: {0}. Tick the dead ones and delete."), urls.Count);
+                                             "Links checked: {0}. Tick the dead ones and delete."), urls.Count));
                 });
-                Interlocked.Exchange(ref _browserBusy, 0);
             });
             t2.IsBackground = true;
             t2.Start();
         }
 
         // HEAD поддерживают не все — на 405/501 повторяем обычным GET.
-        private static string ProbeUrl(string url)
+        private string ProbeUrl(string url)
         {
             string byHead = Probe(url, "HEAD");
+            if (_browserCancel) return byHead;
             if (byHead == "405" || byHead == "501" || byHead == "403") return Probe(url, "GET");
             return byHead;
         }
 
-        private static string Probe(string url, string method)
+        // Не static: запрос заносится в общий список, чтобы «Стоп» мог его оборвать.
+        private string Probe(string url, string method)
         {
             HttpWebResponse resp = null;
+            HttpWebRequest req = null;
             try
             {
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req = (HttpWebRequest)WebRequest.Create(url);
                 req.Method = method;
                 req.Timeout = 10000;
                 req.ReadWriteTimeout = 10000;
                 req.AllowAutoRedirect = true;
                 req.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WindowsProcessCleaner";
                 req.Accept = "*/*";
+                lock (_linkRequests) _linkRequests.Add(req);
+                if (_browserCancel) { try { req.Abort(); } catch { } }
                 resp = (HttpWebResponse)req.GetResponse();
                 int code = (int)resp.StatusCode;
                 // Успех — весь диапазон 2xx, а не только 200: на HEAD YouTube отвечает
@@ -1045,13 +1383,18 @@ namespace WindowsProcessCleaner
                     try { r.Close(); } catch { }
                     return code.ToString();
                 }
+                if (we.Status == WebExceptionStatus.RequestCanceled) return Tr.S("не проверено", "not checked");
                 if (we.Status == WebExceptionStatus.Timeout) return Tr.S("таймаут", "timeout");
                 if (we.Status == WebExceptionStatus.NameResolutionFailure) return Tr.S("нет домена", "no DNS");
                 if (we.Status == WebExceptionStatus.TrustFailure) return Tr.S("сертификат", "TLS");
                 return Tr.S("нет связи", "no reply");
             }
             catch { return Tr.S("ошибка", "error"); }
-            finally { if (resp != null) try { resp.Close(); } catch { } }
+            finally
+            {
+                if (req != null) lock (_linkRequests) _linkRequests.Remove(req);
+                if (resp != null) try { resp.Close(); } catch { }
+            }
         }
     }
 }

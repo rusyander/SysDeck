@@ -46,6 +46,15 @@ namespace WindowsProcessCleaner
         private void AddDir(CleanCategory c, string path, bool contentsOnly, string mask,
                             int minAgeMinutes, bool recurse)
         {
+            AddDir(c, path, contentsOnly, mask, minAgeMinutes, recurse, false);
+        }
+
+        // fromRules = цель собрана из внешнего winapp2.ini. Для неё действует отдельный,
+        // более строгий предохранитель (IsRuleTargetAllowed): файл правил лежит в папке,
+        // доступной на запись обычному процессу, а чистим мы от администратора.
+        private void AddDir(CleanCategory c, string path, bool contentsOnly, string mask,
+                            int minAgeMinutes, bool recurse, bool fromRules)
+        {
             if (string.IsNullOrEmpty(path)) return;
             try
             {
@@ -62,7 +71,8 @@ namespace WindowsProcessCleaner
                     ContentsOnly = contentsOnly,
                     Mask = mask,
                     MinAgeMinutes = minAgeMinutes,
-                    Recurse = recurse
+                    Recurse = recurse,
+                    FromRules = fromRules
                 });
             }
             catch { }

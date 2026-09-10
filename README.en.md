@@ -88,7 +88,8 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
   `pnputil` and only superseded ones. Only known junk paths are cleaned.
 - **Does not treat saves and settings as junk.** Game-save folders (`Saved Games`, `My Games`,
   `saves` / `SaveGames`, Steam cloud saves under `userdata`, Xbox saves) never become a target,
-  neither via built-in rules nor via winapp2, and profile roots (Documents, Desktop, AppData) are
+  neither via built-in rules nor via winapp2 — and are not descended into during a recursive walk
+  even when a rule points at a folder above them — and profile roots (Documents, Desktop, AppData) are
   never deleted. Any folder of any category can be excluded from cleanup for good via "Contents…".
 - **Doesn't clean disk, uninstall programs or update them on a schedule** — manual only,
   with preview and confirmation. The timer only runs process cleanup.
@@ -317,6 +318,25 @@ cleanup rules for specific programs — and adds them to the built-in categories
 **file-deletion rules** are taken from it: sections carrying a warning (`Warning=`) or
 exclusions (`ExcludeKey`) are skipped whole, and registry rules are ignored — this app never
 cleans the registry. winapp2 results are never checked automatically.
+
+The rule file is somebody else's text executed with administrator rights, so it is restricted
+separately from the built-in rules:
+
+- **The downloaded database lives in a protected folder**,
+  `C:\ProgramData\WindowsProcessCleaner\`, with "Administrators and SYSTEM — full control,
+  Users — read only". In its former home (`%APPDATA%`) the file could be rewritten by any
+  process running as you — while the cleanup itself runs as administrator. The old copy is
+  deleted on the next download. If the folder cannot be created (running without administrator
+  rights), the former location is used.
+- **A rule from the file has no access to system paths**: inside `C:\Windows` it reaches only
+  known junk subfolders (`Temp`, `Prefetch`, `Logs`, `Minidump`, `Debug`,
+  `SoftwareDistribution\Download`, `System32\LogFiles`, `Downloaded Program Files`), never
+  `Program Files` and never another user's profile, and the `C:\Windows` root is not opened
+  even by a narrow mask such as `%WinDir%|*.log`. Built-in rules (MEMORY.DMP in `C:\Windows`,
+  `IconCache.db` in `%LOCALAPPDATA%`) work as before: they cannot be tampered with.
+- **The guard over saves and application databases applies to every folder of the walk**, not
+  only to the rule's root: a `RECURSE` rule over `%LocalAppData%\NVIDIA Corporation` will not
+  descend into `NvBackend\ApplicationOntology`, nor into `Saved Games` under the profile.
 
 ### Disk
 A dedicated tab: **where the space went and what can be removed by hand**. Pick a drive or
@@ -564,6 +584,55 @@ Anything that changes the system asks first; anything that needs administrator r
 offers to restart as administrator. The label at the bottom of the sidebar always shows
 whether those rights are present.
 
+### Long operations: progress and stopping
+No button ever hangs silently. Anything that takes longer than a second renders the same
+line into the page label: **what is running now · how long it has been running (mm:ss) ·
+a live detail** — the category, folder, package or command being processed at this very
+moment. The label refreshes twice a second, so you can see both that the work is moving
+and exactly where it is stuck.
+
+- **The page's buttons go grey while work runs** — a second click cannot start a second
+  copy of the same operation.
+- **"Stop" really stops** — including creating a restore point and the other tools that
+  previously had to be sat out. After the click the label honestly shows "Stopping…"
+  while the current step reaches a safe boundary: nothing is left half-deleted or
+  half-applied. The single exception is a Docker disk compaction that has already
+  started: it cannot be interrupted without leaving the virtual disk mounted, and the
+  program says so when you click.
+- **External programs cannot freeze the window.** `DISM`, `winget`, `choco`, `pnputil`,
+  `sfc` and `docker` are started with standard input closed (otherwise a "restart now?
+  (Y/N)" prompt would wait for an answer a GUI process has no way to give), their output
+  is read as it arrives, every command has its own timeout, and success is decided by the
+  parsed report rather than by the exit code alone.
+- **When nothing can be done** — no administrator rights, no winget installed, the disk
+  is busy — the program says so in the label or the log immediately instead of leaving a
+  button unresponsive.
+
+### Remembered selections
+What you check stays checked. Previously almost any list reset its checkboxes to the
+default when it refreshed, throwing away what you had picked by hand; now one shared
+store keeps the selection for the whole window.
+
+- **Survives a restart of the program** (kept in `config.json`): the "and temp files"
+  checkbox on Home, the checked categories on the Cleanup tab, the items on the
+  "Windows: extras" tab, the selected packages on the Updates tab, and the choice in the
+  "Where to look" list on the Disk tab.
+- **Survives a list refresh within the session**: the checked programs on the Programs
+  tab, the ports in Dev Cleanup, the processes after a re-scan, and the rows on the Disk
+  and Browsers tabs. After a restart those lists deliberately start clean: their contents
+  are discovered anew every time, and restoring a "delete" tick onto a different file
+  that happens to sit at the same path would be worse than ticking it again.
+- **The defaults are unchanged** and apply only until you decide something yourself: the
+  Cleanup tab starts with the recommended non-empty categories checked, the Updates tab
+  with nothing checked. Once you move a checkbox the program keeps your choice, and a
+  repeated analysis no longer overrides it.
+- **The Startup tab's checkboxes are not remembered** — there a checkbox is not a
+  selection but the live state of the entry in Windows, and "remembering" it would mean
+  lying about the system.
+
+"Recommended", "All" and "None" work as before — they set the whole selection, and that
+is remembered too.
+
 ### Interface language
 Russian / English — switchable in settings (applied after restart). The documentation
 is bilingual too: [README.md](README.md) / [README.en.md](README.en.md).
@@ -647,7 +716,7 @@ settings opens it.
 | `debloat-snapshot.json` | previous states of the "Windows bloat" items, used by "Restore" |
 | `clean-YYYY-MM.log` | disk-cleanup log (what was deleted and how much was freed) |
 | `updates-YYYY-MM.log` | program-update log |
-| `winapp2.ini` | the downloaded winapp2 rule database, if you fetched it |
+| `winapp2.ini` | the downloaded winapp2 rule database, if you fetched it. As of this version it lives in `C:\ProgramData\WindowsProcessCleaner\` instead — a folder no process without administrator rights can write to; the old copy is deleted on the next download |
 | `browser-backups\` | copies of the bookmarks files, taken before every edit |
 | `crash.log` | stack of the last unhandled error, if the app crashed (one message box is shown; attach the file to a bug report) |
 

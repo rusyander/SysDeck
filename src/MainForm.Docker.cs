@@ -39,6 +39,7 @@ namespace WindowsProcessCleaner
             // в строку их влезает меньше, и фиксированные 130 px срезали бы последний ряд.
             flow.AutoSize = true;
             flow.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            _dockerFlow = flow;
 
             AddDockerButton(flow, Tr.S("Обзор занятого места", "Disk usage (df)"), "system df", false);
             AddDockerButton(flow, Tr.S("Подробно (df -v)", "Details (df -v)"), "system df -v", false);
@@ -55,6 +56,21 @@ namespace WindowsProcessCleaner
             bCompact.Tag = "primary";
             bCompact.Click += delegate { DoCompactDocker(); };
             flow.Controls.Add(bCompact);
+
+            // Кнопки «Стоп» у Docker не было вообще: и prune, и сжатие диска идут десятками
+            // минут, а всё это время вкладка только показывала одну неподвижную строку.
+            _btnDockerCancel = new RoundButton();
+            _btnDockerCancel.Text = Tr.S("Стоп", "Stop");
+            _btnDockerCancel.Width = 100; _btnDockerCancel.Height = 34;
+            _btnDockerCancel.Margin = new Padding(4, 6, 4, 4);
+            _btnDockerCancel.Enabled = false;
+            _btnDockerCancel.Click += delegate
+            {
+                _engine.CancelDockerWork();
+                _dockerStopping = true;
+                DockerTick();
+            };
+            flow.Controls.Add(_btnDockerCancel);
 
             // Что удалить перед сжатием — выбор пользователя, по умолчанию только безопасное.
             Label lblPrune = new Label();
@@ -133,10 +149,59 @@ namespace WindowsProcessCleaner
             flow.Controls.Add(b);
         }
 
-        // Второй клик во время выполнения запускал вторую docker-команду параллельно
-        // с первой; теперь на время выполнения кнопки просто игнорируются.
+        // Второй клик во время выполнения запускал вторую docker-команду параллельно с первой.
+        // Молчаливого «игнорируем клик» мало: кнопки оставались нажимаемыми, а в окне вывода
+        // висела строка ПЕРВОЙ команды — и пользователь был уверен, что запустил вторую.
+        // Поэтому на время работы вся панель кнопок гаснет, кроме «Стоп».
         private int _dockerBusy;
         private RoundComboBox _cmbDockerPrune;
+        private FlowLayoutPanel _dockerFlow;
+        private Button _btnDockerCancel;
+        private System.Windows.Forms.Timer _dockerTick;
+        private DateTime _dockerStarted;
+        private string _dockerHeader;     // что вообще запущено — первая строка окна вывода
+        private bool _dockerStopping;
+
+        private void StartDockerTicker(string header)
+        {
+            _dockerHeader = header;
+            _dockerStarted = DateTime.UtcNow;
+            if (_dockerTick == null)
+            {
+                _dockerTick = new System.Windows.Forms.Timer();
+                _dockerTick.Interval = 500;
+                _dockerTick.Tick += delegate { DockerTick(); };
+            }
+            _dockerTick.Start();
+            DockerTick();
+        }
+
+        private void StopDockerTicker()
+        {
+            if (_dockerTick != null) _dockerTick.Stop();
+        }
+
+        // Секундомер плюс текущий шаг и последняя строка вывода docker/diskpart (Engine.DockerStatus).
+        private void DockerTick()
+        {
+            if (_dockerBusy == 0) { StopDockerTicker(); return; }
+            string s = _engine.DockerStatus;
+            _txtDocker.Text = _dockerHeader + "\r\n"
+                + Tr.S("идёт: ", "elapsed: ") + Elapsed(DateTime.UtcNow - _dockerStarted)
+                + (string.IsNullOrEmpty(s) ? "" : "\r\n" + s)
+                + (_dockerStopping
+                   ? "\r\n" + Tr.S("Останавливаю на ближайшей безопасной границе. Уже начатое сжатие диска прервать нельзя — его придётся дождаться, иначе виртуальный диск останется подключённым.",
+                                   "Stopping at the nearest safe point. A compaction already under way cannot be interrupted — it has to finish, otherwise the virtual disk stays attached.")
+                   : "");
+        }
+
+        private void SetDockerUiBusy(bool busy)
+        {
+            if (_dockerFlow != null)
+                foreach (Control c in _dockerFlow.Controls)
+                    if (!ReferenceEquals(c, _btnDockerCancel)) c.Enabled = !busy;
+            if (_btnDockerCancel != null) _btnDockerCancel.Enabled = busy;
+        }
 
         private static bool TouchesVolumes(string args)
         {
@@ -161,8 +226,13 @@ namespace WindowsProcessCleaner
                     "Docker", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (dr != DialogResult.Yes) { Interlocked.Exchange(ref _dockerBusy, 0); return; }
             }
-            _txtDocker.Text = Tr.S("Выполняется: docker ", "Running: docker ") + args + " …";
+            _engine.ResetDockerCancel();
+            _dockerStopping = false;
             Cursor = Cursors.WaitCursor;
+            SetDockerUiBusy(true);
+            // Большой prune идёт до получаса (столько ему теперь и отведено): без секундомера
+            // и живого вывода это была одна строка «Выполняется: docker …» на всё время.
+            StartDockerTicker(Tr.S("Выполняется: docker ", "Running: docker ") + args);
             string op = destructive ? "docker " + args : null;
             if (op != null) BeginWrite(op);
             Thread t = new Thread(delegate()
@@ -171,16 +241,18 @@ namespace WindowsProcessCleaner
                 // Без catch исключение в фоновом потоке валит всё приложение (crash.log, окно ошибки).
                 try { res = _engine.Docker(args); }
                 catch (Exception ex) { res = Tr.S("[ошибка] ", "[error] ") + ex.Message; }
-                finally { if (op != null) EndWrite(op); Interlocked.Exchange(ref _dockerBusy, 0); }
-                try
+                finally { if (op != null) EndWrite(op); }
+                UiPost(delegate
                 {
-                    BeginInvoke((MethodInvoker)delegate
-                    {
-                        Cursor = Cursors.Default;
-                        _txtDocker.Text = res;
-                    });
-                }
-                catch { }
+                    Cursor = Cursors.Default;
+                    StopDockerTicker();
+                    SetDockerUiBusy(false);
+                    _dockerStopping = false;
+                    _txtDocker.Text = res;
+                    // Флаг занятости снимаем последним и в UI-потоке: снятый на фоновом потоке,
+                    // он на мгновение разрешал вторую команду поверх ещё не показанного результата.
+                    Interlocked.Exchange(ref _dockerBusy, 0);
+                });
             });
             t.IsBackground = true;
             t.Start();
@@ -206,11 +278,23 @@ namespace WindowsProcessCleaner
                 "Docker", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (dr != DialogResult.Yes) { Interlocked.Exchange(ref _dockerBusy, 0); return; }
 
-            _txtDocker.Text = Tr.S("Очистка и сжатие диска Docker… это может занять пару минут, не закрывайте окно.",
-                                   "Cleaning and compacting Docker disk… this may take a couple of minutes, don't close the window.");
+            _engine.ResetDockerCancel();
+            _dockerStopping = false;
             Cursor = Cursors.WaitCursor;
+            SetDockerUiBusy(true);
+            // Обещание «пары минут» противоречило самому же окну подтверждения (10–30 минут)
+            // и не имело ничего общего с делом: prune + остановка WSL + diskpart — это до
+            // сорока минут. Теперь на экране срок, секундомер и текущий шаг.
+            StartDockerTicker(Tr.S("Очистка и сжатие диска Docker (на большом диске это 10–30 минут). Docker и все сеансы WSL на это время остановлены; окно не закрывайте.",
+                                   "Cleaning and compacting the Docker disk (10–30 minutes on a large disk). Docker and all WSL sessions are stopped meanwhile; don't close the window."));
             string op = Tr.S("очистка и сжатие диска Docker", "Docker disk cleanup and compaction");
             BeginWrite(op);
+            // На других вкладках о происходящем не говорило ничто, а Docker и WSL при этом лежат:
+            // всплывающая подсказка у часов — единственное место, видное со всего приложения.
+            if (_tray != null)
+                _tray.ShowBalloonTip(4000, "Docker",
+                    Tr.S("Сжатие диска началось: Docker и WSL остановлены на 10–30 минут.",
+                         "Disk compaction started: Docker and WSL are stopped for 10–30 minutes."), ToolTipIcon.Info);
             Thread t = new Thread(delegate()
             {
                 string res;
@@ -221,16 +305,23 @@ namespace WindowsProcessCleaner
                         + Tr.S("\r\nЕсли Docker Desktop не запустился — запустите его вручную.",
                                "\r\nIf Docker Desktop did not start, start it manually.");
                 }
-                finally { EndWrite(op); Interlocked.Exchange(ref _dockerBusy, 0); }
-                try
+                finally { EndWrite(op); }
+                bool cancelled = _engine.DockerCancelled;
+                UiPost(delegate
                 {
-                    BeginInvoke((MethodInvoker)delegate
-                    {
-                        Cursor = Cursors.Default;
-                        _txtDocker.Text = res;
-                    });
-                }
-                catch { }
+                    Cursor = Cursors.Default;
+                    StopDockerTicker();
+                    SetDockerUiBusy(false);
+                    _dockerStopping = false;
+                    _txtDocker.Text = res;
+                    if (_tray != null)
+                        _tray.ShowBalloonTip(4000, "Docker",
+                            cancelled ? Tr.S("Остановлено. Docker Desktop мог остаться выключенным — проверьте.",
+                                             "Stopped. Docker Desktop may have stayed off — please check.")
+                                      : Tr.S("Сжатие диска Docker завершено.", "Docker disk compaction finished."),
+                            cancelled ? ToolTipIcon.Warning : ToolTipIcon.Info);
+                    Interlocked.Exchange(ref _dockerBusy, 0);
+                });
             });
             t.IsBackground = true;
             t.Start();

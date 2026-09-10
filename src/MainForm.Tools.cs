@@ -23,6 +23,13 @@ namespace WindowsProcessCleaner
         private TextBox _txtToolsFind;
         private Panel _toolsBody;
         private string _toolsInfoDefault;
+        // Секундомер страницы: подпись «Выполняется: …» ставилась один раз и висела неподвижно
+        // всё время работы SFC/DISM/chkdsk — до часа. Теперь к ней раз в полсекунды дописываются
+        // прошедшее время и последняя строка вывода: видно, что работа жива.
+        private System.Windows.Forms.Timer _toolsTick;
+        private DateTime _toolsStarted;
+        private string _toolsPhase, _toolsTitle;
+        private string _toolsLastLine;
 
         // ---------- Вкладка: Инструменты ----------
         private Control BuildToolsTab()
@@ -47,7 +54,7 @@ namespace WindowsProcessCleaner
             _lblToolsLog = MkFlowLabel(Tr.S("Журнал выполнения", "Execution log"), false);
             _btnToolsStop = MkFlowButton(Tr.S("Остановить", "Stop"), 130, false);
             _btnToolsStop.Enabled = false;
-            _btnToolsStop.Click += delegate { _toolsCancel = true; };
+            _btnToolsStop.Click += delegate { StopRunningTool(); };
             Button btnClear = MkFlowButton(Tr.S("Очистить журнал", "Clear log"), 150, false);
             btnClear.Click += delegate { _rtbTools.Clear(); };
             logBar.Controls.Add(_lblToolsLog);
@@ -196,13 +203,84 @@ namespace WindowsProcessCleaner
             _rtbTools.ScrollToCaret();
         }
 
+        // Хвост длинной строки вывода в однострочную подпись не влезает и распирает раскладку.
+        private static string ToolsShort(string s)
+        {
+            string t = (s ?? "").Trim();
+            return t.Length > 90 ? t.Substring(0, 90) + "…" : t;
+        }
+
+        // «Остановить» раньше только поднимала флаг: кнопка оставалась нажимаемой, подпись —
+        // прежней, а подтверждение приходило строкой в журнал спустя четверть секунды.
+        private void StopRunningTool()
+        {
+            if (_toolsBusy == 0) return;
+            _toolsCancel = true;
+            _btnToolsStop.Enabled = false;
+            _toolsPhase = Tr.S("Останавливаю: ", "Stopping: ") + _toolsTitle;
+            ToolsLog(Tr.S("=== запрошена остановка, дочерний процесс завершается", "=== stop requested, the child process is being terminated"));
+        }
+
+        private void StartToolsTicker(string phase)
+        {
+            _toolsPhase = phase;
+            _toolsLastLine = null;
+            _toolsStarted = DateTime.UtcNow;
+            if (_toolsTick == null)
+            {
+                _toolsTick = new System.Windows.Forms.Timer();
+                _toolsTick.Interval = 500;
+                _toolsTick.Tick += delegate { ToolsTick(); };
+            }
+            _toolsTick.Start();
+            ToolsTick();
+        }
+
+        private void StopToolsTicker()
+        {
+            if (_toolsTick != null) _toolsTick.Stop();
+        }
+
+        private void ToolsTick()
+        {
+            if (_toolsBusy == 0) { StopToolsTicker(); return; }
+            _lblToolsInfo.Text = _toolsPhase + "   ·   " + Elapsed(DateTime.UtcNow - _toolsStarted)
+                + (string.IsNullOrEmpty(_toolsLastLine) ? "" : "   ·   " + _toolsLastLine);
+        }
+
+        // .msc, .cpl и ms-settings: уходят через ShellExecuteEx в холодный старт MMC или
+        // «Параметров» — на UI-потоке это от сотен миллисекунд до нескольких секунд мёртвого
+        // окна. Запуск ушёл в фон, а до ответа виден курсор ожидания и строка «Запускаю: …».
+        private void OpenToolAsync(ToolItem t)
+        {
+            _lblToolsInfo.Text = Tr.S("Запускаю: ", "Starting: ") + t.Title + "…";
+            Cursor = Cursors.AppStarting;
+            Thread th = new Thread(delegate()
+            {
+                string err;
+                try { err = Engine.ToolOpen(t); }
+                catch (Exception ex) { err = ex.Message; }
+                string errCopy = err;
+                UiPost(delegate
+                {
+                    Cursor = Cursors.Default;
+                    if (errCopy != null)
+                    {
+                        _lblToolsInfo.Text = t.Title + ": " + errCopy;
+                        MsgError(t.Title + ": " + errCopy);
+                    }
+                    else _lblToolsInfo.Text = Tr.S("Запущено: ", "Started: ") + t.Title;
+                });
+            });
+            th.IsBackground = true;
+            th.Start();
+        }
+
         private void RunTool(ToolItem t)
         {
             if (t.Group == Engine.ToolsOpen || (t.Open != null && t.Id != "wucheck"))
             {
-                string err = Engine.ToolOpen(t);
-                if (err != null) MsgError(t.Title + ": " + err);
-                else _lblToolsInfo.Text = Tr.S("Запущено: ", "Started: ") + t.Title;
+                OpenToolAsync(t);
                 return;
             }
             if (t.Id == "clipboard")
@@ -221,7 +299,15 @@ namespace WindowsProcessCleaner
                 Interlocked.Exchange(ref _toolsBusy, 0);
                 if (MsgAsk(t.Title + Tr.S(": нужны права администратора. Перезапустить приложение от администратора?",
                                           ": administrator rights are required. Restart the app as administrator?"), Tr.S("Инструменты", "Tools")))
+                {
                     RestartAsAdmin();
+                    // ExitNow() выставляет _reallyExit; раз мы всё ещё здесь и флага нет — вторая
+                    // копия не стартовала (UAC отклонён), и раньше приложение об этом молчало
+                    if (!_reallyExit)
+                        _lblToolsInfo.Text = t.Title + Tr.S(": перезапуск не выполнен — запрос администратора отклонён или отменён.",
+                                                            ": restart did not happen — the administrator prompt was declined or cancelled.");
+                }
+                else _lblToolsInfo.Text = t.Title + Tr.S(": пропущено, нужны права администратора.", ": skipped, administrator rights are required.");
                 return;
             }
             if (t.Confirm)
@@ -236,32 +322,55 @@ namespace WindowsProcessCleaner
                                     ") will be deleted; hibernation and fast startup become unavailable. The same button turns it back on.")
                            : Tr.S("Включить гибернацию? Windows снова создаст hiberfil.sys на системном диске.", "Turn hibernation on? Windows will recreate hiberfil.sys on the system drive.");
                 }
-                if (!MsgAsk(q, t.Title)) { Interlocked.Exchange(ref _toolsBusy, 0); return; }
+                if (!MsgAsk(q, t.Title))
+                {
+                    Interlocked.Exchange(ref _toolsBusy, 0);
+                    _lblToolsInfo.Text = t.Title + Tr.S(": отменено, ничего не изменено.", ": cancelled, nothing was changed.");
+                    return;
+                }
             }
 
             _toolsCancel = false;
-            _btnToolsStop.Enabled = t.Long;
-            _lblToolsInfo.Text = Tr.S("Выполняется: ", "Running: ") + t.Title + (t.Long ? Tr.S(" — это может занять несколько минут.", " — this may take several minutes.") : "");
+            _toolsTitle = t.Title;
+            // Все долгие инструменты теперь останавливаются по-настоящему: отмена доходит и до
+            // PowerShell в «Создать точку восстановления», и до пауз в перезапуске Проводника.
+            bool canStop = t.Long;
+            _btnToolsStop.Enabled = canStop;
             ToolsLog("=== " + t.Title + "  [" + DateTime.Now.ToString("HH:mm:ss") + "]");
-            Cursor = Cursors.WaitCursor;
+            StartToolsTicker(Tr.S("Выполняется: ", "Running: ") + t.Title
+                + (t.Long ? Tr.S(" — минуты, можно остановить", " — minutes, can be stopped") : ""));
+            // Для долгих — «стрелка с песочными часами»: окно отвечает, работа идёт в фоне.
+            // Сплошные песочные часы часами подряд читались как зависание.
+            Cursor = t.Long ? Cursors.AppStarting : Cursors.WaitCursor;
             string op = t.Confirm || t.Long ? t.Title : null;
             if (op != null) BeginWrite(op);
             Thread th = new Thread(delegate()
             {
                 bool ok = false; string err = null;
-                try { ok = _engine.ToolRun(t.Id, delegate(string line) { UiPost(delegate { ToolsLog(line); }); }, delegate { return _toolsCancel || _closing; }); }
+                try
+                {
+                    ok = _engine.ToolRun(t.Id,
+                        delegate(string line) { UiPost(delegate { ToolsLog(line); _toolsLastLine = ToolsShort(line); }); },
+                        delegate { return _toolsCancel || _closing; });
+                }
                 catch (Exception ex) { err = ex.Message; }
-                finally { if (op != null) EndWrite(op); Interlocked.Exchange(ref _toolsBusy, 0); }
-                bool okCopy = ok; string errCopy = err;
+                finally { if (op != null) EndWrite(op); }
+                bool okCopy = ok; string errCopy = err; bool stopped = _toolsCancel;
                 UiPost(delegate
                 {
+                    // Флаг занятости снимаем здесь, а не в потоке: снятый раньше, он пускал
+                    // следующий запуск, которому этот же обработчик тут же гасил «Остановить»
+                    // и затирал строку состояния результатом предыдущего.
+                    Interlocked.Exchange(ref _toolsBusy, 0);
+                    StopToolsTicker();
                     Cursor = Cursors.Default;
                     _btnToolsStop.Enabled = false;
                     string res = errCopy != null ? Tr.S("ошибка: ", "error: ") + errCopy
-                               : _toolsCancel ? Tr.S("остановлено", "stopped")
+                               : stopped ? Tr.S("остановлено", "stopped")
                                : okCopy ? Tr.S("выполнено", "done") : Tr.S("завершилось с ошибкой — см. журнал", "finished with an error — see the log");
-                    ToolsLog("=== " + t.Title + ": " + res);
-                    _lblToolsInfo.Text = t.Title + ": " + res;
+                    string took = Tr.S("   ·   заняло ", "   ·   took ") + Elapsed(DateTime.UtcNow - _toolsStarted);
+                    ToolsLog("=== " + t.Title + ": " + res + took);
+                    _lblToolsInfo.Text = t.Title + ": " + res + took;
                     RefreshToolsState();
                     if (_tray != null && t.Long) _tray.ShowBalloonTip(3000, Tr.S("Инструменты", "Tools"), t.Title + ": " + res, ToolTipIcon.Info);
                 });
