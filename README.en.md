@@ -82,7 +82,8 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
   are never eligible for termination in global mode; the guards fail safe.
 - **Doesn't kill active things by mistake.** A scan candidate is picked only when all
   criteria match at once (dead parent + idle + no windows/ports/children), with
-  confirmation. The exception is the Dev Cleanup buttons — a deliberate by-name sledgehammer.
+  confirmation. The Dev Cleanup buttons hit by name regardless of activity, but they too show
+  the list of matching processes first and ask.
 - **Doesn't do disk-wide duplicate search** and never deletes anything from your projects,
   code, System32 or drive roots. Driver packages in `DriverStore` are removed only via
   `pnputil` and only superseded ones. Only known junk paths are cleaned.
@@ -246,7 +247,8 @@ dev ports (3000, 5173, 8080, 4200 …) that you can terminate. Listeners are fou
 IPv4 and IPv6 (Node and Vite listen on `::` by default).
 
 > Dev Cleanup terminates **by name regardless of activity** (except the whitelist) —
-> a deliberate sledgehammer.
+> a deliberate sledgehammer. Before the hit it shows the list of matching processes and
+> asks; exactly what was listed gets terminated.
 
 ### Disk cleanup (manual only)
 A dedicated tab. Flow: **Analyze → preview with sizes → delete selected**. There is
@@ -254,9 +256,11 @@ intentionally no automatic disk cleanup (files are less reversible than processe
 Only **known junk paths** are cleaned; the folder map, large files, empty folders and
 duplicates live on the neighbouring "Disk" tab. Categories:
 - **Dev caches** — npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet /
-  Composer / TypeScript, old Playwright browser builds (all regenerated).
-- **Dev: downloaded toolchains** — Playwright/Puppeteer/Cypress browsers, electron-builder,
-  dotslash, Expo Go, the Maven repository. They re-download, but slowly — unchecked by default.
+  Composer / TypeScript (all regenerated).
+- **Dev: downloaded toolchains** — old Playwright browser builds (the current one stays; a
+  project pinned to an older version needs `npx playwright install` afterwards),
+  Puppeteer/Cypress browsers, electron-builder, dotslash, Expo Go, the Maven repository, NuGet
+  packages (`~/.nuget/packages`). They re-download, but slowly — unchecked by default.
 - **System junk** — `%TEMP%`, `Windows\Temp`, service-profile temp, Recycle Bin, Windows
   Update cache, crash dumps, error reports, Delivery Optimization. `Prefetch` is deliberately
   left alone: it is the program-launch cache, weighs megabytes, and everything starts slower
@@ -270,8 +274,10 @@ duplicates live on the neighbouring "Disk" tab. Categories:
   the WebView cache of the new Teams. `LocalState` and app settings are untouched.
 - **Browser caches** — Chrome / Edge / Brave / Yandex / Opera / Vivaldi / Firefox, cache only
   (no passwords, cookies or history).
-- **App caches** — Discord / Slack / Teams / Spotify / VS Code / JetBrains / Steam /
-  Telegram (incl. `media_cache`) / Figma / game launchers, cache only.
+- **App caches** — Discord / Slack / Teams / Spotify (embedded browser) / VS Code / JetBrains /
+  Steam / Telegram (incl. `media_cache`) / Figma / game launchers, cache only.
+- **Caches holding offline content** — Spotify `Storage`/`Data`: the streaming cache together
+  with Premium offline downloads. Tracks re-download, so the category is unchecked by default.
 - **NVIDIA: caches and old versions** — old NGX model versions (DLSS, Broadcast, etc.).
   NGX Updater downloads new versions into `ProgramData\NVIDIA\NGX\models\<model>\versions`
   and never removes old ones — gigabytes pile up within a year. Plus the NVIDIA App/Overlay
@@ -286,8 +292,10 @@ duplicates live on the neighbouring "Disk" tab. Categories:
   version) and WPS Office (the previous version folder next to the current one). The current
   version is picked by number, for WPS from the registry. Unchecked by default.
 - **Windows update and driver leftovers** — `Windows.old`, `$Windows.~BT`, `$WinREAgent`,
-  `$GetCurrent`, `ESD`, unpacked AMD/Intel installers, `NVIDIA Installer2`. Update leftovers
-  are deleted only when older than 10 days — the period Windows itself keeps them for rollback.
+  `$GetCurrent`, `ESD`, unpacked AMD/Intel installers, `NVIDIA Installer2`, the MSI patch
+  cache `Windows\Installer\$PatchCache$` (without it, repairing or removing Office, SQL Server
+  or Visual Studio patches asks for the original installer). Update leftovers are deleted only
+  when older than 10 days — the period Windows itself keeps them for rollback.
 - **Old driver packages (DriverStore)** — versions superseded by newer ones and bound to no
   device. The list comes from `pnputil /enum-drivers`, removal is `pnputil /delete-driver`
   without `/force`: if the system still needs a package, pnputil refuses on its own.
@@ -527,8 +535,10 @@ tasks, packages).
 
 Only universal junk is checked by default: telemetry, ads and tips, Bing in Start,
 widgets, dead and promotional Store apps, unneeded services and features (PowerShell 2.0,
-SMB 1.0, XPS…). Everything debatable — Copilot, Recall, Xbox Game Bar, OneDrive, Teams,
-Phone Link, search indexing — is listed unchecked with a ⚠ warning.
+XPS…). Everything debatable — Copilot, Recall, Xbox Game Bar, OneDrive, Teams, Phone Link,
+search indexing, SMB 1.0 — is listed unchecked with a ⚠ warning. Apps that hold offline
+content (Spotify, Netflix, Prime Video, Disney+) and live working apps (Power Automate,
+OneNote for Windows 10) are unchecked as well.
 
 Buttons: **"Check state"** (reads the registry, services, scheduled tasks, Store packages
 and — with administrator rights only — features via DISM), **"Disable checked"**,
@@ -700,7 +710,7 @@ protects system processes and other users' processes. Termination always asks fo
 confirmation.
 
 **Dev Cleanup — no**, it is intentionally a sledgehammer: the buttons hit everything
-by name (except the whitelist). Use consciously.
+by name (except the whitelist), but they show the list and wait for confirmation first.
 
 ---
 
@@ -760,8 +770,10 @@ The app always runs as administrator. This is required to purge Standby Memory v
   seconds.
 - Consequently "5 minutes idle" is counted from the moment the app started observing the
   process, not from when it launched.
-- **Command-line switches:** `/tray` — start minimized, `/auto` — run a process auto-clean
-  and exit, `/analyze` — measure disk junk without deleting anything (the `TOTAL` line is
+- **Command-line switches:** `/tray` — start minimized, `/auto` — quiet disk cleanup with no
+  window for your own scheduled task (recommended categories, honouring the ticks set or
+  cleared in the window; the exit code is visible to the scheduler), `/analyze` — measure
+  disk junk without deleting anything (the `TOTAL` line is
   free of double counting of nested targets, `sum=` is the plain category sum), `/disk [path]`
   — open the Disk tab and scan the path right away.
 - **Display scaling (DPI):** the window scales to 125/150 % (`AutoScaleMode.Dpi`), button

@@ -529,7 +529,8 @@ namespace WindowsProcessCleaner
                 }
                 if (c.RecycleBin)
                 {
-                    ListViewItem it = new ListViewItem(Tr.S("Корзина", "Recycle Bin"));
+                    // SHEmptyRecycleBin без корня — Корзины всех дисков, не только системного
+                    ListViewItem it = new ListViewItem(Tr.S("Корзина (все диски)", "Recycle Bin (all drives)"));
                     it.SubItems.Add(c.Analyzed ? Engine.FormatBytes(c.BinSize) : "…");
                     it.SubItems.Add(c.Analyzed ? c.BinCount.ToString() : "");
                     it.SubItems.Add(Tr.S("очищается целиком", "emptied completely"));

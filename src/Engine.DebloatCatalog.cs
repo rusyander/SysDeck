@@ -329,7 +329,8 @@ namespace WindowsProcessCleaner
               Tr.S("Конструктор автоматизаций (RPA) для бизнеса.", "The business automation (RPA) designer."),
               Tr.S("Минус тяжёлое приложение, которым дома почти не пользуются.", "One heavy app fewer, rarely used at home."),
               Tr.S("Кто строит сценарии Power Automate — поставит заново из Store.", "Power Automate users reinstall it from the Store."),
-              2, true, false).Appx("Microsoft.PowerAutomateDesktop");
+              // без галочки: живой инструмент, у кого-то в нём рабочие потоки
+              2, false, false).Appx("Microsoft.PowerAutomateDesktop");
             D(l, cApps, "devhome", "Dev Home",
               Tr.S("Панель разработчика, которую Microsoft прекратила развивать в 2025 году.", "The developer dashboard Microsoft stopped developing in 2025."),
               Tr.S("Мёртвое приложение.", "A dead app."),
@@ -374,7 +375,8 @@ namespace WindowsProcessCleaner
               Tr.S("Старая версия OneNote из Store, снятая с поддержки в 2025 году.", "The old Store version of OneNote, retired in 2025."),
               Tr.S("Мёртвое приложение; десктопный OneNote остаётся.", "A dead app; desktop OneNote stays."),
               Tr.S("Ничем, если стоит обычный OneNote из Office.", "Nothing if the regular Office OneNote is installed."),
-              2, true, false).Appx("Microsoft.Office.OneNote");
+              // без галочки: поддержка закончилась, но приложение работает и в нём чьи-то заметки
+              2, false, false).Appx("Microsoft.Office.OneNote");
             D(l, cApps, "media", Tr.S("Будильники, Камера, Запись звука, Медиаплеер, Кино и ТВ", "Alarms, Camera, Sound Recorder, Media Player, Movies & TV"),
               Tr.S("Стандартные приложения-утилиты Windows.", "The standard Windows utility apps."),
               Tr.S("Место и меньше пунктов в Пуске.", "Space and a shorter Start list."),
@@ -395,8 +397,9 @@ namespace WindowsProcessCleaner
             D(l, cThird, "spotify", "Spotify",
               Tr.S("Заглушка Spotify, предустановленная Windows.", "The Spotify stub preinstalled by Windows."),
               Tr.S("Минус заглушка.", "One stub fewer."),
-              Tr.S("Кто слушает Spotify через это приложение — поставит из Store или с сайта.", "Spotify listeners reinstall from the Store or the website."),
-              2, true, false).Appx("SpotifyAB.SpotifyMusic");
+              Tr.S("Кто слушает Spotify через это приложение — поставит из Store или с сайта; офлайн-загрузки Premium при этом пропадут.", "Spotify listeners reinstall from the Store or the website; Premium offline downloads are lost."),
+              // без галочки: у многих это не заглушка, а рабочее приложение с офлайн-музыкой
+              2, false, false).Appx("SpotifyAB.SpotifyMusic");
             D(l, cThird, "socialstubs", Tr.S("TikTok, Instagram, Facebook, Twitter", "TikTok, Instagram, Facebook, Twitter"),
               Tr.S("Веб-обёртки социальных сетей из «рекомендуемых» приложений.", "Social-network web wrappers from the “suggested” apps."),
               Tr.S("Минус заглушки; сайты работают в браузере.", "Stubs gone; the sites work in a browser."),
@@ -406,7 +409,8 @@ namespace WindowsProcessCleaner
               Tr.S("Заглушки стриминговых сервисов.", "Streaming-service stubs."),
               Tr.S("Минус заглушки.", "Stubs gone."),
               Tr.S("Кто смотрит через приложение (офлайн-загрузки) — поставит заново из Store.", "Anyone watching through the app (offline downloads) reinstalls from the Store."),
-              2, true, false).Appx("Disney.37853FC22B2CE").Appx("4DF9E0F8.Netflix").Appx("AmazonVideo.PrimeVideo").Appx("HULULLC.HULUPLUS");
+              // без галочки: офлайн-загрузки фильмов живут только внутри приложения
+              2, false, false).Appx("Disney.37853FC22B2CE").Appx("4DF9E0F8.Netflix").Appx("AmazonVideo.PrimeVideo").Appx("HULULLC.HULUPLUS");
             D(l, cThird, "gamestubs", Tr.S("Игры-заглушки (Candy Crush и подобные)", "Game stubs (Candy Crush and friends)"),
               Tr.S("Candy Crush, Bubble Witch, March of Empires, Asphalt, Cooking Fever, Royal Revolt, Hidden City…", "Candy Crush, Bubble Witch, March of Empires, Asphalt, Cooking Fever, Royal Revolt, Hidden City…"),
               Tr.S("Минус реклама, приходящая под видом игр.", "Ads disguised as games are gone."),
@@ -420,6 +424,7 @@ namespace WindowsProcessCleaner
               Tr.S("Минус реклама антивируса.", "One antivirus ad fewer."),
               Tr.S("Полноценный McAfee, если он установлен, удаляется через «Программы», не здесь.", "A full McAfee, if installed, is removed via “Programs”, not here."),
               2, true, false).Appx("5A894077.McAfeeSecurity");
+            // Keeper (менеджер паролей) отсюда убран: удалять по умолчанию хранилище паролей нельзя, даже облачное
             D(l, cThird, "otherstubs", Tr.S("Прочие заглушки (PicsArt, Duolingo, Pandora, Plex, Adobe Express…)", "Other stubs (PicsArt, Duolingo, Pandora, Plex, Adobe Express…)"),
               Tr.S("Остальные «рекомендуемые» приложения, которые ставятся без спроса.", "The remaining “suggested” apps installed without asking."),
               Tr.S("Минус заглушки.", "Stubs gone."),
@@ -427,7 +432,7 @@ namespace WindowsProcessCleaner
               2, true, false)
                 .Appx("2FE3CB00.PicsArt-PhotoStudio").Appx("D5EA27B7.Duolingo-LearnLanguagesforFree").Appx("PandoraMediaInc.29680B314EFC2")
                 .Appx("46928bounde.EclipseManager").Appx("ActiproSoftwareLLC.562882FEEB491").Appx("Flipboard.Flipboard").Appx("ShazamEntertainmentLtd.Shazam")
-                .Appx("TheNewYorkTimes.NYTCrossword").Appx("KeeperSecurityInc.Keeper").Appx("AdobeSystemsIncorporated.AdobePhotoshopExpress")
+                .Appx("TheNewYorkTimes.NYTCrossword").Appx("AdobeSystemsIncorporated.AdobePhotoshopExpress")
                 .Appx("Drawboard.DrawboardPDF").Appx("Fitbit.FitbitCoach").Appx("CAF9E577.Plex");
 
             // ---------- Xbox ----------
@@ -551,7 +556,9 @@ namespace WindowsProcessCleaner
               Tr.S("Сетевой протокол 1980-х, через который распространялся WannaCry.", "The 1980s network protocol WannaCry spread through."),
               Tr.S("Закрыта серьёзная уязвимость.", "A serious vulnerability closed."),
               Tr.S("⚠ Очень старые NAS, принтеры и роутеры с общими папками перестанут открываться.", "⚠ Very old NAS boxes, printers and routers with shared folders stop opening."),
-              1, true, true).Feature("SMB1Protocol", false);
+              // без галочки: на современной Windows SMB1 выключен из коробки, и если он включён —
+              // его включали руками ради старого NAS или принтера
+              1, false, true).Feature("SMB1Protocol", false);
             D(l, cFeat, "xps", Tr.S("Службы XPS", "XPS services"),
               Tr.S("Печать в формат XPS — предшественник PDF, которым никто не пользуется.", "Printing to XPS — a PDF predecessor nobody uses."),
               Tr.S("Минус компонент и виртуальный принтер.", "One feature and one virtual printer fewer."),

@@ -268,6 +268,25 @@ namespace WindowsProcessCleaner
             catch { return false; }
         }
 
+        // Владелец файла или папки всегда может переписать их DACL, поэтому папки с правильными правами
+        // мало: подложенный до первого запуска пользовательский winapp2.ini защищённым не считается.
+        private static bool OwnedByAdmin(string path)
+        {
+            try
+            {
+                FileSystemSecurity sec = Directory.Exists(path)
+                    ? (FileSystemSecurity)Directory.GetAccessControl(path)
+                    : File.GetAccessControl(path);
+                SecurityIdentifier owner = sec.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+                if (owner == null) return false;
+                // TrustedInstaller — владелец всего, что ставит сама Windows
+                return owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid)
+                    || owner.IsWellKnown(WellKnownSidType.LocalSystemSid)
+                    || owner.Value == "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+            }
+            catch { return false; }
+        }
+
         private List<CleanCategory> LoadWinapp2Categories()
         {
             Winapp2RuleCount = 0;
@@ -275,7 +294,8 @@ namespace WindowsProcessCleaner
             List<CleanCategory> result = new List<CleanCategory>();
             string ini = Winapp2Path;
             if (ini == null) return result;
-            Winapp2Protected = ini.StartsWith(ProtectedRulesDir, StringComparison.OrdinalIgnoreCase);
+            Winapp2Protected = ini.StartsWith(ProtectedRulesDir, StringComparison.OrdinalIgnoreCase)
+                            && OwnedByAdmin(ini) && OwnedByAdmin(ProtectedRulesDir);
 
             // группируем правила по Section=, иначе в списке будут сотни строк
             Dictionary<string, CleanCategory> groups = new Dictionary<string, CleanCategory>(StringComparer.OrdinalIgnoreCase);

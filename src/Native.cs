@@ -436,6 +436,7 @@ namespace WindowsProcessCleaner
         public const ushort FOF_NOCONFIRMATION = 0x0010;
         public const ushort FOF_ALLOWUNDO = 0x0040;
         public const ushort FOF_NOERRORUI = 0x0400;
+        public const ushort FOF_WANTNUKEWARNING = 0x4000;   // спросить, если файл не влезает в Корзину и будет удалён насовсем
         [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "SHFileOperationW")]
         public static extern int SHFileOperation64(ref SHFILEOPSTRUCT64 op);
         [DllImport("shell32.dll", CharSet = CharSet.Unicode, EntryPoint = "SHFileOperationW")]
@@ -530,7 +531,9 @@ namespace WindowsProcessCleaner
             }
             if (n == 0) return 0;
             sb.Append('\0');
-            ushort flags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
+            // Без FOF_WANTNUKEWARNING файл крупнее квоты Корзины оболочка молча удаляла насовсем — при
+            // том, что пользователю задавался вопрос «переместить в Корзину». Теперь она спросит.
+            ushort flags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI | FOF_WANTNUKEWARNING;
             int rc;
             if (IntPtr.Size == 8)
             {

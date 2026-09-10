@@ -247,7 +247,7 @@ namespace WindowsProcessCleaner
         private const int AutoOk = 0;            // отработало
         private const int AutoStartFailed = 2;   // движок не поднялся: нет прав, битый конфиг
         private const int AutoFailed = 3;        // исключение во время анализа или удаления
-        private const int AutoNothing = 4;       // ни одной рекомендованной категории — чистить нечего
+        private const int AutoNothing = 4;       // ни одной выбранной категории — чистить нечего
 
         // Строка этапа уходит и в auto.log рядом с конфигом, и в stdout: задачу планировщика
         // часто запускают с перенаправлением вывода. Сбой самой записи гасим — сообщать о нём
@@ -269,6 +269,22 @@ namespace WindowsProcessCleaner
         // Тихий режим: чистим только рекомендованные категории. Раньше всё тело стояло в пустом
         // catch, и процесс всегда выходил с нулём — упавший прогон выглядел как успешный.
         // Никакого UI: окно с ошибкой в расписании некому закрыть.
+        // Галочки, расставленные в окне (config.json → UiChecks, «clean.cat\t<Id>\t1|0»), важнее
+        // каталожного умолчания: категория, снятая пользователем, не должна чиститься по расписанию.
+        private static bool HeadlessPicked(List<string> mem, CleanCategory c)
+        {
+            if (mem != null)
+            {
+                string key = "clean.cat\t" + c.Id + "\t";
+                for (int i = mem.Count - 1; i >= 0; i--)
+                {
+                    string s = mem[i];
+                    if (s != null && s.StartsWith(key, StringComparison.Ordinal)) return s.Substring(key.Length) == "1";
+                }
+            }
+            return c.Recommended;
+        }
+
         private static int RunHeadlessClean()
         {
             string dir = null;
@@ -291,8 +307,9 @@ namespace WindowsProcessCleaner
             {
                 List<CleanCategory> cats = engine.BuildCleanCategories();
                 List<CleanCategory> pick = new List<CleanCategory>();
-                foreach (CleanCategory c in cats) if (c.Recommended) pick.Add(c);
-                AutoLog(dir, "categories=" + cats.Count + " recommended=" + pick.Count + " (" + sw.ElapsedMilliseconds + " ms)");
+                List<string> mem = engine.Config.UiChecks;
+                foreach (CleanCategory c in cats) if (HeadlessPicked(mem, c)) pick.Add(c);
+                AutoLog(dir, "categories=" + cats.Count + " picked=" + pick.Count + " (" + sw.ElapsedMilliseconds + " ms)");
                 if (pick.Count == 0)
                 {
                     AutoLog(dir, "nothing to clean");

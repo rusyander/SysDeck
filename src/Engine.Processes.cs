@@ -561,13 +561,22 @@ namespace WindowsProcessCleaner
         public int TerminateByNames(string[] names, out long freed, out int matched,
                                     Action<string> stage, Func<bool> cancel)
         {
-            HashSet<string> want = new HashSet<string>(names.Select(n => n.ToLowerInvariant()));
             List<int> pids = new List<int>();
-            foreach (RawProc r in Snapshot())
-                if (want.Contains(r.Name.ToLowerInvariant()) && !IsWhitelisted(r.Name))
-                    pids.Add(r.Pid);
+            foreach (KeyValuePair<int, string> kv in MatchByNames(names)) pids.Add(kv.Key);
             matched = pids.Count;
             return TerminateMany(pids, out freed, stage, cancel);
+        }
+
+        // Кто попадёт под кнопку группы: процессы с этими именами минус белый список. Отдельно от
+        // завершения, чтобы страница показала список ДО вопроса «завершить?» и завершила ровно его.
+        public List<KeyValuePair<int, string>> MatchByNames(string[] names)
+        {
+            HashSet<string> want = new HashSet<string>(names.Select(n => n.ToLowerInvariant()));
+            List<KeyValuePair<int, string>> found = new List<KeyValuePair<int, string>>();
+            foreach (RawProc r in Snapshot())
+                if (want.Contains(r.Name.ToLowerInvariant()) && !IsWhitelisted(r.Name))
+                    found.Add(new KeyValuePair<int, string>(r.Pid, r.Name));
+            return found;
         }
 
         // ---------- Занятые dev-порты ----------

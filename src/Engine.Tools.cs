@@ -461,6 +461,44 @@ namespace WindowsProcessCleaner
             return ok;
         }
 
+        private const string SysRestoreKey = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore";
+        private const string SysRestoreFreq = "SystemRestorePointCreationFrequency";
+
+        // Снять лимит частоты точек восстановления; возвращает прежнее значение (null = его не было).
+        // changed=false — ключ недоступен, ничего не тронуто, возвращать нечего.
+        private static object LiftRestorePointFrequency(out bool changed)
+        {
+            changed = false;
+            try
+            {
+                using (RegistryKey hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey k = hklm.OpenSubKey(SysRestoreKey, true))
+                {
+                    if (k == null) return null;
+                    object old = k.GetValue(SysRestoreFreq);
+                    k.SetValue(SysRestoreFreq, 0, RegistryValueKind.DWord);
+                    changed = true;
+                    return old;
+                }
+            }
+            catch { return null; }
+        }
+
+        private static void RestoreRestorePointFrequency(object old)
+        {
+            try
+            {
+                using (RegistryKey hklm = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey k = hklm.OpenSubKey(SysRestoreKey, true))
+                {
+                    if (k == null) return;
+                    if (old == null) k.DeleteValue(SysRestoreFreq, false);
+                    else k.SetValue(SysRestoreFreq, old, RegistryValueKind.DWord);
+                }
+            }
+            catch { }
+        }
+
         // Точка восстановления через Checkpoint-Computer. Windows создаёт не чаще одной точки в сутки
         // (SystemRestorePointCreationFrequency) — на время вызова лимит снимается и возвращается как был.
         private bool CreateRestorePoint(Action<string> log, Func<bool> cancel)
@@ -475,18 +513,21 @@ namespace WindowsProcessCleaner
             }
             string desc = "Windows Process Cleaner " + DateTime.Now.ToString("yyyy-MM-dd HH:mm");
             script +=
-                "$k='HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore';" +
-                "$old=(Get-ItemProperty $k -Name SystemRestorePointCreationFrequency -ErrorAction SilentlyContinue).SystemRestorePointCreationFrequency;" +
-                "Set-ItemProperty $k -Name SystemRestorePointCreationFrequency -Value 0 -Type DWord;" +
                 "try{Checkpoint-Computer -Description " + PsQuote(desc) + " -RestorePointType MODIFY_SETTINGS -ErrorAction Stop;'OK'}" +
-                "catch{'ERR '+$_.Exception.Message}" +
-                "finally{if($null -eq $old){Remove-ItemProperty $k -Name SystemRestorePointCreationFrequency -ErrorAction SilentlyContinue}" +
-                "else{Set-ItemProperty $k -Name SystemRestorePointCreationFrequency -Value $old -Type DWord}}";
+                "catch{'ERR '+$_.Exception.Message}";
             log(Tr.S("Создаю точку восстановления «", "Creating restore point “") + desc + Tr.S("»… обычно 10–60 секунд.", "”… usually 10–60 seconds."));
-            string so; int code;
-            // Отмена доходит до самого PowerShell: Checkpoint-Computer на занятом диске держит
-            // до десяти минут, и всё это время «Остановить» была бесполезной кнопкой.
-            bool ran = PS(script, 10 * 60000, out so, out code, cancel, null);
+            string so = null; int code = 0; bool ran = false;
+            // Лимит «одна точка в сутки» снимается и возвращается ЗДЕСЬ, а не в finally PowerShell:
+            // «Остановить» убивает процесс PowerShell, его finally не выполнялся, и нулевой лимит
+            // оставался в реестре навсегда.
+            bool lifted; object oldFreq = LiftRestorePointFrequency(out lifted);
+            try
+            {
+                // Отмена доходит до самого PowerShell: Checkpoint-Computer на занятом диске держит
+                // до десяти минут, и всё это время «Остановить» была бесполезной кнопкой.
+                ran = PS(script, 10 * 60000, out so, out code, cancel, null);
+            }
+            finally { if (lifted) RestoreRestorePointFrequency(oldFreq); }
             foreach (string line in (so ?? "").Split('\n')) { string l = line.Trim(); if (l.Length > 0) log("  " + l); }
             bool ok = ran && so != null && so.IndexOf("OK", StringComparison.Ordinal) >= 0 && so.IndexOf("ERR ", StringComparison.Ordinal) < 0;
             log(ok ? Tr.S("Точка восстановления создана.", "Restore point created.") : Tr.S("Не удалось создать точку восстановления.", "Could not create a restore point."));

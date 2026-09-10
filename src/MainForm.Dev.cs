@@ -105,7 +105,7 @@ namespace WindowsProcessCleaner
             b.Text = title;
             b.Width = 150; b.Height = 36;
             b.Margin = new Padding(0, 0, 8, 8);
-            b.Click += delegate { StartDevKill(title, names, null); };
+            b.Click += delegate { StartDevKill(title, names, null, null); };
             flow.Controls.Add(b);
             _devButtons.Add(b);
         }
@@ -160,8 +160,12 @@ namespace WindowsProcessCleaner
             foreach (Button b in _devButtons) b.Enabled = !busy;
         }
 
-        // names != null — группа по именам процессов, иначе завершаются перечисленные pid.
-        private void StartDevKill(string title, string[] names, List<int> pids)
+        // names != null — группа по именам процессов, иначе завершаются перечисленные pid
+        // (labels — как показать их в вопросе: «порт 3000 · node.exe (pid 123)»).
+        // Раньше кнопки били сразу — единственное в приложении необратимое действие без вопроса.
+        // Теперь: список кандидатов собирается в фоне (снимок процессов всей системы — заметная
+        // пауза), вопрос задаётся на UI-потоке, и завершается ровно то, что было показано.
+        private void StartDevKill(string title, string[] names, List<int> pids, List<string> labels)
         {
             if (_lblDev == null) return;
             if (Interlocked.CompareExchange(ref _devBusy, 1, 0) != 0)
@@ -173,6 +177,66 @@ namespace WindowsProcessCleaner
             SetDevBusy(true);
             _devCancel = false;
             _devStage = null;
+            _btnDevStop.Enabled = false;
+            StartDevTicker(Tr.S("Ищу процессы: ", "Looking for processes: ") + title);
+
+            Thread t = new Thread(delegate()
+            {
+                List<int> found = new List<int>();
+                List<string> shown = new List<string>();
+                string err = null;
+                try
+                {
+                    if (names != null)
+                        foreach (KeyValuePair<int, string> kv in _engine.MatchByNames(names))
+                        { found.Add(kv.Key); shown.Add(kv.Value + " (pid " + kv.Key + ")"); }
+                    else { found.AddRange(pids); if (labels != null) shown.AddRange(labels); }
+                }
+                catch (Exception ex) { err = ex.Message; }
+                UiPost(delegate
+                {
+                    StopDevTicker();
+                    if (err != null || found.Count == 0)
+                    {
+                        Interlocked.Exchange(ref _devBusy, 0);
+                        SetDevBusy(false);
+                        _lblDev.Text = title + "   ·   " + (err != null
+                            ? Tr.S("не удалось: ", "failed: ") + err
+                            : Tr.S("завершать нечего — таких процессов не запущено", "nothing to terminate — no such processes are running"));
+                        return;
+                    }
+                    if (!MsgAsk(DevKillQuestion(title, shown), "Dev Cleanup"))
+                    {
+                        Interlocked.Exchange(ref _devBusy, 0);
+                        SetDevBusy(false);
+                        _lblDev.Text = title + "   ·   " + Tr.S("отменено, ничего не завершено", "cancelled, nothing was terminated");
+                        return;
+                    }
+                    RunDevKill(title, found);
+                });
+            });
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        // Вопрос перед «кувалдой»: до 12 строк списка, дальше счётчик.
+        private static string DevKillQuestion(string title, List<string> shown)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(Tr.S("Завершить ", "Terminate "))
+              .Append(Tr.N(shown.Count, "процесс", "процесса", "процессов", "process", "processes"))
+              .Append(" (").Append(title).Append(")?\r\n\r\n");
+            int n = Math.Min(shown.Count, 12);
+            for (int i = 0; i < n; i++) sb.Append("  ").Append(shown[i]).Append("\r\n");
+            if (shown.Count > n) sb.Append(Tr.S("  …и ещё ", "  …and ")).Append(shown.Count - n).Append(Tr.S("", " more")).Append("\r\n");
+            sb.Append(Tr.S("\r\nЗавершение идёт по имени, не глядя на активность: несохранённое в этих процессах пропадёт.",
+                           "\r\nTermination is by name regardless of activity: unsaved work in these processes is lost."));
+            return sb.ToString();
+        }
+
+        // Само завершение — уже подтверждённого списка pid. Флаг занятости взят в StartDevKill.
+        private void RunDevKill(string title, List<int> pids)
+        {
             _btnDevStop.Enabled = true;
             StartDevTicker(Tr.S("Завершаю: ", "Terminating: ") + title);
 
@@ -180,15 +244,11 @@ namespace WindowsProcessCleaner
             {
                 long freed = 0;
                 int killed = 0;
-                int matched = pids != null ? pids.Count : 0;
+                int matched = pids.Count;
                 string err = null;
                 Action<string> stage = delegate(string s) { _devStage = s; };
                 Func<bool> cancel = delegate { return _devCancel || _closing; };
-                try
-                {
-                    killed = names != null ? _engine.TerminateByNames(names, out freed, out matched, stage, cancel)
-                                           : _engine.TerminateMany(pids, out freed, stage, cancel);
-                }
+                try { killed = _engine.TerminateMany(pids, out freed, stage, cancel); }
                 catch (Exception ex) { err = ex.Message; }
                 Interlocked.Exchange(ref _devBusy, 0);
                 int matchedCopy = matched;
@@ -298,8 +358,15 @@ namespace WindowsProcessCleaner
         private void KillSelectedPorts()
         {
             List<int> pids = new List<int>();
+            List<string> labels = new List<string>();
             foreach (ListViewItem it in _lvPorts.Items)
-                if (it.Checked && it.Tag is PortRow) pids.Add(((PortRow)it.Tag).Pid);
+                if (it.Checked && it.Tag is PortRow)
+                {
+                    PortRow pr = (PortRow)it.Tag;
+                    if (pids.Contains(pr.Pid)) continue;     // один процесс на нескольких портах — одна строка
+                    pids.Add(pr.Pid);
+                    labels.Add(Tr.S("порт ", "port ") + pr.Port + " · " + pr.ProcName + " (pid " + pr.Pid + ")");
+                }
             if (pids.Count == 0)
             {
                 _lblDev.Text = Tr.S("Не отмечено ни одного порта — поставьте галочки в списке.",
@@ -307,7 +374,7 @@ namespace WindowsProcessCleaner
                 MsgInfo(Tr.S("Не выбрано ни одного порта.", "No ports selected."), "Dev Cleanup");
                 return;
             }
-            StartDevKill(Tr.S("Порты: ", "Ports: ") + pids.Count, null, pids);
+            StartDevKill(Tr.S("Порты: ", "Ports: ") + pids.Count, null, pids, labels);
         }
     }
 }

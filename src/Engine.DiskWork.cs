@@ -80,14 +80,20 @@ namespace WindowsProcessCleaner
         // Пути из настройки «Не чистить эти пути»: полный канонический путь (8.3-имена и junction
         // раскрыты — см. Native.CanonicalPath), без хвостового «\», в нижнем регистре. Считается
         // один раз на обход, не на файл; результат живёт минуту (папка могла появиться позже).
-        private List<string> _exclCache;
-        private string _exclKey;
-        private DateTime _exclAt;
+        // Три поля читались и писались из восьми потоков обхода порознь — список одного ключа мог
+        // достаться с датой другого. Снимок один и неизменяемый, меняется только ссылка на него.
+        private sealed class ExclSnapshot
+        {
+            public readonly List<string> List; public readonly string Key; public readonly DateTime At;
+            public ExclSnapshot(List<string> list, string key, DateTime at) { List = list; Key = key; At = at; }
+        }
+        private volatile ExclSnapshot _excl;
 
         private List<string> ExcludeList()
         {
             string key = string.Join("\n", Config.CleanExclude.ToArray());
-            if (_exclCache != null && key == _exclKey && (DateTime.Now - _exclAt).TotalSeconds < 60) return _exclCache;
+            ExclSnapshot s = _excl;
+            if (s != null && key == s.Key && (DateTime.Now - s.At).TotalSeconds < 60) return s.List;
             List<string> l = new List<string>();
             foreach (string ex in Config.CleanExclude)
             {
@@ -96,7 +102,7 @@ namespace WindowsProcessCleaner
                 try { exl = Native.CanonicalPath(Path.GetFullPath(ex.Trim())).TrimEnd('\\').ToLowerInvariant(); } catch { continue; }
                 if (exl.Length > 0) l.Add(exl);
             }
-            _exclCache = l; _exclKey = key; _exclAt = DateTime.Now;
+            _excl = new ExclSnapshot(l, key, DateTime.Now);
             return l;
         }
 
@@ -171,7 +177,9 @@ namespace WindowsProcessCleaner
                         string full = prefix + name;
                         if ((fd.dwFileAttributes & Native.FILE_ATTRIBUTE_DIRECTORY) == 0)
                         {
-                            if (t.MinAgeMinutes > 0 && FileTimeOf(fd.ftLastWriteTime) > cutoff) continue;
+                            // и по дате создания тоже: установщики распаковывают файлы с сохранённой старой
+                            // датой изменения, и окно свежести по одной LastWrite их пропускало
+                            if (t.MinAgeMinutes > 0 && (FileTimeOf(fd.ftLastWriteTime) > cutoff || FileTimeOf(fd.ftCreationTime) > cutoff)) continue;
                             if (mask != "*" && !MaskMatch(name, mask)) continue;
                             if (excl.Count > 0 && IsExcluded(full.ToLowerInvariant(), excl)) continue;
                             onFile(full, ((long)fd.nFileSizeHigh << 32) | fd.nFileSizeLow, fd.dwFileAttributes);
@@ -329,6 +337,23 @@ namespace WindowsProcessCleaner
             "\\windows\\system32\\winevt",
         };
 
+        // Единственные подпапки запретных деревьев, которые чистить можно: temp и кэш IE служебного
+        // профиля, журналы System32\LogFiles (правила winapp2) и кэш MSI-патчей (по явному выбору).
+        private static readonly string[] _neverTouchAllow = new string[] {
+            "\\windows\\system32\\config\\systemprofile\\appdata\\local\\temp",
+            "\\windows\\system32\\config\\systemprofile\\appdata\\local\\microsoft\\windows\\inetcache",
+            "\\windows\\syswow64\\config\\systemprofile\\appdata\\local\\microsoft\\windows\\inetcache",
+            "\\windows\\system32\\logfiles",
+            "\\windows\\installer\\$patchcache$",
+        };
+
+        private static bool IsNeverTouchAllowed(string pathLower, string rootLower)
+        {
+            foreach (string ok in _neverTouchAllow)
+                if (IsSelfOrUnder(pathLower, rootLower + ok)) return true;
+            return false;
+        }
+
         // Цель с маской и без рекурсии удаляет только файлы по маске прямо в папке, саму папку и
         // подпапки не трогает. Для неё корни %WinDir%, AppData и ProgramData допустимы: иначе
         // MEMORY.DMP и *.dmp в C:\Windows, IconCache.db в %LOCALAPPDATA% и правила winapp2 вида
@@ -444,8 +469,15 @@ namespace WindowsProcessCleaner
                 if (!string.IsNullOrEmpty(_programFilesX86) && pl == _programFilesX86.ToLowerInvariant()) return false;
             }
 
+            // Запрет — на всё поддерево, а не только на саму папку: иначе цель вида
+            // «System Volume Information\x» или «$Recycle.Bin\<SID>» проходила мимо предохранителя.
+            string rootLower = root.ToLowerInvariant();
             foreach (string bad in _neverTouch)
-                if (pl == root.ToLowerInvariant() + bad || pl.EndsWith(bad)) return false;
+            {
+                string full = rootLower + bad;
+                if (pl == full || pl.EndsWith(bad)) return false;
+                if (pl.StartsWith(full + "\\", StringComparison.Ordinal) && !IsNeverTouchAllowed(pl, rootLower)) return false;
+            }
 
             // папки с данными, которые чистилка не должна затрагивать даже по ошибке в правиле
             if (!rootOk && IsUserDataRoot(pl)) return false;
@@ -453,7 +485,7 @@ namespace WindowsProcessCleaner
             if (HasSegment(pl, _appDataSegments)) return false;
 
             // никогда не чистим собственный каталог данных (там конфиг, история, логи)
-            if (pl.StartsWith(_dir.ToLowerInvariant())) return false;
+            if (IsSelfOrUnder(pl, _dir.TrimEnd('\\').ToLowerInvariant())) return false;
 
             if (IsExcluded(pl, ExcludeList())) return false;
             if (IsExcluded(Native.CanonicalPath(p).TrimEnd('\\').ToLowerInvariant(), ExcludeList())) return false;

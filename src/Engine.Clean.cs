@@ -84,9 +84,24 @@ namespace WindowsProcessCleaner
             "Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache", "DawnWebGPUCache",
             "GrShaderCache", "ShaderCache", "Media Cache", "Application Cache",
             "Service Worker\\CacheStorage", "Service Worker\\ScriptCache",
-            "Storage\\ext", "optimization_guide_prediction_model_downloads",
+            "optimization_guide_prediction_model_downloads",
             "component_crx_cache", "extensions_crx_cache",
         };
+
+        // Storage\ext\<id>\def — хранилища расширений и Chrome-приложений (IndexedDB, Local Storage,
+        // их настройки): целиком это данные, а не кэш. Кэшем являются только их собственные подпапки.
+        private static readonly string[] _chromiumExtCaches = new string[] {
+            "Cache", "Code Cache", "GPUCache", "Service Worker\\CacheStorage", "Service Worker\\ScriptCache",
+        };
+
+        private void AddChromiumExtCaches(CleanCategory c, string extRoot)
+        {
+            string[] exts = null;
+            try { if (Directory.Exists(extRoot)) exts = Directory.GetDirectories(extRoot); } catch { }
+            if (exts == null) return;
+            foreach (string e in exts)
+                foreach (string sub in _chromiumExtCaches) AddDir(c, Path.Combine(e, "def\\" + sub), true);
+        }
 
         private void AddChromium(CleanCategory c, string userData)
         {
@@ -110,6 +125,7 @@ namespace WindowsProcessCleaner
                               || Directory.Exists(Path.Combine(p, "Cache"));
                 if (!isProfile) continue;
                 foreach (string sub in _chromiumProfileCaches) AddDir(c, Path.Combine(p, sub), true);
+                AddChromiumExtCaches(c, Path.Combine(p, "Storage\\ext"));
             }
         }
 
@@ -170,8 +186,8 @@ namespace WindowsProcessCleaner
             // Dev-кэши
             CleanCategory dev = new CleanCategory();
             dev.Id = "dev"; dev.Title = Tr.S("Dev-кэши", "Dev caches"); dev.Recommended = true;
-            dev.Desc = Tr.S("npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet / Composer / TypeScript, старые сборки Playwright (пересоздаются)",
-                            "npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet / Composer / TypeScript, old Playwright builds (regenerated)");
+            dev.Desc = Tr.S("npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet / Composer / TypeScript (пересоздаются)",
+                            "npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet / Composer / TypeScript (regenerated)");
             AddDir(dev, Path.Combine(lad, "npm-cache"), true);
             AddDir(dev, Path.Combine(ad, "npm-cache"), true);
             AddDir(dev, Path.Combine(up, ".npm\\_cacache"), true);
@@ -191,13 +207,15 @@ namespace WindowsProcessCleaner
             AddDir(dev, Path.Combine(lad, "pip\\cache"), true);
             AddDir(dev, Path.Combine(up, ".cache\\pip"), true);
             AddDir(dev, Path.Combine(lad, "uv\\cache"), true);
-            AddDir(dev, Path.Combine(lad, "pypoetry\\Cache"), true);
+            // pypoetry\Cache целиком — это ещё и virtualenvs (окружения всех Poetry-проектов);
+            // кэшем являются только cache (индексы PyPI) и artifacts (скачанные wheel)
+            AddDir(dev, Path.Combine(lad, "pypoetry\\Cache\\cache"), true);
+            AddDir(dev, Path.Combine(lad, "pypoetry\\Cache\\artifacts"), true);
             AddDir(dev, Path.Combine(up, ".gradle\\caches"), true);
             AddDir(dev, Path.Combine(up, ".cargo\\registry\\cache"), true);
             AddDir(dev, Path.Combine(up, ".cargo\\registry\\src"), true);
             AddDir(dev, Path.Combine(up, "go\\pkg\\mod\\cache\\download"), true);
             AddDir(dev, Path.Combine(lad, "go-build"), true);
-            AddDir(dev, Path.Combine(up, ".nuget\\packages"), true);
             AddDir(dev, Path.Combine(lad, "NuGet\\Cache"), true);
             AddDir(dev, Path.Combine(lad, "NuGet\\v3-cache"), true);
             AddDir(dev, Path.Combine(lad, "NuGet\\plugins-cache"), true);
@@ -208,19 +226,19 @@ namespace WindowsProcessCleaner
             AddDir(dev, Path.Combine(lad, "Microsoft\\TypeScript"), true);
             AddDir(dev, Path.Combine(lad, "Microsoft\\vscode-cpptools\\ipch"), true);
             AddSubdirCaches(dev, Path.Combine(lad, "Microsoft\\VisualStudio"), "ComponentModelCache");
-            // Playwright держит по папке на КАЖДУЮ скачанную сборку браузера (chromium-1223,
-            // chromium-1228, …); проекты используют последнюю, старые лежат мёртвым грузом.
-            AddOldVersionsByPrefix(dev, Path.Combine(lad, "ms-playwright"), 1, null);
-            AddOldVersionsByPrefix(dev, Path.Combine(lad, "ms-playwright-mcp"), 1, null);
             if (dev.Targets.Count > 0) list.Add(dev);
 
             // Тяжёлые dev-загрузки: восстановимы, но качаются заново долго — не рекомендуем по умолчанию
             CleanCategory devBig = new CleanCategory();
             devBig.Id = "devbig"; devBig.Title = Tr.S("Dev: скачанные тулчейны", "Dev: downloaded toolchains");
-            devBig.Desc = Tr.S("браузеры Playwright/Puppeteer/Cypress, кэш electron-builder, dotslash, Expo Go, репозиторий Maven — скачаются заново",
-                               "Playwright/Puppeteer/Cypress browsers, electron-builder cache, dotslash, Expo Go, Maven repository — will re-download");
-            AddDir(devBig, Path.Combine(lad, "ms-playwright"), true);
-            AddDir(devBig, Path.Combine(lad, "ms-playwright-mcp"), true);
+            devBig.Desc = Tr.S("старые сборки браузеров Playwright (текущая остаётся), браузеры Puppeteer/Cypress, кэш electron-builder, dotslash, Expo Go, репозиторий Maven, пакеты NuGet — скачаются заново",
+                               "old Playwright browser builds (the current one stays), Puppeteer/Cypress browsers, electron-builder cache, dotslash, Expo Go, Maven repository, NuGet packages — will re-download");
+            // Playwright держит по папке на КАЖДУЮ скачанную сборку браузера (chromium-1223,
+            // chromium-1228, …). Удаляются только старые: текущую используют проекты, а проект,
+            // закреплённый на прошлой версии, после её удаления требует npx playwright install —
+            // поэтому здесь, без галочки по умолчанию, а не в рекомендованных Dev-кэшах.
+            AddOldVersionsByPrefix(devBig, Path.Combine(lad, "ms-playwright"), 1, null);
+            AddOldVersionsByPrefix(devBig, Path.Combine(lad, "ms-playwright-mcp"), 1, null);
             AddDir(devBig, Path.Combine(lad, "puppeteer"), true);
             AddDir(devBig, Path.Combine(up, ".cache\\puppeteer"), true);
             AddDir(devBig, Path.Combine(lad, "Cypress\\Cache"), true);
@@ -231,6 +249,9 @@ namespace WindowsProcessCleaner
             AddDir(devBig, Path.Combine(up, ".expo\\expo-go"), true);
             AddDir(devBig, Path.Combine(up, ".gradle\\wrapper\\dists"), true);
             AddDir(devBig, Path.Combine(up, ".m2\\repository"), true);
+            // глобальный кэш пакетов NuGet — тот же класс, что репозиторий Maven: скачается заново,
+            // но на больших решениях это гигабайты и минуты restore
+            AddDir(devBig, Path.Combine(up, ".nuget\\packages"), true);
             if (devBig.Targets.Count > 0) list.Add(devBig);
 
             // Системный мусор
@@ -248,7 +269,8 @@ namespace WindowsProcessCleaner
             AddDir(sys, Path.Combine(_winDir, "System32\\config\\systemprofile\\AppData\\Local\\Microsoft\\Windows\\INetCache"), true);
             AddDir(sys, Path.Combine(_winDir, "SysWOW64\\config\\systemprofile\\AppData\\Local\\Microsoft\\Windows\\INetCache"), true);
             AddDir(sys, Path.Combine(lad, "SquirrelTemp"), true, null, fresh);
-            AddDir(sys, Path.Combine(_winDir, "SoftwareDistribution\\Download"), true);
+            // окно свежести и здесь: файл, который Центр обновления докачивает прямо сейчас, — не мусор
+            AddDir(sys, Path.Combine(_winDir, "SoftwareDistribution\\Download"), true, null, fresh);
             AddDir(sys, Path.Combine(_winDir, "ServiceProfiles\\NetworkService\\AppData\\Local\\Microsoft\\Windows\\DeliveryOptimization\\Cache"), true);
             AddDir(sys, Path.Combine(lad, "CrashDumps"), true);
             AddDir(sys, Path.Combine(lad, "Microsoft\\Windows\\WER"), true);
@@ -259,7 +281,6 @@ namespace WindowsProcessCleaner
             // а после удаления каждая программа стартует медленнее, пока Windows не соберёт
             // его заново. Освободить нечего, потерять есть что.
             AddDir(sys, Path.Combine(_winDir, "Panther"), true);
-            AddDir(sys, Path.Combine(_winDir, "Installer\\$PatchCache$"), true);
             // MEMORY.DMP (полный дамп ядра, гигабайты) попадает под ту же маску — отдельная цель
             // считала бы его дважды
             AddDir(sys, _winDir, true, "*.dmp", 0);
@@ -359,8 +380,6 @@ namespace WindowsProcessCleaner
             AddDir(apps, Path.Combine(ad, "Code\\logs"), true);
             AddDir(apps, Path.Combine(ad, "Cursor\\CachedData"), true);
             AddDir(apps, Path.Combine(ad, "Cursor\\logs"), true);
-            AddDir(apps, Path.Combine(lad, "Spotify\\Storage"), true);
-            AddDir(apps, Path.Combine(lad, "Spotify\\Data"), true);
             AddDir(apps, Path.Combine(lad, "Spotify\\Browser"), true);
             AddDir(apps, Path.Combine(lad, "Steam\\htmlcache"), true);
             AddDir(apps, Path.Combine(ad, "Telegram Desktop\\tdata\\user_data\\cache"), true);
@@ -377,6 +396,16 @@ namespace WindowsProcessCleaner
             AddJetBrains(apps, Path.Combine(lad, "JetBrains"));
             AddSteamCaches(apps, steam);
             if (apps.Targets.Count > 0) list.Add(apps);
+
+            // Кэши, в которых живёт офлайн-контент: для одних это мусор, для других — скачанная
+            // музыка. Поэтому отдельная категория и без галочки по умолчанию.
+            CleanCategory offline = new CleanCategory();
+            offline.Id = "offline"; offline.Title = Tr.S("Кэши с офлайн-контентом", "Caches holding offline content");
+            offline.Desc = Tr.S("Spotify Storage/Data: потоковый кэш вместе с офлайн-загрузками Premium — после удаления треки скачаются заново",
+                                "Spotify Storage/Data: the streaming cache together with Premium offline downloads — tracks re-download afterwards");
+            AddDir(offline, Path.Combine(lad, "Spotify\\Storage"), true);
+            AddDir(offline, Path.Combine(lad, "Spotify\\Data"), true);
+            if (offline.Targets.Count > 0) list.Add(offline);
 
             // NVIDIA: то, что копится от обновлений драйвера и NVIDIA App
             CleanCategory nv = new CleanCategory();
@@ -431,8 +460,8 @@ namespace WindowsProcessCleaner
             // Следы недавних файлов (приватность) — то, что FluentCleaner называет "recently opened"
             CleanCategory recent = new CleanCategory();
             recent.Id = "recent"; recent.Title = Tr.S("Списки недавних файлов", "Recent file lists");
-            recent.Desc = Tr.S("«Недавние документы», списки переходов проводника и Office (сами файлы не трогаются)",
-                               "Recent documents, Explorer/Office jump lists (the files themselves are untouched)");
+            recent.Desc = Tr.S("«Недавние документы», списки переходов проводника и Office (сами файлы не трогаются; закреплённое в «Быстром доступе» и в списках переходов придётся закрепить заново)",
+                               "Recent documents, Explorer/Office jump lists (the files themselves are untouched; items pinned to Quick Access and jump lists must be pinned again)");
             AddDir(recent, Path.Combine(ad, "Microsoft\\Windows\\Recent"), true, "*.lnk", 0);
             AddDir(recent, Path.Combine(ad, "Microsoft\\Windows\\Recent\\AutomaticDestinations"), true);
             AddDir(recent, Path.Combine(ad, "Microsoft\\Windows\\Recent\\CustomDestinations"), true);
@@ -451,15 +480,19 @@ namespace WindowsProcessCleaner
             // Остатки обновлений Windows и установщиков драйверов
             CleanCategory drv = new CleanCategory();
             drv.Id = "drivers"; drv.Title = Tr.S("Остатки обновлений Windows и драйверов", "Windows update and driver leftovers");
-            drv.Desc = Tr.S("Windows.old, $WinREAgent, ESD, распакованные установщики AMD/Intel, NVIDIA Installer2 (DriverStore не трогается)",
-                            "Windows.old, $WinREAgent, ESD, unpacked AMD/Intel installers, NVIDIA Installer2 (DriverStore untouched)");
+            drv.Desc = Tr.S("Windows.old, $WinREAgent, ESD, распакованные установщики AMD/Intel, NVIDIA Installer2, кэш MSI-патчей $PatchCache$ (DriverStore не трогается)",
+                            "Windows.old, $WinREAgent, ESD, unpacked AMD/Intel installers, NVIDIA Installer2, MSI patch cache $PatchCache$ (DriverStore untouched)");
             AddDir(drv, Path.Combine(pf, "NVIDIA Corporation\\Installer2"), true);
             AddDir(drv, Path.Combine(pd, "NVIDIA Corporation\\Installer2"), true);
             AddDir(drv, Path.Combine(sysDrive, "AMD"), false);
             AddDir(drv, Path.Combine(sysDrive, "Intel"), false);
             AddDir(drv, Path.Combine(sysDrive, "Windows.old"), false);
-            AddDir(drv, Path.Combine(sysDrive, "$Windows.~BT"), false);
-            AddDir(drv, Path.Combine(sysDrive, "$Windows.~WS"), false);
+            // $Windows.~BT / ~WS — распаковка идущего обновления компонентов: срок тот же, что у $WinREAgent
+            AddDir(drv, Path.Combine(sysDrive, "$Windows.~BT"), false, null, updateGrace);
+            AddDir(drv, Path.Combine(sysDrive, "$Windows.~WS"), false, null, updateGrace);
+            // базовые копии файлов для MSI-патчей: без них восстановление и удаление патчей
+            // (Office, SQL Server, Visual Studio) просят исходный установщик — только по явному выбору
+            AddDir(drv, Path.Combine(_winDir, "Installer\\$PatchCache$"), true);
             AddDir(drv, Path.Combine(sysDrive, "$WinREAgent"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$GetCurrent"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$SysReset"), false, null, updateGrace);
