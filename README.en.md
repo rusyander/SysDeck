@@ -110,7 +110,7 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 |---|---|
 | Windows 10 or 11 (x64) | Windows 8.1 works too |
 | .NET Framework 4.x | **already part of Windows**, nothing to install |
-| Administrator rights | required to purge Standby Memory |
+| Administrator rights | **not needed to start.** Asked for per operation — cleaning system folders, purging Standby Memory, repairing system files |
 
 Visual Studio, the .NET SDK, Node.js and any other package are **not required** — the
 program is built by `csc.exe`, which already sits inside Windows.
@@ -146,11 +146,44 @@ Optional, and only for the corresponding tabs:
    build.bat
    ```
 
-4. **Accept the UAC prompt.** The app always runs as administrator — that's needed to purge
-   Standby Memory. A prompt on every launch is expected.
+4. **No UAC prompt on launch.** The app runs with ordinary user rights. Windows asks for
+   permission only when you start an operation that genuinely needs it, and the prompt
+   makes clear what it is for.
 
 That's it. Nothing is installed into the system: `WindowsProcessCleaner.exe` is
 self-contained and can simply live in a folder you carry around.
+
+### Ready-made builds: with an installer and without
+
+`build-installer.bat` produces both at once, side by side in `dist`:
+
+| What you get | Where |
+|---|---|
+| Installer | `dist\WindowsProcessCleaner-Setup.exe` |
+| Portable build | `dist\portable\` |
+
+**Installing.** Run `WindowsProcessCleaner-Setup.exe`. By default it installs for you
+only, into `%LOCALAPPDATA%\Programs\WindowsProcessCleaner`, with no administrator prompt
+at all. The "for all users" checkbox moves the installation into `Program Files`, and then
+Windows asks for permission once. You can pick a different folder and turn off the desktop
+shortcut. The installer creates a Start-menu shortcut, an entry in the installed-programs
+list and `uninstall.exe` next to the program. Installing over an existing copy just
+refreshes the files: shortcuts are not duplicated, settings and history stay. If the
+program is running at that moment, the installer says so and offers to close it — it never
+terminates anything without your consent.
+
+**Uninstalling.** Settings → Apps → Windows Process Cleaner → Uninstall, or `uninstall.exe`
+from the program folder. Files, shortcuts, the autostart task and the installed-programs
+entry are removed. The "also remove settings and history" checkbox is off by default:
+remembered selections, settings and history live in `%APPDATA%\WindowsProcessCleaner` and
+survive until you ask for them to go — leaving the box unticked means a fresh install picks
+up exactly where you left off.
+
+**Portable build.** The `portable` folder is the same program without installation: unpack
+it anywhere, a USB stick included. Settings, history and logs are written next to the exe,
+into a `Data` subfolder; the `portable.marker` file is what switches that on, so keep it
+beside the program. To remove the portable build, delete the folder — nothing is left
+behind in the system.
 
 ### If something goes wrong
 
@@ -197,7 +230,9 @@ status after the last check), a big **⚡ Boost** button and a table of checks.
   "and temporary files" box ticked it shows the list of categories and asks before deleting.
 - **Smart boost** — a checkbox right there and in Settings: when memory usage exceeds the
   threshold (90 % by default) the app purges Standby Memory on its own, at most once every
-  15 minutes, and says so with a tray hint.
+  15 minutes, and says so with a tray hint. The checkbox lives in `config.json` and survives
+  a reboot; it works while the app is running, so enabling it without autostart makes the
+  program offer "Start with Windows" once.
 - **Check health** — 12 checks in a few seconds: memory, system drive, uptime, hibernation
   file, startup entries, abandoned processes, size of temporary files, the Downloads
   folder, Defender (enabled, signature age, last scan), the last Windows update, restore
@@ -547,9 +582,10 @@ the first action on an item its previous state is saved to `debloat-snapshot.jso
 "Restore" rolls back from that snapshot. For Store apps "Disable" removes the package for
 the current user (reversible: "Restore" re-registers it from the Windows image), "Remove"
 removes it for all users and deprovisions it from the image (only the Microsoft Store can
-bring it back; the app opens a Store search). Without administrator rights only the
-current-user part runs (HKCU, Store apps, PowerToys); the rest is marked "needs
-administrator rights" and, if attempted, is logged as an error.
+bring it back; the app opens a Store search). Items that change the system as a whole
+(services, components, capabilities, scheduled tasks, OneDrive) run through the elevated
+helper: the whole checked set goes out as a single job, so UAC appears once instead of once
+per item across a hundred and fifty of them. Declining is logged as a line with the reason.
 
 ### Docker
 A tab for Docker cleanup (requires the Docker CLI + a running daemon). Buttons: disk
@@ -591,8 +627,8 @@ page and a "Stop" button for long operations.
   sections without matches are hidden.
 
 Anything that changes the system asks first; anything that needs administrator rights
-offers to restart as administrator. The label at the bottom of the sidebar always shows
-whether those rights are present.
+requests them itself, for that one operation. The label at the bottom of the sidebar shows
+whether the window already holds those rights or raises them on demand.
 
 ### Long operations: progress and stopping
 No button ever hangs silently. Anything that takes longer than a second renders the same
@@ -623,13 +659,15 @@ What you check stays checked. Previously almost any list reset its checkboxes to
 default when it refreshed, throwing away what you had picked by hand; now one shared
 store keeps the selection for the whole window.
 
-- **Survives a restart of the program** (kept in `config.json`): the "and temp files"
-  checkbox on Home, the checked categories on the Cleanup tab, the items on the
-  "Windows: extras" tab, the selected packages on the Updates tab, and the choice in the
-  "Where to look" list on the Disk tab.
-- **Survives a list refresh within the session**: the checked programs on the Programs
-  tab, the ports in Dev Cleanup, the processes after a re-scan, and the rows on the Disk
-  and Browsers tabs. After a restart those lists deliberately start clean: their contents
+- **Survives a restart of the program and a reboot** (kept in `config.json` until the
+  program is uninstalled): the "and temp files" and "smart boost" checkboxes on Home, the
+  checked categories on the Cleanup tab, the items on the "Windows: extras" tab, the
+  selected packages on the Updates tab, the choice in the "Where to look" list and the list
+  mode ("Large files" / "Empty folders" / "Duplicates") on the Disk tab, the checked programs
+  on the Programs tab, the ports in Dev Cleanup, the "before compacting remove" choice on
+  the Docker tab, and every field of the Settings page.
+- **Survives a list refresh within the session**: the processes after a re-scan and the
+  rows on the Disk and Browsers tabs. After a restart those lists deliberately start clean: their contents
   are discovered anew every time, and restoring a "delete" tick onto a different file
   that happens to sit at the same path would be worse than ticking it again.
 - **The defaults are unchanged** and apply only until you decide something yourself: the
@@ -655,7 +693,7 @@ uninstallation are **never** run by the timer — manual only.
 ### System tray
 The tray icon changes color: green — clean, orange — candidates found. Double-click
 opens the window. Right-click menu: Scan, Clean, Purge Standby Memory, ⚡ Boost, toggle
-auto-clean, restart as administrator, exit. Closing the window minimizes the app to
+auto-clean, restart as administrator (for when raising rights once for the whole window is simpler), exit. Closing the window minimizes the app to
 tray (it keeps running in the background). If an irreversible operation is running at
 that moment (deleting files, moving to the Recycle Bin, installing updates, Docker prune
 or disk compaction), the tray hint names it, and “Exit” / “Restart as administrator”
@@ -663,8 +701,12 @@ ask first: an interrupted compaction would leave Docker stopped, an interrupted 
 a half-installed package.
 
 ### Start with Windows
-A checkbox in settings. Implemented via **Task Scheduler** with highest privileges
-(`schtasks /RL HIGHEST`), so there is no UAC prompt at logon.
+A checkbox in settings. Implemented via **Task Scheduler** with highest privileges, so there
+is no UAC prompt at logon. The task is created from XML rather than the `schtasks` command
+line so it does not inherit the scheduler defaults: no execution time limit (otherwise the
+tray app was simply killed after 72 hours), no "don't start on battery" and no "stop on
+battery". Smart boost and the auto-clean timer only work inside the running app, so enabling
+either without autostart makes the program offer it once.
 
 ### Themes
 Light / dark / **system** (default — follows the Windows theme, including a live dark/light
@@ -676,6 +718,10 @@ list window in the dark theme. The multi-line lists on the Settings page stretch
 window height.
 
 ### Settings (saved)
+
+Every change saves itself a second after the last touch — no button needed. The "Save
+settings" button stays: it also re-creates the autostart task (useful after moving the exe
+to another folder).
 
 - **Abandonment criteria** — CPU threshold, idle time, minimum lifetime, idle time for
   global mode.
@@ -734,8 +780,29 @@ settings opens it.
 
 ## Administrator rights
 
-The app always runs as administrator. This is required to purge Standby Memory via
-`ntdll!NtSetSystemInformation`. Terminating the current user's processes also works.
+**The window starts with ordinary user rights.** Rights are raised per operation: the
+program launches itself as a second process, that process does one job, writes the result
+to a file and exits. One operation, one UAC prompt, and the caption at the bottom says
+what it was shown for.
+
+Rights are required by: cleaning system folders (`C:\Windows`, `ProgramData`, update
+leftovers in the drive root), removing drivers from the DriverStore and components via
+DISM, purging Standby Memory, the repair tools (SFC, DISM, chkdsk, Windows Update reset),
+creating a restore point, changing Windows components and the autostart task.
+
+Never required and never asked for: everything inside your own profile — browser and app
+caches, developer folders, the Recycle Bin, terminating your own processes, reading lists.
+
+Cleanup is split by individual folder, not by whole category: if "App caches" holds a
+hundred and fifty folders inside your profile and five outside it, the first hundred and
+fifty are cleaned straight away and silently, and UAC is asked only for the five. Declining
+does not undo the rest — that work is already done, and whatever was skipped is listed by
+name in the log.
+
+Background work never shows a UAC prompt: the memory-threshold smart boost and scheduled
+auto-clean silently skip whatever they lack rights for and write that to the log. Autostart
+at sign-in stays a Task Scheduler task with highest privileges, so a window opened that way
+already has rights and needs no helper.
 
 ---
 
@@ -787,7 +854,11 @@ The app always runs as administrator. This is required to purge Standby Memory v
 | File | Purpose |
 |------|---------|
 | `src\*.cs` | application code, one file per area: `Program.cs` (entry, switches), `Engine*.cs` (logic: processes, cleanup, disk, drivers, winapp2, updates, programs, startup, Docker, health check, tools), `MainForm*.cs` (window, one file per section), `Native.cs` (WinAPI), `Theme.cs`, `Json.cs`, `Browser*.cs`, `FastListView.cs` |
-| `app.manifest` | manifest (requireAdministrator, DPI) |
+| `app.manifest` | manifest (asInvoker, DPI, long paths) |
+| `installer\*.cs` | installer and uninstaller sources (a separate program with its own manifest) |
+| `build-installer.bat` | build both ready-made distributions into `dist\` |
+| `tests\*.cs`, `tests
+un-tests.bat` | the test suite (runs without administrator rights) |
 | `icon.ico` | application icon (embedded into the exe) |
 | `build.bat` | builds all `src\*.cs` via the built-in csc.exe |
 | `run.bat` | build if needed and run |

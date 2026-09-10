@@ -75,20 +75,10 @@ namespace WindowsProcessCleaner
             top.Controls.Add(_btnDebloatStop);
             top.Controls.Add(_btnDebloatRecommended);
             top.Controls.Add(_btnDebloatNone);
-            if (!IsElevated())
-            {
-                Button btnAdmin = MkFlowButton(Tr.S("Перезапустить от администратора", "Restart as administrator"), 230, false);
-                // ExitNow() поднимает _reallyExit; раз мы всё ещё здесь и флага нет — второй
-                // экземпляр не стартовал (UAC отклонён), а раньше об этом никто не сообщал.
-                btnAdmin.Click += delegate
-                {
-                    RestartAsAdmin();
-                    if (!_reallyExit)
-                        _lblDebloatInfo.Text = Tr.S("Перезапуск не выполнен: запрос администратора отклонён или отменён.",
-                                                    "Restart did not happen: the administrator prompt was declined or cancelled.");
-                };
-                top.Controls.Add(btnAdmin);
-            }
+            // Кнопки «Перезапустить от администратора» здесь больше нет: набор пунктов
+            // уходит одним заданием помощнику, и права поднимаются сами — ровно один раз,
+            // на само действие. Предлагать перезапуск всего приложения значило бы просить
+            // максимальных прав там, где хватает одной операции.
 
             Label warn = MkNote(Tr.S("Галочкой по умолчанию отмечен только универсальный мусор. Перед каждым действием сохраняется снимок — «Вернуть отмеченное» откатывает по нему.",
                                      "Only universal junk is checked by default. A snapshot is saved before every action — “Restore checked” rolls back from it."), true);
@@ -650,8 +640,8 @@ namespace WindowsProcessCleaner
                 sb.Append("\r\n").Append(Tr.S("Удаление приложений Store действует для всех пользователей и убирает пакет из образа Windows. Вернуть — повторной регистрацией или из Store.",
                                               "Removing Store apps applies to all users and deprovisions the package from the Windows image. Restore = re-register or reinstall from the Store.")).Append("\r\n");
             if (needsAdmin)
-                sb.Append("\r\n").Append(Tr.S("Без прав администратора часть действий (HKLM, службы, задачи, компоненты, OneDrive) будет пропущена и попадёт в журнал как ошибка.",
-                                              "Without administrator rights some actions (HKLM, services, tasks, features, OneDrive) are skipped and logged as errors.")).Append("\r\n");
+                sb.Append("\r\n").Append(Tr.S("Часть действий (HKLM, службы, задачи, компоненты, OneDrive) требует прав администратора: Windows один раз спросит подтверждение на весь список. Откажетесь — эти пункты будут пропущены.",
+                                              "Some actions (HKLM, services, tasks, features, OneDrive) need administrator rights: Windows asks for confirmation once for the whole list. Decline and those items are skipped.")).Append("\r\n");
             sb.Append("\r\n").Append(Tr.S("Продолжить?", "Continue?"));
             if (MessageBox.Show(this, sb.ToString(), Tr.S("Windows: лишнее", "Windows bloat"), MessageBoxButtons.YesNo,
                                 serious.Count > 0 ? MessageBoxIcon.Warning : MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
@@ -679,6 +669,23 @@ namespace WindowsProcessCleaner
                 int errors = 0, applied = 0;
                 try
                 {
+                    // Права нужны, а у окна их нет: весь набор уходит одним заданием помощнику.
+                    // Спрашивать подтверждение на каждый из полутора сотен пунктов бессмысленно —
+                    // читать их перестанут после третьего.
+                    if (!Elevated && needsAdmin)
+                    {
+                        ElevResult r = DebloatApplyElevated(action, sel,
+                            delegate(string s) { UiPost(delegate { _debloatPhase = verb + ": " + s; }); },
+                            delegate { return _engine.DebloatCancelled; });
+                        if (r.Lines != null) foreach (string ln in r.Lines) log.AppendLine(ln);
+                        applied = r.Count;
+                        if (!r.Ok)
+                        {
+                            errors++;
+                            log.AppendLine("  ! " + (r.Declined ? DeclinedNote() : (r.Message ?? "")));
+                        }
+                    }
+                    else
                     for (int i = 0; i < sel.Count; i++)
                     {
                         // отмена проверяется между пунктами; внутри пункта её отрабатывает сам

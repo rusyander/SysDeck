@@ -62,7 +62,7 @@ namespace WindowsProcessCleaner
             _lvApps.FullRowSelect = true;
             // Сеансовая полка: «удалить эти программы» — решение на сейчас, возвращать его
             // отмеченным после перезапуска приложения было бы опасной услужливостью.
-            MemWatch(_lvApps, AppsScope, false, AppsMemKey);
+            MemWatch(_lvApps, AppsScope, true, AppsMemKey);
             _lvApps.Columns.Add(Tr.S("Программа", "Program"), 340);
             _lvApps.Columns.Add(Tr.S("Версия", "Version"), 130);
             _lvApps.Columns.Add(Tr.S("Издатель", "Publisher"), 260);
@@ -211,7 +211,7 @@ namespace WindowsProcessCleaner
                     rows.Add(it);
                 }
                 _lvApps.Items.AddRange(rows.ToArray());
-                MemEndFill(_lvApps, AppsScope, false, AppsMemKey, null);
+                MemEndFill(_lvApps, AppsScope, true, AppsMemKey, null);
             }
             finally { _lvApps.EndUpdate(); }
             AutoFillLastColumnDeferred(_lvApps);

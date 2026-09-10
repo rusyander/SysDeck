@@ -475,7 +475,7 @@ namespace WindowsProcessCleaner
                 }
                 catch (Exception ex) { err = ex.Message; }
                 ProcStage(Tr.S("Очистка памяти", "Purging memory"));
-                try { mr = _engine.PurgeStandby(); }
+                try { mr = PurgeStandbyMaybeElevated(true, ProcStage, delegate { return _closing; }); }
                 catch (Exception ex) { if (err == null) err = ex.Message; }
                 long totalFreed = freed + (mr != null ? mr.FreedBytes : 0);
                 string msg = mr != null && mr.Message != null ? mr.Message : "";
@@ -518,7 +518,7 @@ namespace WindowsProcessCleaner
             {
                 Engine.MemResult mr = null;
                 string err = null;
-                try { mr = _engine.PurgeStandby(); }
+                try { mr = PurgeStandbyMaybeElevated(true, ProcStage, delegate { return _closing; }); }
                 catch (Exception ex) { err = ex.Message; }
                 Engine.MemResult res = mr;
                 string emsg = err;
@@ -576,7 +576,8 @@ namespace WindowsProcessCleaner
                         delegate(string s) { ProcStage(Tr.S("Завершение: ", "Terminating: ") + s); },
                         delegate { return _closing; });
                     ProcStage(Tr.S("Очистка памяти", "Purging memory"));
-                    mr = _engine.PurgeStandby();
+                    // interactive = кнопку нажал человек; по таймеру окно UAC не показываем
+                    mr = PurgeStandbyMaybeElevated(interactive, ProcStage, delegate { return _closing; });
                 }
                 catch (Exception ex) { err = ex.Message; }
                 long total = freed + (mr != null ? mr.FreedBytes : 0);

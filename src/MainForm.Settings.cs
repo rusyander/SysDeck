@@ -35,6 +35,13 @@ namespace WindowsProcessCleaner
         private System.Windows.Forms.Timer _settingsTick;
         private DateTime _settingsStarted;
         private string _settingsPhase;
+        // Каждое изменение на странице сохраняется само (с задержкой после последнего
+        // касания): раньше настройка жила до кнопки «Сохранить», и ушедший на другую
+        // вкладку — или закрывший окно — пользователь терял всё, что переставил.
+        private System.Windows.Forms.Timer _settingsAutoSave;
+        private bool _settingsLoading;      // LoadSettingsToUi выставляет контролы — это не изменения пользователя
+        private bool _autostartRerun;       // изменение флага автозапуска пришло, пока schtasks ещё работал
+        private bool _autostartOffered;     // предложение включить автозапуск — один раз за сеанс
 
         private Control BuildSettingsTab()
         {
@@ -184,7 +191,69 @@ namespace WindowsProcessCleaner
             _lblSettingsStatus.Text = "";
             bar.Controls.Add(_lblSettingsStatus);
 
+            WireSettingsAutoSave();
             return tab;
+        }
+
+        // Любое касание контрола на странице — отложенное сохранение. Кнопка «Сохранить»
+        // остаётся: она ещё и пересоздаёт задачу планировщика (путь к exe мог измениться).
+        private void WireSettingsAutoSave()
+        {
+            foreach (CheckBox c in _setChecks) c.CheckedChanged += delegate { SettingsChanged(); };
+            foreach (Control f in _setFields)
+            {
+                NumericUpDown n = f as NumericUpDown;
+                if (n != null) { n.ValueChanged += delegate { SettingsChanged(); }; continue; }
+                ComboBox cb = f as ComboBox;
+                if (cb != null) cb.SelectedIndexChanged += delegate { SettingsChanged(); };
+            }
+            foreach (TextBox t in new TextBox[] { _txtWatch, _txtWhite, _txtPorts, _txtCleanExclude, _txtUpdExclude })
+                if (t != null) t.TextChanged += delegate { SettingsChanged(); };
+            // умное ускорение и автоочистка по таймеру живут, только пока приложение запущено:
+            // включил — предложим и запуск вместе с Windows
+            _chkSmartBoost.CheckedChanged += delegate { if (_chkSmartBoost.Checked) OfferAutostartForBackground(); };
+            _chkAuto.CheckedChanged += delegate { if (_chkAuto.Checked) OfferAutostartForBackground(); };
+        }
+
+        private void SettingsChanged()
+        {
+            if (_settingsLoading || _closing) return;
+            if (_settingsAutoSave == null)
+            {
+                _settingsAutoSave = new System.Windows.Forms.Timer();
+                _settingsAutoSave.Interval = 800;
+                _settingsAutoSave.Tick += delegate { _settingsAutoSave.Stop(); ApplySettingsFromUi(true); };
+            }
+            _settingsAutoSave.Stop();
+            _settingsAutoSave.Start();
+        }
+
+        // При выходе ждать таймер уже некому — записываем то, что ещё не успело сохраниться.
+        private void FlushSettingsAutoSave()
+        {
+            if (_settingsAutoSave == null || !_settingsAutoSave.Enabled) return;
+            _settingsAutoSave.Stop();
+            try { ApplySettingsFromUi(true); } catch { }
+        }
+
+        // Умное ускорение и автоочистка работают только внутри запущенного приложения.
+        // Без задачи автозапуска после перезагрузки их никто не выполнит — спрашиваем
+        // один раз за сеанс, и только когда пользователь сам включил такую функцию.
+        private void OfferAutostartForBackground()
+        {
+            if (_settingsLoading || _closing || _autostartOffered || _engine.Config.Autostart) return;
+            _autostartOffered = true;
+            DialogResult dr = MessageBox.Show(this,
+                Tr.S("Умное ускорение и автоочистка по таймеру работают, только пока приложение запущено.\r\n\r\n"
+                     + "Включить «Запускать вместе с Windows» (свёрнутым в трей), чтобы они работали и после перезагрузки?",
+                     "Smart boost and the auto-clean timer only work while the app is running.\r\n\r\n"
+                     + "Enable “Start with Windows” (minimized to tray) so they keep working after a reboot?"),
+                Tr.S("Работа в фоне", "Background work"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (dr != DialogResult.Yes) return;
+            _settingsLoading = true;
+            try { _chkAutostart.Checked = true; _chkStartMin.Checked = true; }
+            finally { _settingsLoading = false; }
+            SettingsChanged();
         }
 
         private void SetSettingsStatus(string text)
@@ -255,6 +324,16 @@ namespace WindowsProcessCleaner
 
         // ---------- Настройки <-> UI ----------
         private void LoadSettingsToUi()
+        {
+            _settingsLoading = true;
+            try { LoadSettingsToUiCore(); }
+            finally { _settingsLoading = false; }
+            // Галочка «умное ускорение» на «Главной» раньше не читала настройки при старте:
+            // после перезапуска она стояла снятой, хотя функция была включена.
+            SyncSmartHome();
+        }
+
+        private void LoadSettingsToUiCore()
         {
             AppConfig c = _engine.Config;
             _numCpu.Value = (decimal)Math.Min(100, Math.Max(0, c.CpuThresholdPercent));
@@ -360,13 +439,13 @@ namespace WindowsProcessCleaner
             SetSettingsStatus(_settingsPhase + "   ·   " + Elapsed(DateTime.UtcNow - _settingsStarted));
         }
 
-        private void SaveSettingsFromUi()
+        private void SaveSettingsFromUi() { ApplySettingsFromUi(false); }
+
+        // quiet = автосохранение: без окна «Настройки сохранены», задача планировщика
+        // трогается только когда флаг автозапуска действительно изменился.
+        private void ApplySettingsFromUi(bool quiet)
         {
-            if (Interlocked.CompareExchange(ref _settingsBusy, 1, 0) != 0)
-            {
-                SetSettingsStatus(Tr.S("Сохранение уже идёт — подождите.", "Saving is already in progress — please wait."));
-                return;
-            }
+            if (_settingsAutoSave != null) _settingsAutoSave.Stop();
             AppConfig c = _engine.Config;
             c.CpuThresholdPercent = (double)_numCpu.Value;
             c.IdleMinutes = (int)_numIdle.Value;
@@ -404,16 +483,35 @@ namespace WindowsProcessCleaner
             bool langChanged = c.Language != newLang;
             c.Language = newLang;
 
+            bool autostartWas = c.Autostart;
             c.Autostart = _chkAutostart.Checked;
 
             _engine.SaveConfig();
             RescheduleAuto();
             if (_miAuto != null) _miAuto.Checked = c.AutoEnabled;
 
-            // Дальше — schtasks.exe: до пяти секунд ожидания. На UI-потоке это было мёртвое
-            // окно, поэтому задача планировщика пересоздаётся в фоне (путь к exe мог измениться),
-            // а её результат проверяется запросом к самому планировщику.
-            bool wantAutostart = c.Autostart;
+            if (quiet)
+            {
+                SetSettingsStatus(Tr.S("Сохранено в ", "Saved at ") + DateTime.Now.ToString("HH:mm:ss")
+                    + (langChanged ? Tr.S(" · язык изменится после перезапуска", " · the language changes after a restart") : ""));
+                if (autostartWas != c.Autostart) StartAutostartApply(c.Autostart, true, langChanged);
+                return;
+            }
+            StartAutostartApply(c.Autostart, false, langChanged);
+        }
+
+        // Дальше — schtasks.exe: до пяти секунд ожидания. На UI-потоке это было мёртвое
+        // окно, поэтому задача планировщика пересоздаётся в фоне (путь к exe мог измениться),
+        // а её результат проверяется запросом к самому планировщику.
+        private void StartAutostartApply(bool wantAutostart, bool quiet, bool langChanged)
+        {
+            if (Interlocked.CompareExchange(ref _settingsBusy, 1, 0) != 0)
+            {
+                // предыдущий schtasks ещё работает: повторим с актуальным флагом, когда он закончит
+                _autostartRerun = true;
+                if (!quiet) SetSettingsStatus(Tr.S("Сохранение уже идёт — подождите.", "Saving is already in progress — please wait."));
+                return;
+            }
             _btnSettingsSave.Enabled = false;
             StartSettingsTicker(Tr.S("Сохраняю: задача автозапуска в планировщике", "Saving: the autostart task in Task Scheduler"));
             Thread th = new Thread(delegate()
@@ -424,7 +522,7 @@ namespace WindowsProcessCleaner
                 {
                     // Движок теперь возвращает причину отказа schtasks; проверка запросом
                     // остаётся вторым рубежом — код возврата 0 ещё не значит, что задача есть.
-                    err = _engine.ApplyAutostart(wantAutostart);
+                    err = ApplyAutostartMaybeElevated(wantAutostart);
                     ok = AutostartTaskPresent() == wantAutostart;
                     if (ok) err = null;
                 }
@@ -435,6 +533,18 @@ namespace WindowsProcessCleaner
                     Interlocked.Exchange(ref _settingsBusy, 0);
                     if (_settingsTick != null) _settingsTick.Stop();
                     _btnSettingsSave.Enabled = true;
+                    if (_autostartRerun && !_closing)
+                    {
+                        _autostartRerun = false;
+                        StartAutostartApply(_engine.Config.Autostart, true, false);
+                        return;
+                    }
+                    if (quiet && okCopy)
+                    {
+                        SetSettingsStatus(Tr.S("Сохранено в ", "Saved at ") + DateTime.Now.ToString("HH:mm:ss")
+                            + (wantAutostart ? Tr.S(" · автозапуск включён", " · autostart enabled") : Tr.S(" · автозапуск выключен", " · autostart disabled")));
+                        return;
+                    }
 
                     // Одно окно вместо двух подряд («сохранено», потом «язык после перезапуска»).
                     string saved = Tr.S("Настройки сохранены.", "Settings saved.");

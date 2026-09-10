@@ -84,7 +84,7 @@ namespace WindowsProcessCleaner
             _lvPorts.FullRowSelect = true;
             // Порт живёт ровно столько, сколько держащий его процесс: ключ — порт и имя
             // процесса, полка сеансовая. Список перечитывается часто, выбор больше не слетает.
-            MemWatch(_lvPorts, PortsScope, false, PortsMemKey);
+            MemWatch(_lvPorts, PortsScope, true, PortsMemKey);
             _lvPorts.Columns.Add(Tr.S("Порт", "Port"), 90);
             _lvPorts.Columns.Add("PID", 90);
             _lvPorts.Columns.Add(Tr.S("Процесс", "Process"), 340);
@@ -339,7 +339,7 @@ namespace WindowsProcessCleaner
                             items.Add(it);
                         }
                         _lvPorts.Items.AddRange(items.ToArray());
-                        MemEndFill(_lvPorts, PortsScope, false, PortsMemKey, null);
+                        MemEndFill(_lvPorts, PortsScope, true, PortsMemKey, null);
                     }
                     finally { _lvPorts.EndUpdate(); }
                     AutoFillLastColumnDeferred(_lvPorts);

@@ -517,7 +517,39 @@ namespace WindowsProcessCleaner
         // на каждой папке обхода, и комментарий выше наконец описывает то, что код действительно делает.
         private static bool IsGuardedSubPath(string pathLower)
         {
-            return HasSegment(pathLower, _saveSegments) || HasSegment(pathLower, _appDataSegments);
+            return HasSegment(pathLower, _saveSegments) || HasSegment(pathLower, _appDataSegments)
+                || IsOwnFolder(pathLower);
+        }
+
+        // Собственные папки приложения: каталог данных (конфиг, история, журналы) и — у
+        // портативной сборки — папка рядом с exe. Проверка на корне цели уже стояла в
+        // IsAllowedTarget, но её одной мало: каталог данных может лежать ВНУТРИ чистимой
+        // папки, и обход доходил до него сверху. 10.09.2026 тихий прогон так и снёс свой
+        // собственный config.json, оказавшийся под %LOCALAPPDATA%\Temp; для портативной
+        // сборки, распакованной в «Загрузки» или во временную папку, это обычный случай,
+        // а не экзотика.
+        private static string[] _ownFolders = new string[0];
+
+        internal static void GuardOwnFolder(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return;
+            string d;
+            try { d = Path.GetFullPath(dir).TrimEnd('\\').ToLowerInvariant(); }
+            catch { return; }
+            if (d.Length < 4) return;
+            string[] cur = _ownFolders;
+            foreach (string s in cur) if (s == d) return;
+            string[] next = new string[cur.Length + 1];
+            cur.CopyTo(next, 0);
+            next[cur.Length] = d;
+            _ownFolders = next;      // присваивание ссылки атомарно: читателям из других потоков достанется либо старый список, либо новый целиком
+        }
+
+        private static bool IsOwnFolder(string pathLower)
+        {
+            string[] cur = _ownFolders;
+            foreach (string d in cur) if (IsSelfOrUnder(pathLower, d)) return true;
+            return false;
         }
 
         private static bool HasSegment(string pathLower, string[] segments)
@@ -565,26 +597,46 @@ namespace WindowsProcessCleaner
             List<string> dirs = new List<string>();
             int errors = 0;
             int deleted = 0;
+            bool own = t.TakeOwnership;
             Walk(t, delegate(string path, long size, uint attrs)
             {
                 string lp = LongPath(path);
                 if ((attrs & (Native.FILE_ATTRIBUTE_READONLY | Native.FILE_ATTRIBUTE_HIDDEN | Native.FILE_ATTRIBUTE_SYSTEM)) != 0)
                     Native.SetFileAttributesW(lp, Native.FILE_ATTRIBUTE_NORMAL);
-                if (Native.DeleteFileW(lp)) { freed += size; deleted++; }
-                else errors++;   // занят другим процессом или нет прав — это норма
+                if (Native.DeleteFileW(lp)) { freed += size; deleted++; return; }
+                // Файлы Windows.old / $Windows.~BT принадлежат TrustedInstaller: даже администратору
+                // «отказано в доступе», и категория показывала гигабайты, а освобождала ноль.
+                // Только для таких целей: стать владельцем, снять атрибуты и повторить.
+                if (own && Marshal.GetLastWin32Error() == Native.ERROR_ACCESS_DENIED && Native.TakeOwnership(lp))
+                {
+                    Native.SetFileAttributesW(lp, Native.FILE_ATTRIBUTE_NORMAL);
+                    if (Native.DeleteFileW(lp)) { freed += size; deleted++; return; }
+                }
+                errors++;   // занят другим процессом или нет прав — это норма
             }, dirs, ref errors);
 
             // подпапки — от самых глубоких к верхним; только пустые уйдут (reparse-точек в списке нет)
             if (string.IsNullOrEmpty(t.Mask))
             {
                 dirs.Sort(delegate(string a, string b) { return b.Length.CompareTo(a.Length); });
-                foreach (string d in dirs) Native.RemoveDirectoryW(LongPath(d));
-                if (!t.ContentsOnly) Native.RemoveDirectoryW(LongPath(rootPath));
+                foreach (string d in dirs) RemoveDir(LongPath(d), own);
+                if (!t.ContentsOnly) RemoveDir(LongPath(rootPath), own);
             }
 
             res.Errors += errors;
             res.FilesDeleted += deleted;
             return freed;
+        }
+
+        // Непустая папка отвечает ERROR_DIR_NOT_EMPTY, а не «отказано в доступе» — владение
+        // берётся только там, где мешают именно права, и только у целей с TakeOwnership.
+        private static void RemoveDir(string longPath, bool own)
+        {
+            if (Native.RemoveDirectoryW(longPath)) return;
+            if (!own || Marshal.GetLastWin32Error() != Native.ERROR_ACCESS_DENIED) return;
+            if (!Native.TakeOwnership(longPath)) return;
+            Native.SetFileAttributesW(longPath, Native.FILE_ATTRIBUTE_NORMAL);
+            Native.RemoveDirectoryW(longPath);
         }
 
         public CleanResult CleanCategories(List<CleanCategory> cats)

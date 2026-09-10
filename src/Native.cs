@@ -358,6 +358,45 @@ namespace WindowsProcessCleaner
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         public static extern bool SetFileAttributesW(string path, uint attrs);
 
+        // --- Владение файлом (остатки обновлений Windows принадлежат TrustedInstaller) ---
+        public const int ERROR_ACCESS_DENIED = 5;
+        private const int SE_FILE_OBJECT = 1;
+        private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
+        private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+        private const string AdministratorsSid = "S-1-5-32-544";
+        private static bool _ownerPrivilegesTried;
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool ConvertStringSidToSidW(string sid, out IntPtr psid);
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode)]
+        private static extern int SetNamedSecurityInfoW(string name, int objectType, uint secInfo,
+                                                       IntPtr owner, IntPtr group, IntPtr dacl, IntPtr sacl);
+
+        public static bool TakeOwnership(string path) { return TakeOwnership(path, AdministratorsSid); }
+
+        // Владелец — Администраторы, затем пустой (NULL) DACL: полный доступ всем. Годится только
+        // для объекта, который тут же удаляется, — на что-то живое так делать нельзя.
+        // SeTakeOwnership даёт право стать владельцем чужого объекта, SeRestore — назначить
+        // владельцем не себя, а группу; обе есть у администратора с повышением (UAC).
+        public static bool TakeOwnership(string path, string ownerSid)
+        {
+            if (!_ownerPrivilegesTried)
+            {
+                _ownerPrivilegesTried = true;
+                EnablePrivilege("SeTakeOwnershipPrivilege");
+                EnablePrivilege("SeRestorePrivilege");
+            }
+            IntPtr sid;
+            if (!ConvertStringSidToSidW(ownerSid, out sid)) return false;
+            try
+            {
+                if (SetNamedSecurityInfoW(path, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, sid, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) != 0)
+                    return false;
+                return SetNamedSecurityInfoW(path, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) == 0;
+            }
+            finally { LocalFree(sid); }
+        }
+
         // Атрибуты пути (через \\?\); INVALID_FILE_ATTRIBUTES — пути нет или нет доступа.
         public static uint AttributesOf(string p)
         {

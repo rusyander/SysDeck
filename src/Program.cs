@@ -85,6 +85,18 @@ namespace WindowsProcessCleaner
         [STAThread]
         static void Main(string[] args)
         {
+            // --elevated-job <папка> — это не окно, а элевированный помощник: выполняет одну
+            // операцию, пишет результат в файл и умирает. Проверяется раньше всего остального:
+            // ни мьютекс единственного экземпляра, ни канал активации ему не нужны, а мешать
+            // работающему окну (оно его и запустило) он не должен тем более.
+            if (args != null)
+                for (int i = 0; i + 1 < args.Length; i++)
+                    if (args[i] == Elevation.JobSwitch)
+                    {
+                        Environment.ExitCode = Elevation.Execute(args[i + 1]);
+                        return;
+                    }
+
             bool startTray = args != null && args.Contains("/tray");
 
             // /auto — тихая очистка диска без окна, для планировщика задач
@@ -310,6 +322,30 @@ namespace WindowsProcessCleaner
                 List<string> mem = engine.Config.UiChecks;
                 foreach (CleanCategory c in cats) if (HeadlessPicked(mem, c)) pick.Add(c);
                 AutoLog(dir, "categories=" + cats.Count + " picked=" + pick.Count + " (" + sw.ElapsedMilliseconds + " ms)");
+
+                // Тихий режим никогда не показывает UAC: спрашивать некого, окна нет. Если задача
+                // заведена без наивысших прав, системные категории не заваливают журнал отказами —
+                // они пропускаются, и в журнале поимённо видно, какие именно и почему.
+                if (!Elevation.IsElevated)
+                {
+                    List<CleanCategory> allowed = new List<CleanCategory>();
+                    List<string> denied = new List<string>();
+                    foreach (CleanCategory c in pick)
+                    {
+                        if (!Elevation.CategoryNeedsAdmin(c)) { allowed.Add(c); continue; }
+                        // Категория делится по правам так же, как и в окне: своё чистится,
+                        // системная часть остаётся до запуска с наивысшими правами.
+                        List<string> keys = new List<string>();
+                        CleanCategory mine = string.IsNullOrEmpty(c.Kind) ? Elevation.UserPartOf(c, keys) : null;
+                        if (mine != null) allowed.Add(mine);
+                        denied.Add(c.Id + (mine != null ? " (part)" : ""));
+                    }
+                    if (denied.Count > 0)
+                        AutoLog(dir, "not elevated: left " + denied.Count + " admin-only item(s) untouched: "
+                                     + string.Join(", ", denied.ToArray()));
+                    pick = allowed;
+                }
+
                 if (pick.Count == 0)
                 {
                     AutoLog(dir, "nothing to clean");

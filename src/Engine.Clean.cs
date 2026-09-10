@@ -186,8 +186,8 @@ namespace WindowsProcessCleaner
             // Dev-кэши
             CleanCategory dev = new CleanCategory();
             dev.Id = "dev"; dev.Title = Tr.S("Dev-кэши", "Dev caches"); dev.Recommended = true;
-            dev.Desc = Tr.S("npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet / Composer / TypeScript (пересоздаются)",
-                            "npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet / Composer / TypeScript (regenerated)");
+            dev.Desc = Tr.S("npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / NuGet / Composer / TypeScript (пересоздаются)",
+                            "npm / pnpm / yarn / bun / pip / uv / poetry / cargo / go / NuGet / Composer / TypeScript (regenerated)");
             AddDir(dev, Path.Combine(lad, "npm-cache"), true);
             AddDir(dev, Path.Combine(ad, "npm-cache"), true);
             AddDir(dev, Path.Combine(up, ".npm\\_cacache"), true);
@@ -211,7 +211,6 @@ namespace WindowsProcessCleaner
             // кэшем являются только cache (индексы PyPI) и artifacts (скачанные wheel)
             AddDir(dev, Path.Combine(lad, "pypoetry\\Cache\\cache"), true);
             AddDir(dev, Path.Combine(lad, "pypoetry\\Cache\\artifacts"), true);
-            AddDir(dev, Path.Combine(up, ".gradle\\caches"), true);
             AddDir(dev, Path.Combine(up, ".cargo\\registry\\cache"), true);
             AddDir(dev, Path.Combine(up, ".cargo\\registry\\src"), true);
             AddDir(dev, Path.Combine(up, "go\\pkg\\mod\\cache\\download"), true);
@@ -231,8 +230,8 @@ namespace WindowsProcessCleaner
             // Тяжёлые dev-загрузки: восстановимы, но качаются заново долго — не рекомендуем по умолчанию
             CleanCategory devBig = new CleanCategory();
             devBig.Id = "devbig"; devBig.Title = Tr.S("Dev: скачанные тулчейны", "Dev: downloaded toolchains");
-            devBig.Desc = Tr.S("старые сборки браузеров Playwright (текущая остаётся), браузеры Puppeteer/Cypress, кэш electron-builder, dotslash, Expo Go, репозиторий Maven, пакеты NuGet — скачаются заново",
-                               "old Playwright browser builds (the current one stays), Puppeteer/Cypress browsers, electron-builder cache, dotslash, Expo Go, Maven repository, NuGet packages — will re-download");
+            devBig.Desc = Tr.S("старые сборки браузеров Playwright (текущая остаётся), браузеры Puppeteer/Cypress, кэш electron-builder, dotslash, Expo Go, кэш и дистрибутивы Gradle, репозиторий Maven, пакеты NuGet — скачаются заново",
+                               "old Playwright browser builds (the current one stays), Puppeteer/Cypress browsers, electron-builder cache, dotslash, Expo Go, Gradle caches and distributions, Maven repository, NuGet packages — will re-download");
             // Playwright держит по папке на КАЖДУЮ скачанную сборку браузера (chromium-1223,
             // chromium-1228, …). Удаляются только старые: текущую используют проекты, а проект,
             // закреплённый на прошлой версии, после её удаления требует npx playwright install —
@@ -248,6 +247,9 @@ namespace WindowsProcessCleaner
             AddDir(devBig, Path.Combine(up, ".expo\\android-apk-cache"), true);
             AddDir(devBig, Path.Combine(up, ".expo\\expo-go"), true);
             AddDir(devBig, Path.Combine(up, ".gradle\\wrapper\\dists"), true);
+            // ~/.gradle/caches — тот же класс, что репозиторий Maven: все зависимости всех
+            // проектов, гигабайты и минуты повторной загрузки; в рекомендованных ему не место
+            AddDir(devBig, Path.Combine(up, ".gradle\\caches"), true);
             AddDir(devBig, Path.Combine(up, ".m2\\repository"), true);
             // глобальный кэш пакетов NuGet — тот же класс, что репозиторий Maven: скачается заново,
             // но на больших решениях это гигабайты и минуты restore
@@ -297,7 +299,9 @@ namespace WindowsProcessCleaner
             AddDir(shell, explorerDir, true, "iconcache_*.db", 0);
             AddDir(shell, Path.Combine(explorerDir, "ThumbCacheToDelete"), true);
             AddDir(shell, lad, true, "IconCache.db", 0);
-            AddDir(shell, Path.Combine(lad, "Microsoft\\Windows\\INetCache"), true);
+            // INetCache — ещё и Content.Outlook / Content.Word: вложение, открытое прямо из письма,
+            // лежит здесь, пока его редактируют, — свежие файлы под защитой, как в temp
+            AddDir(shell, Path.Combine(lad, "Microsoft\\Windows\\INetCache"), true, null, fresh);
             AddDir(shell, Path.Combine(lad, "Microsoft\\Windows\\Notifications\\wpnidm"), true);
             AddDir(shell, Path.Combine(lad, "Microsoft\\Terminal Server Client\\Cache"), true);
             AddDir(shell, Path.Combine(_winDir, "ServiceProfiles\\LocalService\\AppData\\Local\\FontCache"), true);
@@ -339,20 +343,33 @@ namespace WindowsProcessCleaner
             // Кэши браузеров
             CleanCategory br = new CleanCategory();
             br.Id = "browser"; br.Title = Tr.S("Кэши браузеров", "Browser caches");
-            br.Desc = Tr.S("Chrome / Edge / Brave / Yandex / Opera / Vivaldi / Firefox — только кэш (пароли, куки и история не трогаются)",
-                           "Chrome / Edge / Brave / Yandex / Opera / Vivaldi / Firefox — cache only (passwords, cookies, history untouched)");
+            br.Desc = Tr.S("Chrome / Edge / Brave / Yandex / Opera / Vivaldi / Chromium / Firefox / LibreWolf / Waterfox / Thunderbird — только кэш (пароли, куки и история не трогаются)",
+                           "Chrome / Edge / Brave / Yandex / Opera / Vivaldi / Chromium / Firefox / LibreWolf / Waterfox / Thunderbird — cache only (passwords, cookies, history untouched)");
             AddChromium(br, Path.Combine(lad, "Google\\Chrome\\User Data"));
             AddChromium(br, Path.Combine(lad, "Google\\Chrome Beta\\User Data"));
+            AddChromium(br, Path.Combine(lad, "Google\\Chrome Dev\\User Data"));
             AddChromium(br, Path.Combine(lad, "Google\\Chrome SxS\\User Data"));
             AddChromium(br, Path.Combine(lad, "Microsoft\\Edge\\User Data"));
+            AddChromium(br, Path.Combine(lad, "Microsoft\\Edge Beta\\User Data"));
             AddChromium(br, Path.Combine(lad, "Microsoft\\Edge Dev\\User Data"));
+            AddChromium(br, Path.Combine(lad, "Microsoft\\Edge SxS\\User Data"));
+            AddChromium(br, Path.Combine(lad, "Chromium\\User Data"));
             AddChromium(br, Path.Combine(lad, "BraveSoftware\\Brave-Browser\\User Data"));
+            AddChromium(br, Path.Combine(lad, "BraveSoftware\\Brave-Browser-Beta\\User Data"));
+            AddChromium(br, Path.Combine(lad, "BraveSoftware\\Brave-Browser-Nightly\\User Data"));
             AddChromium(br, Path.Combine(lad, "Yandex\\YandexBrowser\\User Data"));
             AddChromium(br, Path.Combine(lad, "Vivaldi\\User Data"));
             AddChromium(br, Path.Combine(ad, "Opera Software\\Opera Stable"));
             AddChromium(br, Path.Combine(ad, "Opera Software\\Opera GX Stable"));
             AddFirefox(br, Path.Combine(lad, "Mozilla\\Firefox\\Profiles"));
             AddFirefox(br, Path.Combine(ad, "Mozilla\\Firefox\\Profiles"));
+            // те же Gecko-профили у форков и у Thunderbird (cache2 / startupCache в Local)
+            AddFirefox(br, Path.Combine(lad, "librewolf\\Profiles"));
+            AddFirefox(br, Path.Combine(ad, "librewolf\\Profiles"));
+            AddFirefox(br, Path.Combine(lad, "Waterfox\\Profiles"));
+            AddFirefox(br, Path.Combine(ad, "Waterfox\\Profiles"));
+            AddFirefox(br, Path.Combine(lad, "Thunderbird\\Profiles"));
+            AddFirefox(br, Path.Combine(ad, "Thunderbird\\Profiles"));
             if (br.Targets.Count > 0) list.Add(br);
 
             // Кэши приложений (Electron/медиа/IDE)
@@ -385,7 +402,12 @@ namespace WindowsProcessCleaner
             AddDir(apps, Path.Combine(ad, "Telegram Desktop\\tdata\\user_data\\cache"), true);
             AddDir(apps, Path.Combine(ad, "Telegram Desktop\\tdata\\user_data\\media_cache"), true);
             AddDir(apps, Path.Combine(ad, "Telegram Desktop\\tdata\\emoji"), true);
+            // Premiere/After Effects держат медиакэш в ROAMING (`%APPDATA%\Adobe\Common`);
+            // Local-путь оставлен для старых версий
             AddDir(apps, Path.Combine(lad, "Adobe\\Common\\Media Cache Files"), true);
+            AddDir(apps, Path.Combine(ad, "Adobe\\Common\\Media Cache Files"), true);
+            AddDir(apps, Path.Combine(ad, "Adobe\\Common\\Media Cache"), true);
+            AddDir(apps, Path.Combine(ad, "Adobe\\Common\\Peak Files"), true);
             AddDir(apps, Path.Combine(lad, "Unity\\cache"), true);
             AddDir(apps, Path.Combine(lad, "GameCenter\\Cache"), true);
             AddDir(apps, Path.Combine(lad, "EpicGamesLauncher\\Saved\\webcache"), true);
@@ -451,7 +473,9 @@ namespace WindowsProcessCleaner
             AddDir(logs, Path.Combine(lad, "npm-cache\\_logs"), true);
             AddDir(logs, Path.Combine(up, ".npm\\_logs"), true);
             AddDir(logs, Path.Combine(lad, "Yarn\\logs"), true);
-            AddDir(logs, Path.Combine(up, ".gradle\\daemon"), true);
+            // ~/.gradle/daemon/<версия>/: рядом с daemon-*.out.log лежит registry.bin работающих
+            // демонов — удалить его значит осиротить их; берём только логи
+            AddDir(logs, Path.Combine(up, ".gradle\\daemon"), true, "*.log", 0, true);
             AddDir(logs, Path.Combine(ad, "Docker Desktop\\log"), true);
             AddDir(logs, Path.Combine(lad, "Docker\\log"), true);
             AddDir(logs, Path.Combine(ad, "Zoom\\logs"), true);
@@ -486,7 +510,9 @@ namespace WindowsProcessCleaner
             AddDir(drv, Path.Combine(pd, "NVIDIA Corporation\\Installer2"), true);
             AddDir(drv, Path.Combine(sysDrive, "AMD"), false);
             AddDir(drv, Path.Combine(sysDrive, "Intel"), false);
-            AddDir(drv, Path.Combine(sysDrive, "Windows.old"), false);
+            // Windows.old — то, откуда система откатывается первые 10 дней после обновления:
+            // тот же срок неприкосновенности, что у остальных остатков обновления
+            AddDir(drv, Path.Combine(sysDrive, "Windows.old"), false, null, updateGrace);
             // $Windows.~BT / ~WS — распаковка идущего обновления компонентов: срок тот же, что у $WinREAgent
             AddDir(drv, Path.Combine(sysDrive, "$Windows.~BT"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$Windows.~WS"), false, null, updateGrace);
@@ -497,6 +523,20 @@ namespace WindowsProcessCleaner
             AddDir(drv, Path.Combine(sysDrive, "$GetCurrent"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$SysReset"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "ESD"), false, null, updateGrace);
+            // Эти папки принадлежат TrustedInstaller: без смены владельца DeleteFileW отвечает
+            // «отказано в доступе», и категория показывала гигабайты, освобождая ноль.
+            foreach (CleanTarget t in drv.Targets)
+            {
+                string name = Path.GetFileName(t.Path);
+                if (name.Equals("Windows.old", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("$Windows.~BT", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("$Windows.~WS", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("$WinREAgent", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("$GetCurrent", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("$SysReset", StringComparison.OrdinalIgnoreCase)
+                    || name.Equals("ESD", StringComparison.OrdinalIgnoreCase))
+                    t.TakeOwnership = true;
+            }
             if (drv.Targets.Count > 0) list.Add(drv);
 
             // Категории-действия: считаются и чистятся внешними утилитами Windows
@@ -519,6 +559,7 @@ namespace WindowsProcessCleaner
             // Правила из winapp2.ini, если база положена рядом (формат FluentCleaner/BleachBit)
             try { list.AddRange(LoadWinapp2Categories()); } catch { }
 
+            AddPopularAppTargets(list, lad, ad, up, pd);
             ApplyTargetChoice(list);
             return list;
         }

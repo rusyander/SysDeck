@@ -87,7 +87,15 @@ namespace WindowsProcessCleaner
                 Tr.S("безопасное: остановленные контейнеры, образы без тега, кэш сборки", "safe: stopped containers, dangling images, build cache"),
                 Tr.S("+ все неиспользуемые образы (скачаются заново)", "+ all unused images (re-downloaded when needed)"),
                 Tr.S("всё, включая неиспользуемые тома (данные проектов!)", "everything, incl. unused volumes (project data!)") });
-            _cmbDockerPrune.SelectedIndex = 1;
+            // выбор «что удалить перед сжатием» переживает перезапуск; перед самим действием
+            // всё равно показывается окно с точным перечнем команд
+            int prune;
+            if (!int.TryParse(MemGet("docker", "prune", true), out prune) || prune < 0 || prune > 3) prune = 1;
+            _cmbDockerPrune.SelectedIndex = prune;
+            _cmbDockerPrune.SelectedIndexChanged += delegate
+            {
+                MemSet("docker", "prune", _cmbDockerPrune.SelectedIndex.ToString(CultureInfo.InvariantCulture), true);
+            };
             flow.Controls.Add(_cmbDockerPrune);
 
             Label note = new Label();

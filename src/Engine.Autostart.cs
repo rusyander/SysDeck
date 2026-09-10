@@ -296,36 +296,101 @@ namespace WindowsProcessCleaner
 
             try
             {
-                string args;
-                if (enabled)
+                if (!enabled) return RunSchtasks("/Delete /TN \"" + TaskName + "\" /F", false);
+
+                string exe = Application.ExecutablePath;
+                // Задача описывается XML, а не «/SC ONLOGON /RL HIGHEST»: у задачи из командной
+                // строки остаются умолчания планировщика — лимит выполнения 72 часа (через трое
+                // суток трей-приложение просто убивали), запрет старта и остановка на батарее.
+                string xmlErr = null;
+                string xmlPath = null;
+                try
                 {
-                    string exe = Application.ExecutablePath;
-                    args = "/Create /TN \"" + TaskName + "\" /TR \"\\\"" + exe +
-                           "\\\" /tray\" /SC ONLOGON /RL HIGHEST /F";
+                    xmlPath = Path.Combine(Path.GetTempPath(), "wpc-autostart-" + Process.GetCurrentProcess().Id + ".xml");
+                    File.WriteAllText(xmlPath, AutostartTaskXml(exe, true), Encoding.Unicode);
+                    xmlErr = RunSchtasks("/Create /TN \"" + TaskName + "\" /XML \"" + xmlPath + "\" /F", true);
                 }
-                else
-                {
-                    args = "/Delete /TN \"" + TaskName + "\" /F";
-                }
-                ProcessStartInfo psi = new ProcessStartInfo("schtasks.exe", args);
-                psi.CreateNoWindow = true;
-                psi.UseShellExecute = false;
-                psi.WindowStyle = ProcessWindowStyle.Hidden;
-                using (Process p = Process.Start(psi))
-                {
-                    if (p == null) return Tr.S("не удалось запустить schtasks.exe", "failed to start schtasks.exe");
-                    if (!p.WaitForExit(15000))
-                    {
-                        try { p.Kill(); } catch { }
-                        return Tr.S("schtasks.exe не ответил за 15 секунд", "schtasks.exe did not answer within 15 seconds");
-                    }
-                    // /Delete для несуществующей задачи возвращает 1 — выключать нечего, и это не ошибка
-                    if (p.ExitCode != 0 && !(!enabled && p.ExitCode == 1))
-                        return "schtasks → " + p.ExitCode;
-                }
+                catch (Exception ex) { xmlErr = ex.Message; }
+                finally { if (xmlPath != null) try { File.Delete(xmlPath); } catch { } }
+                if (xmlErr == null) return null;
+
+                // запасной путь — прежняя командная строка: задача хуже, но лучше, чем никакой
+                string err = RunSchtasks("/Create /TN \"" + TaskName + "\" /TR \"\\\"" + exe +
+                                         "\\\" /tray\" /SC ONLOGON /RL HIGHEST /F", true);
+                return err == null ? null : xmlErr + "; " + err;
             }
             catch (Exception ex) { return ex.Message; }
+        }
+
+        // Возвращает null при успехе, иначе причину (код возврата и первая строка stderr).
+        private static string RunSchtasks(string args, bool creating)
+        {
+            ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "schtasks.exe"), args);
+            psi.CreateNoWindow = true;
+            psi.UseShellExecute = false;
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            using (Process p = Process.Start(psi))
+            {
+                if (p == null) return Tr.S("не удалось запустить schtasks.exe", "failed to start schtasks.exe");
+                // вывод крошечный, поэтому читаем по очереди: труба не переполнится
+                string stderr = p.StandardError.ReadToEnd();
+                p.StandardOutput.ReadToEnd();
+                if (!p.WaitForExit(15000))
+                {
+                    try { p.Kill(); } catch { }
+                    return Tr.S("schtasks.exe не ответил за 15 секунд", "schtasks.exe did not answer within 15 seconds");
+                }
+                // /Delete для несуществующей задачи возвращает 1 — выключать нечего, и это не ошибка
+                if (p.ExitCode != 0 && !(!creating && p.ExitCode == 1))
+                {
+                    string line = (stderr ?? "").Trim();
+                    int nl = line.IndexOfAny(new char[] { '\r', '\n' });
+                    if (nl > 0) line = line.Substring(0, nl);
+                    if (line.Length > 160) line = line.Substring(0, 160) + "…";
+                    return "schtasks → " + p.ExitCode + (line.Length > 0 ? ": " + line : "");
+                }
+            }
             return null;
+        }
+
+        // highest = запуск с наивысшими правами (в тестах без повышения задача такой не создаётся).
+        internal static string AutostartTaskXml(string exe, bool highest)
+        {
+            string sid = null;
+            try { using (WindowsIdentity id = WindowsIdentity.GetCurrent()) sid = id.User == null ? null : id.User.Value; }
+            catch { }
+            string account = Environment.UserDomainName + "\\" + Environment.UserName;
+            string principal = string.IsNullOrEmpty(sid) ? account : sid;
+            StringBuilder sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n");
+            sb.Append("<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n");
+            sb.Append("  <RegistrationInfo><Description>Windows Process Cleaner</Description></RegistrationInfo>\r\n");
+            sb.Append("  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>").Append(System.Security.SecurityElement.Escape(account)).Append("</UserId></LogonTrigger></Triggers>\r\n");
+            sb.Append("  <Principals><Principal id=\"Author\"><UserId>").Append(System.Security.SecurityElement.Escape(principal)).Append("</UserId>");
+            sb.Append("<LogonType>InteractiveToken</LogonType><RunLevel>").Append(highest ? "HighestAvailable" : "LeastPrivilege").Append("</RunLevel></Principal></Principals>\r\n");
+            sb.Append("  <Settings>\r\n");
+            sb.Append("    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\r\n");
+            sb.Append("    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>\r\n");
+            sb.Append("    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>\r\n");
+            sb.Append("    <AllowHardTerminate>false</AllowHardTerminate>\r\n");
+            sb.Append("    <StartWhenAvailable>true</StartWhenAvailable>\r\n");
+            sb.Append("    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\r\n");
+            sb.Append("    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>\r\n");
+            sb.Append("    <AllowStartOnDemand>true</AllowStartOnDemand>\r\n");
+            sb.Append("    <Enabled>true</Enabled>\r\n");
+            sb.Append("    <Hidden>false</Hidden>\r\n");
+            sb.Append("    <RunOnlyIfIdle>false</RunOnlyIfIdle>\r\n");
+            sb.Append("    <DisallowStartOnRemoteAppSession>false</DisallowStartOnRemoteAppSession>\r\n");
+            sb.Append("    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>\r\n");
+            sb.Append("    <WakeToRun>false</WakeToRun>\r\n");
+            sb.Append("    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>\r\n");
+            sb.Append("    <Priority>7</Priority>\r\n");
+            sb.Append("  </Settings>\r\n");
+            sb.Append("  <Actions Context=\"Author\"><Exec><Command>").Append(System.Security.SecurityElement.Escape(exe)).Append("</Command><Arguments>/tray</Arguments></Exec></Actions>\r\n");
+            sb.Append("</Task>\r\n");
+            return sb.ToString();
         }
     }
 }

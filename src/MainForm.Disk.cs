@@ -141,6 +141,15 @@ namespace WindowsProcessCleaner
             _btnDiskDups = MkFlowButton(Tr.S("Дубликаты", "Duplicates"), 120, false);
             _btnDiskDups.Click += delegate { SetDiskMode("dups"); };
             _diskFlow.Controls.Add(_btnDiskDups);
+            // режим списка запоминается; список ещё пуст, поэтому только подсветка кнопки,
+            // без RefreshDiskList — его вызовет первый выбор папки в дереве
+            string savedMode = MemGet("disk", "mode", true);
+            if (savedMode == "empty" || savedMode == "dups")
+            {
+                _diskMode = savedMode;
+                _btnDiskFiles.Tag = null;
+                (savedMode == "empty" ? _btnDiskEmpty : _btnDiskDups).Tag = "primary";
+            }
 
             Button btnOpen = MkFlowButton(Tr.S("Открыть папку", "Open folder"), 140, false);
             btnOpen.Margin = new Padding(16, 0, 8, 8);
@@ -520,6 +529,7 @@ namespace WindowsProcessCleaner
         private void SetDiskMode(string mode)
         {
             _diskMode = mode;
+            MemSet("disk", "mode", mode, true);
             foreach (Button b in new Button[] { _btnDiskFiles, _btnDiskEmpty, _btnDiskDups }) b.Tag = null;
             (mode == "files" ? _btnDiskFiles : mode == "empty" ? _btnDiskEmpty : _btnDiskDups).Tag = "primary";
             ApplyThemeTo(_diskFlow);

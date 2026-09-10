@@ -685,12 +685,15 @@ namespace WindowsProcessCleaner
             }
         }
 
+        // Копии закладок лежат там же, где остальные данные программы. Раньше путь был
+        // прибит к %APPDATA% напрямую, и портативная сборка, у которой всё хранится рядом
+        // с exe, всё равно оставляла копии в профиле — на чужой машине это ровно то,
+        // чего портативная сборка и должна избегать.
         public static string BackupDir
         {
             get
             {
-                string d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                        "WindowsProcessCleaner\\browser-backups");
+                string d = Path.Combine(Engine.DefaultDataDir(), "browser-backups");
                 Directory.CreateDirectory(d);
                 return d;
             }

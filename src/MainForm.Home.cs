@@ -642,7 +642,9 @@ namespace WindowsProcessCleaner
                         killed = _engine.TerminateMany(pids, out freedProc,
                             delegate(string s) { _boostPhase = Tr.S("Завершаю процессы: ", "Terminating processes: ") + s; },
                             delegate { return _boostCancel || _closing; });
-                    Engine.MemResult mr = _engine.PurgeStandby();
+                    Engine.MemResult mr = PurgeStandbyMaybeElevated(true,
+                        delegate(string s) { _boostPhase = s; },
+                        delegate { return _boostCancel || _closing; });
                     freedMem = mr.FreedBytes;
                     if (!mr.Ok) memNote = mr.Message;
 
@@ -739,7 +741,11 @@ namespace WindowsProcessCleaner
             Thread t = new Thread(delegate()
             {
                 Engine.MemResult mr = null;
-                try { mr = _engine.PurgeStandby(); } catch { }
+                // Умное ускорение срабатывает само, по порогу RAM: запрос прав здесь запрещён.
+                // Без прав (окно запущено обычным пользователем) операция пропускается с
+                // объяснением — а запущенное задачей автозапуска окно уже элевировано, и
+                // ускорение работает как раньше, молча.
+                try { mr = PurgeStandbyMaybeElevated(false, null, null); } catch { }
                 Interlocked.Exchange(ref _smartBusy, 0);
                 Engine.MemResult res = mr;
                 UiPost(delegate

@@ -299,7 +299,10 @@ namespace WindowsProcessCleaner
             _lblNavAdmin.Font = new Font(Font.FontFamily, 9F);
             _lblNavAdmin.TextAlign = ContentAlignment.MiddleLeft;
             _lblNavAdmin.Padding = new Padding(16, 0, 0, 0);
-            _lblNavAdmin.Text = IsElevated() ? Tr.S("● администратор", "● administrator") : Tr.S("○ без прав администратора", "○ not administrator");
+            // Обычные права — это норма, а не поломка: подпись говорит, что права
+            // спросят под операцию, а не что чего-то не хватает.
+            _lblNavAdmin.Text = IsElevated() ? Tr.S("● администратор", "● administrator")
+                                             : Tr.S("○ обычные права · UAC под операцию", "○ ordinary rights · UAC per operation");
             nav.Controls.Add(_lblNavAdmin);
 
             // Пункты идут столбиком; все расстояния считаются от высоты кнопки, которую форма
@@ -364,6 +367,7 @@ namespace WindowsProcessCleaner
                 _closing = true;
                 // Память выбора пишется по таймеру, чтобы «Все»/«Ничего» не били по диску
                 // сотней записей подряд; при выходе ждать этот таймер уже некому.
+                FlushSettingsAutoSave();
                 MemFlush();
                 _engine.CancelDiskWork();
                 if (_monitor != null) { _monitor.Dispose(); _monitor = null; }

@@ -174,16 +174,74 @@ namespace WindowsProcessCleaner
         }
 
         // Папка данных — одна для окна, headless-режимов и crash.log (Program.ReportCrash).
+        //
+        // Три источника, в порядке убывания приоритета:
+        //  1. переменная WPC_DATA_DIR — так тесты работают, не трогая настоящие данные
+        //     пользователя (иначе первый же прогон переписал бы его конфиг и историю);
+        //  2. файл-метка portable.marker рядом с exe — портативная сборка держит всё в своей
+        //     папке и не оставляет следов в профиле: флешку вынули, и на компьютере пусто;
+        //  3. обычное место — %APPDATA%\WindowsProcessCleaner (установленная сборка).
+        public const string PortableMarker = "portable.marker";
+
         public static string DefaultDataDir()
         {
+            string over = null;
+            try { over = Environment.GetEnvironmentVariable("WPC_DATA_DIR"); }
+            catch { }
+            if (!string.IsNullOrEmpty(over)) return over.Trim().TrimEnd('\\');
+
+            string portable = PortableDataDir();
+            if (portable != null) return portable;
+
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                                  "WindowsProcessCleaner");
+        }
+
+        // Портативный режим: метка рядом с exe И право писать в эту папку. Портативную
+        // сборку вполне могут положить в Program Files, где обычному пользователю писать
+        // нельзя, — тогда молчаливое падение при каждом сохранении было бы хуже отката
+        // в профиль, поэтому право на запись проверяется по-настоящему.
+        public static string PortableDataDir()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                if (string.IsNullOrEmpty(baseDir)) return null;
+                if (!File.Exists(Path.Combine(baseDir, PortableMarker))) return null;
+                string dir = Path.Combine(baseDir.TrimEnd('\\'), "Data");
+                Directory.CreateDirectory(dir);
+                string probe = Path.Combine(dir, "write.test");
+                File.WriteAllText(probe, "");
+                File.Delete(probe);
+                return dir;
+            }
+            catch { return null; }
+        }
+
+        public static bool IsPortable { get { return PortableDataDir() != null; } }
+
+        // Папка рядом с exe. У портативной сборки в ней лежат данные, у обычной — сама
+        // программа; ни ту, ни другую очистка трогать не должна.
+        internal static string ExeDir()
+        {
+            try
+            {
+                string exe = Assembly.GetEntryAssembly() != null
+                    ? Assembly.GetEntryAssembly().Location
+                    : Assembly.GetExecutingAssembly().Location;
+                return string.IsNullOrEmpty(exe) ? null : Path.GetDirectoryName(exe);
+            }
+            catch { return null; }
         }
 
         public Engine()
         {
             _dir = DefaultDataDir();
             Directory.CreateDirectory(_dir);
+            // Свой каталог данных и своя папка (у портативной сборки) — под запретом на
+            // всю глубину обхода, а не только как корень цели.
+            GuardOwnFolder(_dir);
+            GuardOwnFolder(ExeDir());
             _configPath = Path.Combine(_dir, "config.json");
             _historyPath = Path.Combine(_dir, "history.json");
             LoadConfig();

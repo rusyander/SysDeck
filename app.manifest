@@ -4,11 +4,17 @@
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <!-- requireAdministrator: приложение всегда запускается от администратора.
-             Это нужно для очистки Standby Memory (NtSetSystemInformation).
-             Автозапуск с Windows реализован через Планировщик задач с наивысшими
-             правами (schtasks /RL HIGHEST), поэтому UAC при входе не появляется. -->
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <!-- asInvoker: окно запускается с обычными правами пользователя. Права
+             администратора поднимаются под конкретную операцию — тем же приложением,
+             запущенным с ключом элевированного помощника (см. src\Elevation.cs):
+             одно окно UAC на операцию.
+             Раньше здесь стоял requireAdministrator, и ВСЁ приложение целиком всегда
+             работало с максимальными правами: для программы, которая удаляет файлы,
+             это худший вариант из возможных.
+             Автозапуск с Windows остаётся задачей Планировщика с наивысшими правами:
+             запущенное ею окно уже элевировано, помощник ему не нужен, и UAC при
+             входе в систему по-прежнему не появляется. -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

@@ -294,21 +294,21 @@ namespace WindowsProcessCleaner
                 _lblToolsInfo.Text = Tr.S("Дождитесь завершения текущего исправления или остановите его.", "Wait for the current fix to finish or stop it.");
                 return;
             }
-            if (t.Admin && !IsElevated())
+            // Раньше здесь предлагалось перезапустить ВСЁ приложение от администратора ради
+            // одного исправления. Теперь права поднимаются под саму операцию: окно остаётся
+            // работать с обычными правами, а инструмент выполняет отдельный процесс-помощник.
+            // Окно UAC покажет сама Windows — предупреждаем о нём, чтобы оно не выглядело
+            // выскочившим ниоткуда.
+            if (t.Admin && !Elevated)
             {
-                Interlocked.Exchange(ref _toolsBusy, 0);
-                if (MsgAsk(t.Title + Tr.S(": нужны права администратора. Перезапустить приложение от администратора?",
-                                          ": administrator rights are required. Restart the app as administrator?"), Tr.S("Инструменты", "Tools")))
+                if (!MsgAsk(t.Title + Tr.S(": нужны права администратора. Windows спросит подтверждение — продолжить?",
+                                           ": administrator rights are required. Windows will ask for confirmation — continue?"),
+                            Tr.S("Инструменты", "Tools")))
                 {
-                    RestartAsAdmin();
-                    // ExitNow() выставляет _reallyExit; раз мы всё ещё здесь и флага нет — вторая
-                    // копия не стартовала (UAC отклонён), и раньше приложение об этом молчало
-                    if (!_reallyExit)
-                        _lblToolsInfo.Text = t.Title + Tr.S(": перезапуск не выполнен — запрос администратора отклонён или отменён.",
-                                                            ": restart did not happen — the administrator prompt was declined or cancelled.");
+                    Interlocked.Exchange(ref _toolsBusy, 0);
+                    _lblToolsInfo.Text = t.Title + Tr.S(": пропущено, нужны права администратора.", ": skipped, administrator rights are required.");
+                    return;
                 }
-                else _lblToolsInfo.Text = t.Title + Tr.S(": пропущено, нужны права администратора.", ": skipped, administrator rights are required.");
-                return;
             }
             if (t.Confirm)
             {
@@ -349,7 +349,7 @@ namespace WindowsProcessCleaner
                 bool ok = false; string err = null;
                 try
                 {
-                    ok = _engine.ToolRun(t.Id,
+                    ok = ToolRunMaybeElevated(t,
                         delegate(string line) { UiPost(delegate { ToolsLog(line); _toolsLastLine = ToolsShort(line); }); },
                         delegate { return _toolsCancel || _closing; });
                 }

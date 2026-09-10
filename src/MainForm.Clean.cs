@@ -756,7 +756,12 @@ namespace WindowsProcessCleaner
             {
                 CleanResult res = null;
                 string err = null;
-                try { res = _engine.CleanCategories(sel); }
+                try
+                {
+                    res = CleanCategoriesMaybeElevated(sel, true,
+                        delegate(string s) { _engine.DiskStatus = s; },
+                        delegate { return _engine.DiskCancelled || _closing; });
+                }
                 catch (Exception ex) { err = ex.Message; }
                 // Признак неполного итога несёт сам итог: флаг движка к моменту отрисовки
                 // уже мог быть сброшен следующей операцией.

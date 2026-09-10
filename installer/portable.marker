@@ -1,0 +1,5 @@
+Windows Process Cleaner - portable mode marker.
+
+Keep this file next to WindowsProcessCleaner.exe: settings, history and logs
+are then written to the Data folder here, and nothing goes to the user profile.
+Delete it and the program falls back to %APPDATA%\WindowsProcessCleaner.

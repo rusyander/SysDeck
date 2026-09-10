@@ -511,8 +511,9 @@ namespace WindowsProcessCleaner
             else if ((uint)rc2 == 0xC0000061)
             {
                 mr.Ok = false;
-                mr.Message = Tr.S("Нужны права администратора (перезапустите от админа)",
-                                   "Administrator rights required (restart as admin)");
+                // Совет «перезапустите от админа» устарел: приложение больше не работает
+                // с правами администратора целиком, оно поднимает их под операцию само.
+                mr.Message = Tr.S("Нужны права администратора", "Administrator rights are required");
             }
             else
             {
