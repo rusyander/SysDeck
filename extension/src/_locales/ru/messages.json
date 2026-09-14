@@ -1,0 +1,66 @@
+{
+  "extName": { "message": "Windows Process Cleaner — загрузки" },
+  "extShortName": { "message": "WPC Загрузки" },
+  "extDescription": { "message": "Передаёт загрузки из браузера в менеджер загрузок Windows Process Cleaner на этом компьютере." },
+  "actionTitle": { "message": "Загрузки Windows Process Cleaner" },
+
+  "menuLink": { "message": "Скачать ссылку через Windows Process Cleaner" },
+  "menuImage": { "message": "Скачать изображение через Windows Process Cleaner" },
+  "menuPage": { "message": "Скачать все ссылки через Windows Process Cleaner" },
+  "menuSelection": { "message": "Скачать выделенные ссылки через Windows Process Cleaner" },
+
+  "badgeAdded": {
+    "message": "Передано в Windows Process Cleaner: $COUNT$",
+    "placeholders": { "count": { "content": "$1", "example": "3" } }
+  },
+  "badgeNone": { "message": "Ссылок для загрузки нет" },
+  "badgeError": { "message": "Не удалось передать в Windows Process Cleaner" },
+
+  "popupTitle": { "message": "Windows Process Cleaner" },
+  "connReady": { "message": "Программа на связи" },
+  "connConnecting": { "message": "Подключение…" },
+  "connMissing": { "message": "Программа не найдена" },
+  "connForbidden": { "message": "Программа не приняла расширение" },
+  "connLost": { "message": "Нет связи с программой" },
+  "hintMissing": { "message": "Установите Windows Process Cleaner и включите интеграцию с браузером в настройках загрузок." },
+  "hintForbidden": { "message": "Выключите и снова включите интеграцию с браузером в настройках загрузок программы." },
+  "hintLost": { "message": "Расширение само повторяет попытки подключиться." },
+
+  "permNeeded": { "message": "Чтобы передавать загрузки вместе с cookie сайта, расширению нужен доступ ко всем сайтам." },
+  "permGrant": { "message": "Разрешить" },
+
+  "masterSwitch": { "message": "Перехватывать загрузки" },
+  "skipSite": { "message": "Не перехватывать на этом сайте" },
+  "skipSiteByRule": {
+    "message": "Исключён правилом $RULE$",
+    "placeholders": { "rule": { "content": "$1", "example": "*.example.com" } }
+  },
+
+  "statActive": { "message": "качается" },
+  "statQueued": { "message": "в очереди" },
+  "statSpeed": { "message": "скорость" },
+  "unitBps": { "message": "Б/с" },
+  "unitKBps": { "message": "КБ/с" },
+  "unitMBps": { "message": "МБ/с" },
+  "unitGBps": { "message": "ГБ/с" },
+  "agentRunning": { "message": "Менеджер загрузок работает." },
+  "agentStopped": { "message": "Менеджер загрузок не запущен." },
+
+  "openDownloads": { "message": "Открыть загрузки" },
+
+  "mediaTitle": { "message": "Видео на странице" },
+  "mediaEmpty": { "message": "Пока ничего не найдено — запустите плеер и откройте это окно снова." },
+  "mediaDownload": { "message": "Скачать" },
+  "mediaAdded": { "message": "Отправлено" },
+  "mediaYtdlp": { "message": "Скачать через yt-dlp" },
+  "mediaKindHls": { "message": "Поток HLS" },
+  "mediaKindDash": { "message": "Поток DASH" },
+  "mediaKindFile": { "message": "Медиафайл" },
+  "unitKB": { "message": "КБ" },
+  "unitMB": { "message": "МБ" },
+
+  "errRejected": { "message": "Программа отклонила запрос." },
+  "errNoAnswer": { "message": "Программа не ответила вовремя." },
+  "errNoConnection": { "message": "Нет связи с программой." },
+  "errFailed": { "message": "Не получилось. Попробуйте ещё раз." }
+}

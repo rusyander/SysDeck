@@ -38,10 +38,44 @@ The WinAPI in use, parsing of package-manager output, command-line switches, wha
   cleared in the window; the exit code is visible to the scheduler), `/analyze` — measure
   disk junk without deleting anything (the `TOTAL` line is
   free of double counting of nested targets, `sum=` is the plain category sum), `/disk [path]`
-  — open the Disk tab and scan the path right away.
+  — open the Disk tab and scan the path right away; if the window is already open, the path is
+  handed to it and no second window appears.
+- **Folder sizes switches** (checked before the window's mutex, so they never disturb it):
+  `--foldersize` — background mode (tray, panel, numbers in Explorer; a second start only shows
+  the panel), `--foldersize-exit` — stop it, `--foldersize-measure <folder> [--hidden]` — the same
+  count printed to the console with per-folder timing (to compare with another tool),
+  `--foldersize-probe <hwnd>` — what is read from an Explorer window through UI Automation (the
+  Size column, rows, cells), `--foldersize-autostart on|off` — autostart for a script or an
+  installer. The window and the background process talk through named events that grant access
+  to the current user: an elevated background process hears a non-elevated window, where UIPI
+  would drop window messages.
+- **Capture switches** (also checked before the window's mutex): `--capture` — the screenshot
+  background process (hotkeys, region selection, notifications; a second start exits at once),
+  `--capture-exit` — stop it (exit code 1 if it is not running), `--capture-shot region|screen|window`
+  — ask the running process for a shot, e.g. from a shortcut or a script (code 1 — not running,
+  2 — unknown kind). Same channel: named events that grant access to the current user. Hotkeys
+  use `RegisterHotKey`, no global keyboard hook; shots are a `BitBlt` of the desktop in physical
+  pixels (the thread runs Per-Monitor DPI v2); the notification is excluded from capture with
+  `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`.
 - **Display scaling (DPI):** the window scales to 125/150 % (`AutoScaleMode.Dpi`), button
   bars wrap onto the next line, the settings columns are computed from the label widths, and
   the minimum window size never exceeds the screen working area.
+- **Downloads:** a separate `--downloads` process fetches a file in up to 4
+  segments (up to 16, at most 8 connections per server), runs up to 3 downloads at once and up to 2
+  from one site. Resuming after a close or a crash starts from the bytes already flushed to disk and
+  sends `If-Range`: if the file on the server has changed, the download stops instead of splicing two
+  versions together. At most 10 redirects; https to http only with consent; cookies go only to the
+  host they were issued for. A finished file is checked by SHA-256 (and against the expected hash if
+  one is given), renamed from `.wpcpart` and marked as "from the internet" through
+  `IAttachmentExecute`. Start conditions: schedule, postponed start, metered network, battery power
+  and an idle PC (5 minutes without input, CPU below 30 %, no fullscreen app). Deleting a downloaded
+  file goes to the Recycle Bin only.
+  The Downloads page is a pipe client: it polls the process every 700 ms (without it, it reads the store every
+  3 seconds and never changes it), sends commands from a background thread and starts the process only when a
+  command changes the queue. The pipe, mutex, stop event and autostart value names get a suffix from the SHA-256
+  of the data folder path when that folder is not the standard one, so a copy with its own folder never drives
+  another queue. The signature check before running a program is `WinVerifyTrust` with no UI and no online
+  revocation check.
 - **Crashes:** an unhandled exception (UI thread and background threads) is written to
   `crash.log` in the data folder, then a single message is shown instead of a silent exit.
 
@@ -49,7 +83,9 @@ The WinAPI in use, parsing of package-manager output, command-line switches, wha
 
 | File | Purpose |
 |------|---------|
-| `src\*.cs` | application code, one file per area: `Program.cs` (entry, switches), `Engine*.cs` (logic: processes, cleanup, disk, drivers, winapp2, updates, programs, startup, Docker, health check, tools), `MainForm*.cs` (window, one file per section), `Native.cs` (WinAPI), `Theme.cs`, `Json.cs`, `Browser*.cs`, `FastListView.cs` |
+| `src\*.cs` | application code, one file per area: `Program.cs` (entry, switches), `Engine*.cs` (logic: processes, cleanup, disk, drivers, winapp2, updates, programs, startup, Docker, health check, tools), `MainForm*.cs` (window, one file per section; Downloads is `MainForm.Downloads*.cs`), `Native.cs` (WinAPI), `Theme.cs`, `Json.cs`, `Browser*.cs`, `FastListView.cs`, `FolderSize.*.cs` (the Folder sizes background mode: counting, $MFT reading, Explorer through UI Automation, the overlay, the panel, the tray), `Downloads.*.cs` (the download engine in a separate process: segments, resume, queue, speed limits, start conditions, the "from the internet" mark, the named pipe; `Downloads.View.cs` is what the page shows, `Downloads.Verify.cs` the signature check, `Downloads.Bridge.cs` the native messaging host for the browser extension: one-request link check, handing the download to the background process, `Downloads.Browsers.cs` registry keys, manifests, unpacking the extension) |
+| `extension\` | the browser extension: `src\` (shared code, the popup, `_locales`), `manifest.chromium.json` and `manifest.firefox.json`, `test\` (Node tests: `node --test test/*.test.js`). Embedded into the exe as resources at build time, without `test\` |
+| `tools\pack-extension.ps1` | builds the unpacked folders and the store zips in `dist\` |
 | `app.manifest` | manifest (asInvoker, DPI, long paths) |
 | `installer\*.cs` | installer and uninstaller sources (a separate program with its own manifest) |
 | `build-installer.bat` | build both ready-made distributions into `dist\` |

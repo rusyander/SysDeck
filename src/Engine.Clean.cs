@@ -161,7 +161,9 @@ namespace WindowsProcessCleaner
             AddDir(c, Path.Combine(dir, "Service Worker\\CacheStorage"), true);
             AddDir(c, Path.Combine(dir, "Service Worker\\ScriptCache"), true);
             AddDir(c, Path.Combine(dir, "Crashpad\\reports"), true);
-            AddDir(c, Path.Combine(dir, "logs"), true);
+            // «logs» сюда не входит: набор вызывается из категории «Кэши приложений», отмеченной по
+            // умолчанию, и тихий прогон стирал бы собственные журналы каждого Electron-приложения —
+            // ровно то, по чему потом разбирают, что сломалось. Журналы чистит категория «Старые логи».
         }
 
         public List<CleanCategory> BuildCleanCategories()
@@ -211,7 +213,9 @@ namespace WindowsProcessCleaner
             // кэшем являются только cache (индексы PyPI) и artifacts (скачанные wheel)
             AddDir(dev, Path.Combine(lad, "pypoetry\\Cache\\cache"), true);
             AddDir(dev, Path.Combine(lad, "pypoetry\\Cache\\artifacts"), true);
-            AddDir(dev, Path.Combine(up, ".cargo\\registry\\cache"), true);
+            // У cargo два склада одного и того же: cache — скачанные архивы, src — они же распакованные.
+            // Убираем только распакованное: оно восстанавливается из cache без сети, и cargo build
+            // --offline продолжает работать. Снести оба — значит потребовать новую загрузку с crates.io.
             AddDir(dev, Path.Combine(up, ".cargo\\registry\\src"), true);
             AddDir(dev, Path.Combine(up, "go\\pkg\\mod\\cache\\download"), true);
             AddDir(dev, Path.Combine(lad, "go-build"), true);
@@ -394,9 +398,7 @@ namespace WindowsProcessCleaner
             AddElectronCache(apps, Path.Combine(ad, "obsidian"));
             AddDir(apps, Path.Combine(ad, "Code\\CachedData"), true);
             AddDir(apps, Path.Combine(ad, "Code\\CachedExtensionVSIXs"), true);
-            AddDir(apps, Path.Combine(ad, "Code\\logs"), true);
             AddDir(apps, Path.Combine(ad, "Cursor\\CachedData"), true);
-            AddDir(apps, Path.Combine(ad, "Cursor\\logs"), true);
             AddDir(apps, Path.Combine(lad, "Spotify\\Browser"), true);
             AddDir(apps, Path.Combine(lad, "Steam\\htmlcache"), true);
             AddDir(apps, Path.Combine(ad, "Telegram Desktop\\tdata\\user_data\\cache"), true);
@@ -433,12 +435,16 @@ namespace WindowsProcessCleaner
             CleanCategory nv = new CleanCategory();
             nv.Id = "nvidia"; nv.Title = Tr.S("NVIDIA: кэши и старые версии", "NVIDIA: caches and old versions");
             nv.Recommended = true;
-            nv.Desc = Tr.S("старые версии моделей NGX (DLSS, Broadcast…), кэш NVIDIA App/Overlay, загрузчик драйверов, C:\\NVIDIA — текущие версии и сам драйвер не трогаются",
-                           "old NGX model versions (DLSS, Broadcast…), NVIDIA App/Overlay cache, driver downloader, C:\\NVIDIA — current versions and the driver itself untouched");
+            nv.Desc = Tr.S("старые версии моделей NGX (DLSS, Broadcast…), кэш NVIDIA App/Overlay, распаковка драйвера в C:\\NVIDIA — текущие версии, сам драйвер и подготовленные к установке пакеты не трогаются",
+                           "old NGX model versions (DLSS, Broadcast…), NVIDIA App/Overlay cache, the driver unpack folder C:\\NVIDIA — current versions, the driver itself and staged installer packages untouched");
             // NGX Updater докачивает новые версии DLSS/Broadcast-моделей в
             // ProgramData\NVIDIA\NGX\models\<модель>\versions\<N> и НИКОГДА не удаляет старые;
             // за год набегают гигабайты. Игры и NVIDIA App берут только самую новую.
             AddNgxOldVersions(nv, Path.Combine(pd, "NVIDIA\\NGX\\models"));
+            // Единственная цель категории в %ProgramData%, про которую проверено, что NGX Updater
+            // скачает её заново: остальным целям в общесистемных деревьях движок отдаёт только
+            // журналы и временные файлы (см. Engine.DiskWork, «общесистемные деревья приложений»).
+            foreach (CleanTarget ngx in nv.Targets) ngx.Disposable = true;
             AddDir(nv, Path.Combine(lad, "NVIDIA Corporation\\NVIDIA App\\CefCache"), true);
             AddDir(nv, Path.Combine(lad, "NVIDIA Corporation\\NVIDIA Overlay\\CefCache"), true);
             AddDir(nv, Path.Combine(lad, "NVIDIA Corporation\\GeForce Experience\\CefCache"), true);
@@ -449,9 +455,11 @@ namespace WindowsProcessCleaner
             AddDir(nv, Path.Combine(lad, "NVIDIA Corporation\\NV_Cache"), true);
             AddDir(nv, Path.Combine(pd, "NVIDIA Corporation\\NVIDIA App\\Logs"), true);
             AddDir(nv, Path.Combine(pd, "NVIDIA Corporation\\NVIDIA Broadcast\\temp"), true, null, fresh);
-            AddDir(nv, Path.Combine(pd, "NVIDIA Corporation\\Downloader"), true);
-            AddDir(nv, Path.Combine(pd, "NVIDIA Corporation\\NetService"), true);
-            AddDir(nv, Path.Combine(sysDrive, "NVIDIA"), false);
+            // Downloader и NetService переехали в «Остатки обновлений» (по явному выбору): это
+            // подготовленные к установке пакеты драйвера, а не кэш, и по умолчанию их не трогаем.
+            // C:\NVIDIA — распаковка уже установленного драйвера: содержимое убираем, саму папку
+            // оставляем, и только спустя срок отката обновления.
+            AddDir(nv, Path.Combine(sysDrive, "NVIDIA"), true, null, updateGrace);
             if (nv.Targets.Count > 0) list.Add(nv);
 
             // Старые логи
@@ -479,6 +487,10 @@ namespace WindowsProcessCleaner
             AddDir(logs, Path.Combine(ad, "Docker Desktop\\log"), true);
             AddDir(logs, Path.Combine(lad, "Docker\\log"), true);
             AddDir(logs, Path.Combine(ad, "Zoom\\logs"), true);
+            // Журналы VS Code и Cursor: раньше они уезжали вместе с кэшем в отмеченной по умолчанию
+            // категории — теперь только здесь, по явному выбору.
+            AddDir(logs, Path.Combine(ad, "Code\\logs"), true);
+            AddDir(logs, Path.Combine(ad, "Cursor\\logs"), true);
             if (logs.Targets.Count > 0) list.Add(logs);
 
             // Следы недавних файлов (приватность) — то, что FluentCleaner называет "recently opened"
@@ -504,21 +516,25 @@ namespace WindowsProcessCleaner
             // Остатки обновлений Windows и установщиков драйверов
             CleanCategory drv = new CleanCategory();
             drv.Id = "drivers"; drv.Title = Tr.S("Остатки обновлений Windows и драйверов", "Windows update and driver leftovers");
-            drv.Desc = Tr.S("Windows.old, $WinREAgent, ESD, распакованные установщики AMD/Intel, NVIDIA Installer2, кэш MSI-патчей $PatchCache$ (DriverStore не трогается)",
-                            "Windows.old, $WinREAgent, ESD, unpacked AMD/Intel installers, NVIDIA Installer2, MSI patch cache $PatchCache$ (DriverStore untouched)");
-            AddDir(drv, Path.Combine(pf, "NVIDIA Corporation\\Installer2"), true);
-            AddDir(drv, Path.Combine(pd, "NVIDIA Corporation\\Installer2"), true);
-            AddDir(drv, Path.Combine(sysDrive, "AMD"), false);
-            AddDir(drv, Path.Combine(sysDrive, "Intel"), false);
+            drv.Desc = Tr.S("Windows.old, $WinREAgent, $SysReset (следы прошлого сброса системы), ESD, распакованные установщики AMD/Intel, загрузчик NVIDIA (DriverStore, Installer2 и кэш MSI-патчей не трогаются: из них система чинит уже установленное)",
+                            "Windows.old, $WinREAgent, $SysReset (traces of a past system reset), ESD, unpacked AMD/Intel installers, the NVIDIA downloader (DriverStore, Installer2 and the MSI patch cache untouched: they are what repairs already-installed software)");
+            // Installer2 (Program Files и ProgramData) больше не цель: это дистрибутив драйвера, из
+            // которого NVIDIA чинит и удаляет уже установленное, — тот же класс, что LGHUB\cache.
+            AddDir(drv, Path.Combine(pd, "NVIDIA Corporation\\Downloader"), true, null, updateGrace);
+            AddDir(drv, Path.Combine(pd, "NVIDIA Corporation\\NetService"), true, null, updateGrace);
+            // Срок неприкосновенности здесь по той же причине, что у остатков обновления: пока установка
+            // драйвера идёт, распакованный дистрибутив ей нужен — без отсрочки очистка выпотрошила бы её.
+            AddDir(drv, Path.Combine(sysDrive, "AMD"), false, null, updateGrace);
+            AddDir(drv, Path.Combine(sysDrive, "Intel"), false, null, updateGrace);
             // Windows.old — то, откуда система откатывается первые 10 дней после обновления:
             // тот же срок неприкосновенности, что у остальных остатков обновления
             AddDir(drv, Path.Combine(sysDrive, "Windows.old"), false, null, updateGrace);
             // $Windows.~BT / ~WS — распаковка идущего обновления компонентов: срок тот же, что у $WinREAgent
             AddDir(drv, Path.Combine(sysDrive, "$Windows.~BT"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$Windows.~WS"), false, null, updateGrace);
-            // базовые копии файлов для MSI-патчей: без них восстановление и удаление патчей
-            // (Office, SQL Server, Visual Studio) просят исходный установщик — только по явному выбору
-            AddDir(drv, Path.Combine(_winDir, "Installer\\$PatchCache$"), true);
+            // %WinDir%\Installer\$PatchCache$ больше не цель ни по какому выбору: это базовые копии
+            // файлов для MSI-патчей, без них восстановление и удаление патчей Office, SQL Server и
+            // Visual Studio просят исходный установщик, которого у пользователя обычно уже нет.
             AddDir(drv, Path.Combine(sysDrive, "$WinREAgent"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$GetCurrent"), false, null, updateGrace);
             AddDir(drv, Path.Combine(sysDrive, "$SysReset"), false, null, updateGrace);

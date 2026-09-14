@@ -138,6 +138,10 @@ namespace WindowsProcessCleaner
             // То же и с памятью: опрос раз в секунду читает сотни процессов — на невидимой
             // вкладке это чистая трата. Помощник с правами при этом остаётся жив.
             if (_currentPage == PageRam && index != PageRam) RamLeave();
+            if (_currentPage == PageGpu && index != PageGpu) GpuLeave();
+            if (_currentPage == PageFolderSize && index != PageFolderSize) FolderSizeLeave();
+            if (_currentPage == PageCapture && index != PageCapture) CaptureLeave();
+            if (_currentPage == PageDownloads && index != PageDownloads) DownloadsLeave();
 
             _currentPage = index;
             for (int i = 0; i < _pages.Length; i++) _pages[i].Visible = (i == index);
@@ -149,9 +153,10 @@ namespace WindowsProcessCleaner
 
         // Порядок вкладок задан в _pages; держим индексы именами, чтобы обработчики
         // навигации не разъезжались с массивом при вставке новой вкладки.
-        private const int PageHome = 0, PageScan = 1, PageRam = 2, PageDev = 3, PageClean = 4, PageDisk = 5, PageBrowsers = 6,
-                          PageDocker = 7, PageApps = 8, PageUpdates = 9, PageStartup = 10,
-                          PageDebloat = 11, PageTools = 12, PageSettings = 13, PageHistory = 14;
+        private const int PageHome = 0, PageScan = 1, PageRam = 2, PageGpu = 3, PageDev = 4, PageClean = 5, PageDisk = 6,
+                          PageFolderSize = 7, PageBrowsers = 8, PageDocker = 9, PageApps = 10, PageUpdates = 11,
+                          PageStartup = 12, PageDebloat = 13, PageTools = 14, PageCapture = 15, PageDownloads = 16,
+                          PageSettings = 17, PageHistory = 18;
 
         private ListView VisibleList(int index)
         {
@@ -160,6 +165,7 @@ namespace WindowsProcessCleaner
                 case PageHome: return _lvHealth;
                 case PageScan: return _lvScan;
                 case PageRam: return _lvRamProcs;
+                case PageGpu: return _gpuView == GpuViewCards ? _lvGpuCards : _lvGpuProcs;
                 case PageDev: return _lvPorts;
                 case PageClean: return _lvClean;
                 case PageDisk: return _lvDisk;
@@ -167,6 +173,7 @@ namespace WindowsProcessCleaner
                 case PageApps: return _lvApps;
                 case PageUpdates: return _lvUpdates;
                 case PageStartup: return _lvStartup;
+                case PageDownloads: return _dlSetView != null && _dlSetView.Visible ? _lvDlRules : _lvDl;
                 case PageHistory: return _lvHistory;
                 default: return null;
             }
@@ -182,6 +189,10 @@ namespace WindowsProcessCleaner
                 {
                     case PageHome: HomeEnter(); break;
                     case PageRam: RamEnter(); break;
+                    case PageGpu: GpuEnter(); break;
+                    case PageFolderSize: FolderSizeEnter(); break;
+                    case PageCapture: CaptureEnter(); break;
+                    case PageDownloads: DownloadsEnter(); break;
                     case PageDev: RefreshPorts(); break;
                     case PageApps: RefreshApps(); break;
                     case PageStartup: RefreshStartup(); break;
@@ -211,6 +222,10 @@ namespace WindowsProcessCleaner
             AutoFillLastColumnDeferred(_lvRamProcs);
             AutoFillLastColumnDeferred(_lvRamPools);
             AutoFillLastColumnDeferred(_lvRamHw);
+            AutoFillLastColumnDeferred(_lvGpuProcs);
+            AutoFillLastColumnDeferred(_lvGpuCards);
+            AutoFillLastColumnDeferred(_lvDl);
+            AutoFillLastColumnDeferred(_lvDlCard);
         }
 
         // Цвет подложки активного пункта и наведения — чуть светлее/темнее фона окна.
@@ -260,8 +275,10 @@ namespace WindowsProcessCleaner
             Font = new Font("Segoe UI", 10.5F);
             // Навигация — боковая панель слева (14 разделов в один верхний ряд уже не помещались):
             // содержимому остаётся ширина окна минус NavWidth. Минимум 1200 даёт страницам ~1000 px —
-            // столько им хватало и раньше; подгонка под рабочую область экрана — ClampToScreen() после DPI.
-            MinimumSize = new Size(1200, 640);
+            // столько им хватало и раньше. Высота 700 — чтобы все 17 пунктов навигации и подпись прав
+            // помещались столбиком без наложения; подгонка под рабочую область экрана — ClampToScreen() после DPI.
+            // С «Захватом» и «Загрузками» пунктов 19 — каждый новый пункт добавляет к минимуму высоту кнопки с зазором.
+            MinimumSize = new Size(1200, 814);
             Icon = _iconWindow;
             ShowIcon = true;
 
@@ -274,8 +291,8 @@ namespace WindowsProcessCleaner
             _content = new Panel();
             _content.Dock = DockStyle.Fill;
 
-            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildSettingsTab(), BuildHistoryTab() };
-            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
+            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildGpuTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildFolderSizeTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildCaptureTab(), BuildDownloadsTab(), BuildSettingsTab(), BuildHistoryTab() };
+            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), Tr.S("Видеопамять", "Video memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Размеры папок", "Folder sizes"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Захват", "Capture"), Tr.S("Загрузки", "Downloads"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
             // Разрывы между группами: главная | обслуживание | программы | система | служебное.
             int[] groupStart = { PageScan, PageApps, PageDebloat, PageSettings };
 
@@ -366,6 +383,10 @@ namespace WindowsProcessCleaner
                     Hide();
                     HomeLeave();
                     RamLeave();
+                    GpuLeave();
+                    FolderSizeLeave();
+                    CaptureLeave();
+                    DownloadsLeave();
                     string ops = ActiveWriteOps();
                     _tray.ShowBalloonTip(2000, "Windows Process Cleaner",
                         Tr.S("Свёрнуто в трей. Работает в фоне.", "Minimized to tray. Running in background.")
@@ -375,6 +396,8 @@ namespace WindowsProcessCleaner
                 // Реальный выход: гасим фоновую работу, иначе поток анализа продолжает
                 // обходить диск, а BeginInvoke на закрытое окно бросает исключение.
                 _closing = true;
+                // Открепленное окно загрузок держит страницу у себя: без этого оно осталось бы висеть после выхода.
+                DlAttach();
                 // Память выбора пишется по таймеру, чтобы «Все»/«Ничего» не били по диску
                 // сотней записей подряд; при выходе ждать этот таймер уже некому.
                 FlushSettingsAutoSave();
@@ -458,6 +481,8 @@ namespace WindowsProcessCleaner
             once.Start();
             if (_selfTest)
                 BeginInvoke((MethodInvoker)delegate { DoScan(); });
+            if (_dlStartPage)
+                BeginInvoke((MethodInvoker)delegate { ShowPage(PageDownloads); DlOpenStartTorrent(); });
             if (_diskStartPage)
                 BeginInvoke((MethodInvoker)delegate
                 {

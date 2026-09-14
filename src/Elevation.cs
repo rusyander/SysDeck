@@ -159,6 +159,8 @@ namespace WindowsProcessCleaner
                 case "debloat": return Tr.S("изменение состава Windows", "changing Windows components");
                 case "autostart": return Tr.S("задача автозапуска", "the autostart task");
                 case "kill": return Tr.S("завершение процессов", "terminating processes");
+                case "foldersize": return Tr.S("быстрый режим «Размеров папок»", "fast mode of Folder sizes");
+                case "firewall": return Tr.S("входящие соединения торрентов", "incoming torrent connections");
             }
             return kind;
         }
@@ -352,6 +354,27 @@ namespace WindowsProcessCleaner
                 case "autostart":
                     {
                         string err = e.ApplyAutostart(job.Flag);
+                        r.Ok = err == null; r.Message = err;
+                        return r;
+                    }
+                // Задача Планировщика «Размеров папок» с наивысшими правами: создать её может только процесс
+                // с правами, а запускать потом — сам пользователь, без окна UAC. Всё остальное (ключ Run,
+                // остановка и запуск фонового режима) окно делает само, без прав.
+                case "foldersize":
+                    {
+                        if (job.Flag)
+                        {
+                            string err = FolderSize.FsAutoStart.CreateScheduledTask();
+                            r.Ok = err == null; r.Message = err;
+                        }
+                        else r.Ok = FolderSize.FsAutoStart.RemoveScheduledTask();
+                        return r;
+                    }
+                // Правило брандмауэра для торрентов: из задания берётся только Flag (открыть/закрыть). Путь программы
+                // помощник знает сам — Arg и Items здесь не читаются, иначе файл задания открыл бы входящие чужому exe.
+                case "firewall":
+                    {
+                        string err = e.FirewallApply(job.Flag);
                         r.Ok = err == null; r.Message = err;
                         return r;
                     }

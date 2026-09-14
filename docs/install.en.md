@@ -73,8 +73,8 @@ program is running at that moment, the installer says so and offers to close it 
 terminates anything without your consent.
 
 **Uninstalling.** Settings → Apps → Windows Process Cleaner → Uninstall, or `uninstall.exe`
-from the program folder. Files, shortcuts, the autostart task and the installed-programs
-entry are removed. The "also remove settings and history" checkbox is off by default:
+from the program folder. Files, shortcuts, the autostart task, the installed-programs
+entry, the browser integration keys and the downloads autostart value are removed. The "also remove settings and history" checkbox is off by default:
 remembered selections, settings and history live in `%APPDATA%\WindowsProcessCleaner` and
 survive until you ask for them to go — leaving the box unticked means a fresh install picks
 up exactly where you left off.
@@ -111,8 +111,11 @@ single-instance and just brings the existing window to front. Check the tray by 
 
 1. In settings, uncheck **Start with Windows** — the `WindowsProcessCleaner` task is
    removed from Task Scheduler.
-2. Close the program (tray → Exit).
-3. Delete the project folder and the settings folder `%APPDATA%\WindowsProcessCleaner\`.
+2. If you turned on the browser integration, uncheck **Browser integration** in the download
+   settings — the `NativeMessagingHosts\org.wpc.downloads` keys are removed.
+3. Close the program (tray → Exit).
+4. Delete the project folder and the settings folder `%APPDATA%\WindowsProcessCleaner\`.
 
-Nothing else is left behind: the app doesn't register itself in the registry and doesn't
-create services.
+The app creates no services. The registry keeps only what you turned on: autostart values under
+`HKCU\...\Run` (Capture, unfinished downloads) and the browser integration keys. The matching
+settings remove them.

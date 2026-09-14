@@ -10,7 +10,9 @@ intentionally no automatic disk cleanup (files are less reversible than processe
 Only **known junk paths** are cleaned; the folder map, large files, empty folders and
 duplicates live on the neighbouring "Disk" tab. Categories:
 - **Dev caches** — npm / pnpm / yarn / bun / pip / uv / poetry / gradle / cargo / go / NuGet /
-  Composer / TypeScript (all regenerated).
+  Composer / TypeScript (all regenerated). Of cargo only the unpacked sources (`registry\src`)
+  go; the downloaded archives in `registry\cache` stay, so everything unpacks again without the
+  network and `cargo build --offline` keeps working.
 - **Dev: downloaded toolchains** — old Playwright browser builds (the current one stays; a
   project pinned to an older version needs `npx playwright install` afterwards),
   Puppeteer/Cypress browsers, electron-builder, dotslash, Expo Go, the Maven repository, NuGet
@@ -46,10 +48,13 @@ duplicates live on the neighbouring "Disk" tab. Categories:
   version) and WPS Office (the previous version folder next to the current one). The current
   version is picked by number, for WPS from the registry. Unchecked by default.
 - **Windows update and driver leftovers** — `Windows.old`, `$Windows.~BT`, `$WinREAgent`,
-  `$GetCurrent`, `ESD`, unpacked AMD/Intel installers, `NVIDIA Installer2`, the MSI patch
-  cache `Windows\Installer\$PatchCache$` (without it, repairing or removing Office, SQL Server
-  or Visual Studio patches asks for the original installer). Update leftovers are deleted only
-  when older than 10 days — the period Windows itself keeps them for rollback.
+  `$GetCurrent`, `$SysReset` (traces of a past system reset), `ESD`, unpacked AMD/Intel
+  installers, the NVIDIA downloader. `NVIDIA Installer2` and the MSI patch cache
+  `Windows\Installer\$PatchCache$` are left alone: they are what repairs and removes already
+  installed software, and without them repairing or removing Office, SQL Server or Visual Studio
+  patches asks for the original installer, which the user rarely still has. Everything in this
+  category is deleted only when older than 10 days — the period Windows itself keeps it for
+  rollback, and the span a driver installation may take.
 - **Old driver packages (DriverStore)** — versions superseded by newer ones and bound to no
   device. The list comes from `pnputil /enum-drivers`, removal is `pnputil /delete-driver`
   without `/force`: if the system still needs a package, pnputil refuses on its own.
@@ -64,6 +69,20 @@ Guards: locked files and reparse points (junctions) are skipped; `DriverStore` (
 touched directly. Files modified within the last N minutes are kept (N is configurable, 10 by
 default). Categories holding several versions of one thing always keep the newest. Every
 cleanup is written to `clean-YYYY-MM.log` — the "Log" button opens it.
+
+**Inside `%ProgramData%` and `Program Files` deletion is allow-listed, not deny-listed.** An
+application keeps more than a cache there: it keeps its own distribution — the archives it
+installs and repairs its components from. The folder name does not tell them apart: Logitech
+G HUB calls its installer store `cache`, NVIDIA calls it `Installer2` and `Downloader`,
+Wargaming and Battle.net call it `cache` again. A rule written by name takes the application's
+ability to repair itself along with the cache: it still starts, and then reports missing files.
+So in those trees only what is throwaway by nature is removed — logs (`.log`, `.etl`,
+`.trace`), dumps (`.dmp`), temporary files, and everything inside `Logs`, `Temp`, `CrashDumps`
+and `WER` folders — and nothing else, even when a rule asks for the whole folder. Exceptions
+are granted one at a time and only where the application is known to rebuild the content itself
+(NVIDIA's old NGX model versions). `Package Cache`, `$PatchCache$`, `Installer2` and Logitech's
+store are additionally blocked at any depth: that is what Windows and drivers repair and
+uninstall already-installed software from.
 
 **Category contents.** Double-click a category (or the "Contents…" button, or Enter) to open
 the list of its folders: path, size, file count and a note — contents only or the whole folder,
@@ -133,6 +152,55 @@ Taken care of:
   tabs; **Stop** interrupts it.
 - The `/disk [path]` switch opens the tab and scans the path right away — handy for a
   shortcut or an Explorer call.
+
+## Folder sizes
+Explorer leaves the Size column empty for folders. This tab controls a **background mode** that
+writes the exact size of every folder there, on top of Explorer's window, and docks a side panel
+next to it: the current window's folders by size, with a share bar and a file count.
+
+- **A separate process.** Background mode is the same exe started with `--foldersize`, with its
+  own tray icon. It does not depend on the program window: close the window and the numbers in
+  Explorer stay. A click on the icon shows and hides the panel, a right click opens a menu with
+  every setting.
+- **The tab:** Start, Stop, Show the panel, the state (running or not, elevated or not), and the
+  same settings as the tray menu: numbers in Explorer, covering file sizes, the panel and its
+  side, showing only while focused or while the window is open, the counting indicator, hidden
+  and system files, moving Explorer's window to make room, sort order, theme. A change applies
+  at once, including to a background mode that is already running.
+- **Quick actions** (each can be switched off in the same settings and in the tray menu):
+  - **Ctrl+Alt+S** shows and hides the panel from any program. If another program already owns
+    the combination, turning the item on in the tray menu shows a notification, and background
+    mode runs without the shortcut.
+  - **Free space** at the bottom of the panel: "Drive C: — free 120 GB of 1.82 TB" and a bar of
+    the used part, red when less than a tenth is free. For a network folder — its share's space.
+  - **The panel row menu:** "Open in the disk map" — the program window opens the Disk tab and
+    scans that folder (an already open window is reused, not duplicated); "Copy the list" — the
+    current folder's whole table, tab-separated (name, size, exact bytes, files, folders and a
+    "Total" line), so it pastes into Excel as columns. Folders still being counted get empty
+    cells, not zero.
+- **How it counts:** a folder = the sum of the real sizes of every file inside, no estimates.
+  Junctions and symbolic links are not followed (the cell shows an arrow): their bytes belong
+  to what they point at. Folders whose names Windows rewrites (a trailing dot or space, `NUL`,
+  `CON`, `COM1`…) are not walked into — the walk would loop — and the parent's size is then
+  marked "≥". A size with unreadable parts is marked "≥" too.
+- **Remembered between runs.** Measured sizes are kept for up to 30 days (`sizes.json`) and are
+  shown at once while a fresh count runs. The folder on screen is recounted when something in it
+  changes.
+- **Fast mode.** With administrator rights the NTFS file table (`$MFT`) is read directly — a
+  whole volume in seconds; a file with hard links (pnpm's `node_modules`, say) counts in every folder
+  where it has a name, as in Explorer's properties. Without rights it is a regular walk: the
+  same numbers, just slower. The "Enable fast mode" button is one UAC prompt: it creates the
+  `WindowsProcessCleaner FolderSize` Task Scheduler task with highest privileges and restarts
+  background mode through it. From then on it starts elevated at sign-in without UAC, and
+  "Restart as administrator" in the tray menu goes through the task as well.
+- **Start with Windows:** don't start, start without rights (the registry `Run` key), or start
+  elevated (the same Task Scheduler task). Only an elevated process can create or delete that
+  task, so switching to it or away from it asks for UAC.
+- **The standalone FolderSizePanel.** If it is running or set to start with Windows, the tab
+  warns — together they draw the numbers in Explorer twice — and offers a button that stops it
+  and removes it from startup. The program and its files stay on disk. On the first start of
+  background mode its settings and remembered sizes are copied over if there are none yet.
+- **Command-line switches** — in the [technical notes](internals.en.md).
 
 ## Docker
 A tab for Docker cleanup (requires the Docker CLI + a running daemon). Buttons: disk

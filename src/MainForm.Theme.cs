@@ -661,7 +661,7 @@ namespace WindowsProcessCleaner
                     else if (c.Name == "warn" || c.Name == "muted") c.ForeColor = _theme.Subtle;
                     else c.ForeColor = _theme.Text;
                 }
-                else if (c is CheckBox)
+                else if (c is CheckBox || c is RadioButton)
                 {
                     c.BackColor = Color.Transparent;
                     c.ForeColor = _theme.Text;

@@ -1,0 +1,66 @@
+{
+  "extName": { "message": "Windows Process Cleaner Downloads" },
+  "extShortName": { "message": "WPC Downloads" },
+  "extDescription": { "message": "Hands browser downloads over to the Windows Process Cleaner download manager on this computer." },
+  "actionTitle": { "message": "Windows Process Cleaner downloads" },
+
+  "menuLink": { "message": "Download link with Windows Process Cleaner" },
+  "menuImage": { "message": "Download image with Windows Process Cleaner" },
+  "menuPage": { "message": "Download all links with Windows Process Cleaner" },
+  "menuSelection": { "message": "Download selected links with Windows Process Cleaner" },
+
+  "badgeAdded": {
+    "message": "Sent to Windows Process Cleaner: $COUNT$",
+    "placeholders": { "count": { "content": "$1", "example": "3" } }
+  },
+  "badgeNone": { "message": "No links to download" },
+  "badgeError": { "message": "Could not reach Windows Process Cleaner" },
+
+  "popupTitle": { "message": "Windows Process Cleaner" },
+  "connReady": { "message": "Connected to the app" },
+  "connConnecting": { "message": "Connecting…" },
+  "connMissing": { "message": "App not found" },
+  "connForbidden": { "message": "The app did not accept this extension" },
+  "connLost": { "message": "No connection to the app" },
+  "hintMissing": { "message": "Install Windows Process Cleaner and turn on browser integration in its download settings." },
+  "hintForbidden": { "message": "Turn browser integration off and on again in the app's download settings." },
+  "hintLost": { "message": "The extension keeps retrying on its own." },
+
+  "permNeeded": { "message": "To hand downloads over together with the site's cookies, the extension needs access to all sites." },
+  "permGrant": { "message": "Allow" },
+
+  "masterSwitch": { "message": "Catch downloads" },
+  "skipSite": { "message": "Don't catch on this site" },
+  "skipSiteByRule": {
+    "message": "Excluded by the rule $RULE$",
+    "placeholders": { "rule": { "content": "$1", "example": "*.example.com" } }
+  },
+
+  "statActive": { "message": "downloading" },
+  "statQueued": { "message": "queued" },
+  "statSpeed": { "message": "speed" },
+  "unitBps": { "message": "B/s" },
+  "unitKBps": { "message": "KB/s" },
+  "unitMBps": { "message": "MB/s" },
+  "unitGBps": { "message": "GB/s" },
+  "agentRunning": { "message": "The download manager is running." },
+  "agentStopped": { "message": "The download manager is not running." },
+
+  "openDownloads": { "message": "Open downloads" },
+
+  "mediaTitle": { "message": "Video on this page" },
+  "mediaEmpty": { "message": "Nothing found yet — start the player and reopen this window." },
+  "mediaDownload": { "message": "Download" },
+  "mediaAdded": { "message": "Sent" },
+  "mediaYtdlp": { "message": "Download with yt-dlp" },
+  "mediaKindHls": { "message": "HLS stream" },
+  "mediaKindDash": { "message": "DASH stream" },
+  "mediaKindFile": { "message": "Media file" },
+  "unitKB": { "message": "KB" },
+  "unitMB": { "message": "MB" },
+
+  "errRejected": { "message": "The app declined the request." },
+  "errNoAnswer": { "message": "The app did not answer in time." },
+  "errNoConnection": { "message": "No connection to the app." },
+  "errFailed": { "message": "Something went wrong. Try again." }
+}

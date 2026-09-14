@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="popup.css">
+  <title>Windows Process Cleaner</title>
+</head>
+<body>
+  <header class="head">
+    <img class="logo" src="icons/icon-32.png" width="32" height="32" alt="">
+    <div class="head-text">
+      <div class="title" data-i18n="popupTitle"></div>
+      <div class="conn" id="conn" data-state="connecting">
+        <span class="dot"></span><span id="connText" data-i18n="connConnecting"></span>
+      </div>
+    </div>
+  </header>
+
+  <p class="hint" id="hint" hidden></p>
+
+  <section class="perm" id="permBox" hidden>
+    <p data-i18n="permNeeded"></p>
+    <button type="button" class="btn" id="permBtn" data-i18n="permGrant">Allow</button>
+  </section>
+
+  <section class="card">
+    <label class="row">
+      <span class="row-label" data-i18n="masterSwitch"></span>
+      <input type="checkbox" class="switch" id="enabled" disabled>
+    </label>
+    <label class="row" id="siteRow" hidden>
+      <span class="row-label">
+        <span data-i18n="skipSite"></span>
+        <small class="sub" id="siteHost"></small>
+      </span>
+      <input type="checkbox" class="switch" id="skipSite" disabled>
+    </label>
+  </section>
+
+  <section class="stats" id="stats" hidden>
+    <div class="stat"><span class="num" id="statActive">0</span><span class="cap" data-i18n="statActive"></span></div>
+    <div class="stat"><span class="num" id="statQueued">0</span><span class="cap" data-i18n="statQueued"></span></div>
+    <div class="stat"><span class="num" id="statSpeed">0</span><span class="cap" data-i18n="statSpeed"></span></div>
+  </section>
+  <p class="agent" id="agent" hidden></p>
+
+  <section class="media" id="mediaBox" hidden>
+    <div class="media-head" data-i18n="mediaTitle"></div>
+    <ul class="media-list" id="mediaList"></ul>
+    <p class="media-empty" id="mediaEmpty" data-i18n="mediaEmpty" hidden></p>
+    <button type="button" class="btn" id="mediaYtdlp" data-i18n="mediaYtdlp" hidden>yt-dlp</button>
+  </section>
+
+  <button type="button" class="btn primary" id="openApp" data-i18n="openDownloads" disabled>Open downloads</button>
+  <p class="err" id="err" role="alert" hidden></p>
+
+  <script src="rules.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

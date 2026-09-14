@@ -30,9 +30,11 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 | **Home** | memory and disk cards, the Boost button, a system health check with actions |
 | **Scan** | finds abandoned processes and terminates them, purges Standby Memory |
 | **Memory** | a live scheme of RAM usage: where every gigabyte went, empty operations and process termination |
+| **Video memory** | what takes the graphics card's memory (any card, no vendor tools): a per-process scheme, browser GPU process restart, process termination, graphics driver restart |
 | **Dev Cleanup** | bulk-kills dev runtimes and frees busy dev ports |
 | **Disk Cleanup** | analyzes and deletes junk by category, optional winapp2 rules |
 | **Disk** | folder map with sizes, large files, empty folders, duplicates; deletion to the Recycle Bin only |
+| **Folder sizes** | the exact size of every folder right in Explorer's Size column and a side panel next to it; a background mode with its own tray icon |
 | **Browsers** | bookmarks by folder, saved tab groups, reading list, currently open tabs |
 | **Docker** | disk-usage overview, removal of unused data, vhdx compaction |
 | **Programs** | installed software list, uninstall via the program's own uninstaller |
@@ -40,6 +42,8 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 | **Startup** | what launches with Windows, enable and disable |
 | **Windows bloat** | telemetry, ads, Copilot, surplus Store apps, services and features: disable, remove, restore |
 | **Tools** | Windows quick fixes (DNS, network, SFC, DISM, hibernation…), protection, shortcuts to built-in tools |
+| **Capture** | region, screen and window screenshots by hotkeys (F3/F4 by default, as in VK Play GameCenter), a notification with a thumbnail, per-program folders |
+| **Downloads** | a download queue with resume, speed limits, a schedule and idle-PC mode; taking over downloads from Chrome, Edge, Yandex Browser and Firefox through an extension; a signature check before a program is run, moving what was downloaded |
 | **Settings** | all thresholds, lists and parameters |
 | **History** | what was cleaned and when |
 
@@ -48,9 +52,11 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 This page is the overview. Every section of the window is described in detail in [docs/](docs/README.en.md):
 
 - [Installation](docs/install.en.md) — requirements, building, the installer, the portable build, removal
-- [Processes and memory](docs/processes-and-memory.en.md) — Home, Scan, Memory, Dev Cleanup
-- [Disk: cleanup, space map and Docker](docs/disk.en.md) — what counts as junk and how to get the space back
+- [Processes and memory](docs/processes-and-memory.en.md) — Home, Scan, Memory, Video memory, Dev Cleanup
+- [Disk: cleanup, space map, folder sizes and Docker](docs/disk.en.md) — what counts as junk, how to get the space back and where it went
 - [Programs, updates, browsers, startup and Windows](docs/programs.en.md)
+- [Capture](docs/capture.en.md) — screenshots by hotkeys, region selection, notifications
+- [Downloads](docs/downloads.en.md) — the queue, resume, limits, start conditions, downloads from the browser, the card and settings
 - [Tools and settings](docs/tools-and-settings.en.md) — long operations, remembered selections, themes, tray, history
 - [Data and administrator rights](docs/data-and-rights.en.md) — where things are kept and when rights are asked for
 - [Technical notes](docs/internals.en.md) and [tests](docs/tests.md) — for those who edit the code
@@ -66,6 +72,9 @@ This page is the overview. Every section of the window is described in detail in
   leftovers; the open **winapp2** rule database plugs in on request.
 - **Disk** — a folder tree with sizes, large files, empty folders, content duplicates.
   Deletes to the Recycle Bin only.
+- **Folder sizes** — Explorer shows folder sizes as numbers right in its own Size column, with a
+  panel next to it listing folders by size. With administrator rights the NTFS file table is read
+  directly and a whole disk is counted in seconds.
 - **Docker** — shows the space in use and removes what is unused, compacts the vhdx.
 - **Programs and updates** — uninstall via the program's own uninstaller, a scan for newer
   versions and installation through **winget** and **Chocolatey**.

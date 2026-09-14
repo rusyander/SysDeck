@@ -401,6 +401,17 @@ namespace WpcSetup
             DeleteFileQuiet(StartMenuLnk(c.Scope), c);
             DeleteFileQuiet(DesktopLnk(c.Scope), c);
 
+            c.Log(L.S("Удаление связи с браузерами и автозапуска загрузок…", "Removing the browser integration and the downloads autostart..."));
+            try
+            {
+                using (RegistryKey software = Registry.CurrentUser.OpenSubKey("Software", true))
+                    if (software != null) DeleteUserEntries(software, Product.DataDir(), c.Dir, c.Log);
+            }
+            catch (Exception ex)
+            {
+                c.Log("    " + ex.Message);
+            }
+
             c.Log(L.S("Удаление записи из списка установленных программ…", "Removing the installed-programs entry..."));
             try
             {
@@ -425,6 +436,42 @@ namespace WpcSetup
             }
 
             c.Log(L.S("Готово.", "Done."));
+        }
+
+        // Имена повторяют DlBrowsers.HostKeys и DlLauncher.RunValueName в src\: установщик собирается отдельно от программы.
+        private static readonly string[] HostKeys =
+        {
+            @"Google\Chrome\NativeMessagingHosts\org.wpc.downloads",
+            @"Microsoft\Edge\NativeMessagingHosts\org.wpc.downloads",
+            @"Mozilla\NativeMessagingHosts\org.wpc.downloads",
+        };
+        private const string RunKey = @"Microsoft\Windows\CurrentVersion\Run";
+        private const string DownloadsRunValue = "WindowsProcessCleaner.Downloads";
+
+        // Эти записи в HKCU пишет сама программа, а не установщик. Удаляются только свои: ключ браузера — если ведёт
+        // в папку манифестов этой папки данных, автозапуск загрузок — если запускает exe из папки установки.
+        // Портативная копия и копия с другой папкой данных пишут другое и остаются нетронутыми.
+        internal static void DeleteUserEntries(RegistryKey software, string dataDir, string installDir, Action<string> log)
+        {
+            string manifests = Path.GetFullPath(Path.Combine(Path.Combine(dataDir, "downloads"), "nmh")).TrimEnd('\\') + "\\";
+            foreach (string name in HostKeys)
+            {
+                string manifest;
+                using (RegistryKey k = software.OpenSubKey(name))
+                    manifest = k == null ? null : k.GetValue("") as string;
+                if (manifest == null || !manifest.StartsWith(manifests, StringComparison.OrdinalIgnoreCase)) continue;
+                software.DeleteSubKeyTree(name, false);
+                log("    HKCU\\Software\\" + name);
+            }
+
+            string exe = "\"" + Path.Combine(installDir, Product.ExeName) + "\"";
+            using (RegistryKey run = software.OpenSubKey(RunKey, true))
+            {
+                string command = run == null ? null : run.GetValue(DownloadsRunValue) as string;
+                if (command == null || !command.StartsWith(exe, StringComparison.OrdinalIgnoreCase)) return;
+                run.DeleteValue(DownloadsRunValue, false);
+                log("    HKCU\\Software\\" + RunKey + " : " + DownloadsRunValue);
+            }
         }
 
         private static void DeleteTask(WorkContext c)

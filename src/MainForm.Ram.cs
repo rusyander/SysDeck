@@ -438,23 +438,28 @@ namespace WindowsProcessCleaner
 
         private void RamBuildCells()
         {
-            _ramCells.Clear();
-            if (_ramMap == null || !_ramMap.IsHandleCreated) return;
-            Rectangle client = _ramMap.ClientRectangle;
+            SliceBuildCells(_ramMap, RamRoot(), _ramCells);
+        }
+
+        // Раскладка плитки для любой схемы из RamSlice — ею пользуются и «Память», и «Видеопамять».
+        private void SliceBuildCells(Control map, List<RamSlice> root, List<RamCell> cells)
+        {
+            cells.Clear();
+            if (map == null || !map.IsHandleCreated) return;
+            Rectangle client = map.ClientRectangle;
             if (client.Width < 40 || client.Height < 40) return;
 
-            List<RamSlice> root = RamRoot();
             List<RamSlice> shown = new List<RamSlice>();
             foreach (RamSlice s in root) if (s.Bytes > 0) shown.Add(s);
             if (shown.Count == 0) return;
 
             RectangleF area = new RectangleF(client.X + 1, client.Y + 1, client.Width - 2, client.Height - 2);
-            RamSquarify(shown, area, _ramCells, 0);
+            RamSquarify(shown, area, cells, 0);
 
             // Второй уровень рисуется внутри первого, если блок достаточно велик, чтобы там
             // было что разглядеть. Иначе внутренности только мешают.
             int headerH = Px(19);
-            List<RamCell> level0 = new List<RamCell>(_ramCells);
+            List<RamCell> level0 = new List<RamCell>(cells);
             foreach (RamCell c in level0)
             {
                 if (c.Slice.Children == null || c.Slice.Children.Count < 2) continue;
@@ -465,7 +470,7 @@ namespace WindowsProcessCleaner
                 List<RamSlice> kids = new List<RamSlice>();
                 foreach (RamSlice k in c.Slice.Children) if (k.Bytes > 0) kids.Add(k);
                 if (kids.Count == 0) continue;
-                RamSquarify(kids, inner, _ramCells, 1);
+                RamSquarify(kids, inner, cells, 1);
             }
         }
 
@@ -529,12 +534,18 @@ namespace WindowsProcessCleaner
 
         private void RamMapPaint(object sender, PaintEventArgs e)
         {
-            Graphics g = e.Graphics;
+            SlicePaint(e.Graphics, _ramMap, _ramSnap == null ? null : _ramCells, _ramSel, RamColor,
+                       Tr.S("Читаю состояние памяти…", "Reading the memory state…"));
+        }
+
+        // Отрисовка плитки из RamCell. cells == null или пусто — вместо схемы подпись empty.
+        private void SlicePaint(Graphics g, Control map, List<RamCell> cells, RamSlice selected,
+                                Func<int, int, Color> colorOf, string empty)
+        {
             g.Clear(_theme.Bg);
-            if (_ramSnap == null || _ramCells.Count == 0)
+            if (cells == null || cells.Count == 0)
             {
-                TextRenderer.DrawText(g, Tr.S("Читаю состояние памяти…", "Reading the memory state…"),
-                                      Font, _ramMap.ClientRectangle, _theme.Subtle,
+                TextRenderer.DrawText(g, empty, Font, map.ClientRectangle, _theme.Subtle,
                                       TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
                 return;
             }
@@ -545,11 +556,11 @@ namespace WindowsProcessCleaner
             Font bold = new Font(Font.FontFamily, 9F, FontStyle.Bold);
             try
             {
-                foreach (RamCell c in _ramCells)
+                foreach (RamCell c in cells)
                 {
                     Rectangle rr = Rectangle.Round(c.Rect);
                     if (rr.Width < 2 || rr.Height < 2) continue;
-                    Color fill = RamColor(c.Slice.Kind, c.Level);
+                    Color fill = colorOf(c.Slice.Kind, c.Level);
                     using (SolidBrush br = new SolidBrush(fill)) g.FillRectangle(br, rr);
                     using (Pen pen = new Pen(_theme.Dark ? Color.FromArgb(28, 0, 0, 0) : Color.FromArgb(48, 255, 255, 255)))
                         g.DrawRectangle(pen, rr);
@@ -576,9 +587,9 @@ namespace WindowsProcessCleaner
                 }
 
                 // Выбранный блок — поверх всех, чтобы рамку не перекрыл сосед.
-                if (_ramSel != null)
-                    foreach (RamCell c in _ramCells)
-                        if (ReferenceEquals(c.Slice, _ramSel))
+                if (selected != null)
+                    foreach (RamCell c in cells)
+                        if (ReferenceEquals(c.Slice, selected))
                         {
                             Rectangle rr = Rectangle.Round(c.Rect);
                             rr.Inflate(-1, -1);

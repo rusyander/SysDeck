@@ -76,6 +76,24 @@ namespace WindowsProcessCleaner
 
         public void SetDiskStart(string path) { _diskStartPage = true; _diskStartPath = path; }
 
+        // /disk <путь> от повторного запуска (например, «Открыть в карте диска» у «Размеров папок»):
+        // показать окно, открыть «Диск» и просканировать путь, если сейчас ничего не идёт.
+        public void OpenDiskScan(string path)
+        {
+            ShowWindow();
+            ShowPage(PageDisk);
+            bool exists = false;
+            try { exists = Directory.Exists(path); } catch { }
+            if (!exists) return;
+            if (_diskScanBusy != 0)
+            {
+                _lblDiskStatus.Text = Tr.S("Дождитесь окончания текущей операции.", "Wait for the current operation to finish.");
+                return;
+            }
+            FillDiskScopes(path);
+            DoDiskScan();
+        }
+
         private Control BuildDiskTab()
         {
             Panel tab = new Panel();

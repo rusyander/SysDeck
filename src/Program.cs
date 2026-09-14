@@ -21,7 +21,7 @@
 //  - История очисток и настройки в JSON (%APPDATA%\WindowsProcessCleaner); запись
 //    атомарная (tmp + Replace), битый config.json откладывается как .corrupt.
 //  - Single-instance: именованный Mutex; повторный запуск показывает окно первого
-//    экземпляра через локальный TCP-порт 49876.
+//    экземпляра через локальный TCP-порт 49876 (с /disk <путь> — и передаёт ему путь).
 //  - Ключи: /tray (свернуть в трей), /auto (тихая очистка диска), /analyze (только отчёт),
 //    /disk [путь] (открыть вкладку «Диск» и сразу просканировать путь).
 
@@ -97,6 +97,40 @@ namespace WindowsProcessCleaner
                         return;
                     }
 
+            // --foldersize* — «Размеры папок»: фоновый режим со своим значком в трее и мьютексом
+            // или консольная подкоманда. Окну и его единственному экземпляру не мешает.
+            int folderSizeCode;
+            if (WindowsProcessCleaner.FolderSize.FsMode.TryRun(args, out folderSizeCode))
+            {
+                Environment.ExitCode = folderSizeCode;
+                return;
+            }
+
+            // --capture* — «Захват»: фоновый процесс снимков экрана (обычные права, свой мьютекс) или команда ему.
+            int captureCode;
+            if (WindowsProcessCleaner.Capture.CapMode.TryRun(args, out captureCode))
+            {
+                Environment.ExitCode = captureCode;
+                return;
+            }
+
+            // Запуск браузером как native messaging host (chrome-extension://… или манифест + id дополнения Firefox):
+            // кадры по stdin/stdout, окна нет, мьютекс окна не берётся — браузер держит хост, пока открыт порт расширения.
+            int hostCode;
+            if (WindowsProcessCleaner.Downloads.DlBridge.TryRun(args, out hostCode))
+            {
+                Environment.ExitCode = hostCode;
+                return;
+            }
+
+            // --downloads* — «Загрузки»: фоновый процесс загрузок (обычные права, свой мьютекс) или команда ему.
+            int downloadsCode;
+            if (WindowsProcessCleaner.Downloads.DlMode.TryRun(args, out downloadsCode))
+            {
+                Environment.ExitCode = downloadsCode;
+                return;
+            }
+
             bool startTray = args != null && args.Contains("/tray");
 
             // /auto — тихая очистка диска без окна, для планировщика задач
@@ -127,9 +161,15 @@ namespace WindowsProcessCleaner
             _instanceMutex = new Mutex(true, @"Local\WindowsProcessCleaner.singleinstance", out primary);
             if (!primary)
             {
-                NotifyPrimaryShow();
+                // /disk <путь> при уже открытом окне: путь уходит первому экземпляру, иначе он бы потерялся
+                string forwardDisk = DiskArgument(args);
+                string forwardTorrent = TorrentArgument(args);
+                bool forwardDownloads = args != null && args.Contains("/downloads");
+                NotifyPrimary(forwardDisk != null ? DiskMessage + forwardDisk : forwardTorrent != null ? TorrentMessage + forwardTorrent
+                              : forwardDownloads ? DownloadsMessage : ShowMessage);
                 return;
             }
+            string startTorrent = TorrentArgument(args);
 
             // Канал активации — вспомогательный: не смог занять порт, работаем без него.
             TcpListener listener;
@@ -149,20 +189,23 @@ namespace WindowsProcessCleaner
             Tr.En = engine.Config.Language == "en";
             _form = new MainForm(engine);
 
-            if (startTray || engine.Config.StartMinimized)
+            // Открытие торрента из Проводника или браузера — действие пользователя: окно показывается и при «запускать свёрнутым».
+            if ((startTray || engine.Config.StartMinimized) && startTorrent == null)
                 _form.SetStartHidden(true);
             if (args != null && args.Contains("/selftest"))
                 _form.SetSelfTest(true);
+            else
+                WindowsProcessCleaner.Capture.CapLauncher.StartIfEnabled();
             // /disk [путь] — открыть вкладку «Диск»; с путём — сразу просканировать его
             // (удобно вызывать из Проводника или ярлыка на конкретную папку).
             if (args != null)
             {
                 int di = Array.FindIndex(args, delegate(string a) { return string.Equals(a, "/disk", StringComparison.OrdinalIgnoreCase); });
-                if (di >= 0)
-                {
-                    string dp = di + 1 < args.Length && !args[di + 1].StartsWith("/") ? args[di + 1] : null;
-                    _form.SetDiskStart(dp);
-                }
+                if (di >= 0) _form.SetDiskStart(DiskArgument(args));
+                // /downloads — из уведомления «Загрузка перехвачена» и всплывающего окна расширения.
+                if (args.Contains("/downloads")) _form.SetDownloadsStart();
+                // /torrent "<файл или magnet>" — из ассоциации .torrent и протокола magnet.
+                if (startTorrent != null) _form.SetTorrentStart(startTorrent);
             }
 
             // Слушаем сигналы "покажись" от повторных запусков
@@ -389,7 +432,32 @@ namespace WindowsProcessCleaner
             }
         }
 
-        private static void NotifyPrimaryShow()
+        private const string ShowMessage = "SHOW";
+        private const string DiskMessage = "DISK\n";
+        private const string DownloadsMessage = "DOWNLOADS";
+        private const string TorrentMessage = "TORRENT\n";
+        private const int MaxActivationBytes = 256 * 1024;   // magnet-ссылка — до 64 КБ символов
+
+        // Аргумент /torrent (или голая magnet-ссылка первым аргументом); null — нет или не торрент.
+        private static string TorrentArgument(string[] args)
+        {
+            if (args == null || args.Length == 0) return null;
+            int ti = Array.FindIndex(args, delegate(string a) { return string.Equals(a, WindowsProcessCleaner.Downloads.BtAssoc.OpenSwitch, StringComparison.OrdinalIgnoreCase); });
+            string arg = ti >= 0 && ti + 1 < args.Length ? args[ti + 1]
+                       : args[0].StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase) ? args[0] : null;
+            return arg == null ? null : WindowsProcessCleaner.Downloads.BtAssoc.ValidateOpenArgument(arg);
+        }
+
+        // Путь после /disk; null — ключа нет или путь не указан.
+        private static string DiskArgument(string[] args)
+        {
+            if (args == null) return null;
+            int di = Array.FindIndex(args, delegate(string a) { return string.Equals(a, "/disk", StringComparison.OrdinalIgnoreCase); });
+            if (di < 0 || di + 1 >= args.Length || args[di + 1].StartsWith("/")) return null;
+            return args[di + 1];
+        }
+
+        private static void NotifyPrimary(string message)
         {
             try
             {
@@ -400,7 +468,7 @@ namespace WindowsProcessCleaner
                     IAsyncResult ar = c.BeginConnect(IPAddress.Loopback, SingleInstancePort, null, null);
                     if (!ar.AsyncWaitHandle.WaitOne(1500)) return;
                     c.EndConnect(ar);
-                    byte[] msg = Encoding.ASCII.GetBytes("SHOW");
+                    byte[] msg = Encoding.UTF8.GetBytes(message);
                     c.GetStream().Write(msg, 0, msg.Length);
                 }
             }
@@ -422,20 +490,33 @@ namespace WindowsProcessCleaner
 
                     // using обязателен: раньше при исключении в Read соединение
                     // оставалось незакрытым и висело в CLOSE_WAIT до конца работы.
+                    string message = "";
                     using (client)
                     {
                         try
                         {
-                            byte[] buf = new byte[16];
+                            // Сообщение короткое («SHOW», «DISK\n<путь>», «TORRENT\n<файл или magnet>»), отправитель закрывает соединение сразу.
                             client.ReceiveTimeout = 1000;
-                            client.GetStream().Read(buf, 0, buf.Length);
+                            byte[] buf = new byte[MaxActivationBytes];
+                            int total = 0, read;
+                            NetworkStream stream = client.GetStream();
+                            while (total < buf.Length && (read = stream.Read(buf, total, buf.Length - total)) > 0) total += read;
+                            message = Encoding.UTF8.GetString(buf, 0, total);
                         }
                         catch { }
                     }
+                    string diskPath = message.StartsWith(DiskMessage, StringComparison.Ordinal) ? message.Substring(DiskMessage.Length) : null;
+                    string torrent = message.StartsWith(TorrentMessage, StringComparison.Ordinal) ? message.Substring(TorrentMessage.Length) : null;
                     try
                     {
                         if (_form != null && !_form.IsDisposed && _form.IsHandleCreated)
-                            _form.BeginInvoke((MethodInvoker)delegate { _form.ShowWindow(); });
+                            _form.BeginInvoke((MethodInvoker)delegate
+                            {
+                                if (message == DownloadsMessage) _form.OpenDownloads();
+                                else if (torrent != null) _form.OpenTorrent(torrent);
+                                else if (string.IsNullOrEmpty(diskPath)) _form.ShowWindow();
+                                else _form.OpenDiskScan(diskPath);
+                            });
                     }
                     catch { }
                 }

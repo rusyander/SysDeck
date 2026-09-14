@@ -180,10 +180,18 @@ namespace WindowsProcessCleaner
             _btnHomeStop = MkFlowButton(Tr.S("Остановить", "Stop"), 130, false);
             _btnHomeStop.Enabled = false;
             _btnHomeStop.Click += delegate { CancelHomeWork(); };
+            // Галерея открывается и отсюда: за снимками ходят чаще, чем в настройки захвата.
+            Button gallery = MkFlowButton(Tr.S("Галерея", "Gallery"), 130, false);
+            gallery.Click += delegate { CapTrayShot("Gallery"); };
+            // Загрузки — тоже отдельным окном: за ними следят, пока работают в другом месте.
+            Button downloads = MkFlowButton(Tr.S("Загрузки", "Downloads"), 130, false);
+            downloads.Click += delegate { OpenDownloadsWindow(); };
             Label hint = MkFlowLabel(Tr.S("двойной щелчок по строке — выполнить её действие", "double-click a row to run its action"), true);
             top.Controls.Add(_btnHealthRun);
             top.Controls.Add(_btnHealthAct);
             top.Controls.Add(_btnHomeStop);
+            top.Controls.Add(gallery);
+            top.Controls.Add(downloads);
             top.Controls.Add(hint);
 
             _lblHealthInfo = MkNote(Tr.S("Проверка состояния запустится при открытии окна", "The health check runs when the window opens"), false);
@@ -434,6 +442,8 @@ namespace WindowsProcessCleaner
                 {
                     _engine.HealthCheck(delegate(HealthItem h) { UiPost(delegate { AddHealthRow(h); }); },
                                         delegate { return _healthCancel || _closing; });
+                    HealthItem downloads = _healthCancel || _closing ? null : HealthDownloadsItem();
+                    if (downloads != null) UiPost(delegate { AddHealthRow(downloads); });
                 }
                 catch (Exception ex) { err = ex.Message; }
                 string errCopy = err;
@@ -550,6 +560,7 @@ namespace WindowsProcessCleaner
                     case "Updates": ShowPage(PageUpdates); break;
                     case "Tools": ShowPage(PageTools); break;
                     case "Scan": ShowPage(PageScan); break;
+                    case "Downloads": ShowPage(PageDownloads); break;
                 }
                 return;
             }

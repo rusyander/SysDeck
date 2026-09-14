@@ -44,6 +44,7 @@ namespace WindowsProcessCleaner
             menu.MenuItems.Add(new MenuItem(Tr.S("⚡ Ускорить", "⚡ Boost"), delegate { ShowWindow(); ShowPage(PageHome); DoBoost(); }));
             _miAuto = new MenuItem(Tr.S("Автоочистка по таймеру", "Auto-clean timer"), delegate { ToggleAuto(); });
             menu.MenuItems.Add(_miAuto);
+            menu.MenuItems.Add(CapTrayMenu());
             menu.MenuItems.Add("-");
             menu.MenuItems.Add(new MenuItem(Tr.S("Перезапустить от администратора", "Restart as administrator"), delegate { RestartAsAdmin(); }));
             menu.MenuItems.Add(new MenuItem(Tr.S("Выход", "Exit"), delegate { ExitApp(); }));

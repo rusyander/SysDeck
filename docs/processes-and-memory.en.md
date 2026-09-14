@@ -1,6 +1,6 @@
 # Processes and memory
 
-The Home, Scanning, Memory and Dev Cleanup pages: what is shown, which rules make a process a termination candidate, and how RAM usage is broken down.
+The Home, Scanning, Memory, Video memory and Dev Cleanup pages: what is shown, which rules make a process a termination candidate, and how RAM and video memory usage are broken down.
 
 [← Overview](../README.en.md) · [All manual pages](README.en.md) · [🇷🇺 Русский](processes-and-memory.md)
 
@@ -108,6 +108,50 @@ commands — an empty operation, and trimming the working sets of the listed pid
 deliberately never goes through it: a "kill any pid as administrator" command sitting in a file is a
 ready-made privilege-escalation hole. If a process is protected or the rights were not enough, the
 program says so.
+
+## Video memory
+
+The Memory tab's twin for the graphics card: **what takes video memory, on which card and how
+much**. It works with any graphics card — NVIDIA, AMD, Intel, integrated or discrete — because it
+reads Windows' own counters (the same ones Task Manager shows under Performance → GPU) instead of a
+vendor tool. No administrator rights are needed. Updates once a second, the interval goes from
+0.5 to 5 seconds, and there is a pause.
+
+At the top you pick the card (when there are several) and the memory: **dedicated** — the card's
+own memory (VRAM), **shared** — the part of RAM Windows lends to the card.
+
+| View | What it shows |
+|---|---|
+| **Scheme** | a treemap of the memory in use on the selected card: processes grouped by image name, browser GPU processes (teal) and a "System and driver" block — memory in use on the card but attributed to no process. Free memory is in the bar above the scheme, where the whole card is shown |
+| **Processes** | dedicated and shared memory, committed total, load and engine type (3D, video decode, compute), "GPU process" and "system" marks. Checkboxes, sorting by column |
+| **Graphics cards** | every card at once: size, in use, load, process count. A double click opens the card's scheme |
+
+At the bottom is a chart of the last minutes: the fill is memory in use, the line is load. The scale
+follows the peak, so growth stays visible even on a 24 GB card.
+
+> The Windows counter sometimes attributes more memory to a process than the whole card has (that
+> is how virtual reservations are counted). The tab takes the smaller of "committed to the process"
+> and "resident on the card" and shows the inflated value in the tooltip. When the card's counter
+> lags behind the process sum, "in use" is raised to that sum — the header and the scheme always
+> name the same number.
+
+**Only gentle resets**, each one confirmed. A few seconds after a reset the tab reports how much
+video memory there was and how much there is now, as measured.
+
+- **Restart the GPU process** — for Chrome, Edge, Yandex Browser, VS Code, Telegram, Discord and other
+  Chromium/Electron programs. The program starts its GPU process again by itself: windows, tabs and
+  typed text stay, the picture may blink. A restart is allowed only when the process really is a
+  child GPU process of the same application; once every three minutes per application at most,
+  otherwise Chromium turns hardware acceleration off after several "crashes" in a row.
+- **Terminate processes** — the ones selected on the scheme or ticked in the list, listed in the
+  confirmation. System processes (dwm.exe, csrss.exe, svchost.exe and the like) are never
+  terminated. When an ordinary attempt is not enough, the program offers to retry with administrator
+  rights.
+- **Restart the graphics driver** — the same as Win+Ctrl+Shift+B: the screen goes dark for a second
+  or two and comes back, the driver's memory is released. Before that it lists the programs drawing
+  through 3D or holding a lot of video memory right now — games and 3D editors may close with an
+  error, so save your work in them. At most once a minute. The desktop (DWM) is not restarted
+  separately.
 
 ## Dev Cleanup
 Bulk termination by group: all Node / Python / Java / Vite / Webpack / npm / pnpm /

@@ -90,7 +90,8 @@ uninstallation are **never** run by the timer — manual only.
 ## System tray
 The tray icon changes color: green — clean, orange — candidates found. Double-click
 opens the window. Right-click menu: Scan, Clean, Purge Standby Memory, ⚡ Boost, toggle
-auto-clean, restart as administrator (for when raising rights once for the whole window is simpler), exit. Closing the window minimizes the app to
+auto-clean, the Capture submenu (screenshots, screenshots folder, settings — see
+[Capture](capture.en.md)), restart as administrator (for when raising rights once for the whole window is simpler), exit. Closing the window minimizes the app to
 tray (it keeps running in the background). If an irreversible operation is running at
 that moment (deleting files, moving to the Recycle Bin, installing updates, Docker prune
 or disk compaction), the tray hint names it, and “Exit” / “Restart as administrator”

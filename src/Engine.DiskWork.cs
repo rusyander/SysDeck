@@ -143,6 +143,11 @@ namespace WindowsProcessCleaner
             if (IsGuardedSubPath(rootPath.ToLowerInvariant())) return;
 
             string mask = string.IsNullOrEmpty(t.Mask) ? "*" : t.Mask;
+            // В общесистемном дереве приложений цель без пометки Disposable отдаёт только заведомо
+            // одноразовые файлы: там под именем «cache» лежит и дистрибутив программы (см. выше).
+            // Фильтр стоит в обходе, а не в удалении, чтобы анализ показывал ровно тот размер,
+            // который очистка действительно освободит.
+            bool appTree = !t.Disposable && IsAppTreePath(rootPath.ToLowerInvariant());
             long cutoff = t.MinAgeMinutes > 0
                 ? DateTime.Now.AddMinutes(-t.MinAgeMinutes).ToFileTime()
                 : long.MaxValue;
@@ -181,6 +186,7 @@ namespace WindowsProcessCleaner
                             // датой изменения, и окно свежести по одной LastWrite их пропускало
                             if (t.MinAgeMinutes > 0 && (FileTimeOf(fd.ftLastWriteTime) > cutoff || FileTimeOf(fd.ftCreationTime) > cutoff)) continue;
                             if (mask != "*" && !MaskMatch(name, mask)) continue;
+                            if (appTree && !IsThrowawayInAppTree(full.ToLowerInvariant())) continue;
                             if (excl.Count > 0 && IsExcluded(full.ToLowerInvariant(), excl)) continue;
                             onFile(full, ((long)fd.nFileSizeHigh << 32) | fd.nFileSizeLow, fd.dwFileAttributes);
                         }
@@ -338,13 +344,13 @@ namespace WindowsProcessCleaner
         };
 
         // Единственные подпапки запретных деревьев, которые чистить можно: temp и кэш IE служебного
-        // профиля, журналы System32\LogFiles (правила winapp2) и кэш MSI-патчей (по явному выбору).
+        // профиля и журналы System32\LogFiles (правила winapp2). Кэш MSI-патчей ($PatchCache$) из
+        // этого списка убран: из него Windows чинит и удаляет уже установленные патчи.
         private static readonly string[] _neverTouchAllow = new string[] {
             "\\windows\\system32\\config\\systemprofile\\appdata\\local\\temp",
             "\\windows\\system32\\config\\systemprofile\\appdata\\local\\microsoft\\windows\\inetcache",
             "\\windows\\syswow64\\config\\systemprofile\\appdata\\local\\microsoft\\windows\\inetcache",
             "\\windows\\system32\\logfiles",
-            "\\windows\\installer\\$patchcache$",
         };
 
         private static bool IsNeverTouchAllowed(string pathLower, string rootLower)
@@ -483,6 +489,7 @@ namespace WindowsProcessCleaner
             if (!rootOk && IsUserDataRoot(pl)) return false;
             if (HasSegment(pl, _saveSegments)) return false;
             if (HasSegment(pl, _appDataSegments)) return false;
+            if (HasSegment(pl, _payloadSegments)) return false;
 
             // никогда не чистим собственный каталог данных (там конфиг, история, логи)
             if (IsSelfOrUnder(pl, _dir.TrimEnd('\\').ToLowerInvariant())) return false;
@@ -510,6 +517,85 @@ namespace WindowsProcessCleaner
             "\\nvbackend\\applicationontology\\",
         };
 
+        // Склад установщика: папка, из которой программа ставит и чинит саму себя. По имени он
+        // неотличим от кэша, поэтому такие имена закрыты на уровне пути — как сохранения игр.
+        // «Package Cache» (WiX/Visual Studio) и «$PatchCache$» (базовые копии для MSI-патчей) —
+        // без них восстановление и удаление уже установленной программы просит исходный дистрибутив;
+        // «Installer2» — то же самое у драйверов NVIDIA; «depots» — распакованные архивы Logitech.
+        private static readonly string[] _payloadSegments = new string[] {
+            "\\package cache\\", "\\packagecache\\", "\\$patchcache$\\",
+            "\\installer2\\", "\\lghub\\cache\\", "\\lghub\\depots\\",
+        };
+
+        // ---------- общесистемные деревья приложений ----------
+        //
+        // %ProgramData%, Program Files и Program Files (x86) — это места, куда программа кладёт не
+        // только кэш, но и собственный дистрибутив: архивы, из которых она доставляет и чинит свои
+        // компоненты. Имя папки их не различает («cache», «Downloader», «data\cache»), и правило,
+        // написанное по имени, уносит вместе с кэшем способность программы починиться: она
+        // продолжает запускаться и начинает жаловаться на отсутствующие файлы.
+        //
+        // 10.09.2026 так был снесён C:\ProgramData\LGHUB\cache — 698,7 МБ архивов .depot, — и
+        // Logitech G HUB перестал устанавливать свои драйверы («Unable to extract extension
+        // executable pipeline://driver_logi_lamparray/…»). Тот же класс правил был нацелен на
+        // Wargaming GameCenter\cache, Battle.net Agent\data\cache и Adobe\ARM: вычислять каждого
+        // производителя отдельно — значит чинить постфактум, по одному сломанному приложению.
+        //
+        // Поэтому в этих деревьях правило разрешительное, а не запретительное: удаляется только то,
+        // что одноразово по своей природе — журналы, дампы, временные файлы, — а остальное остаётся,
+        // даже если правило просит папку целиком. Цель, про которую автор правила проверил, что
+        // приложение восстановит содержимое само, помечается CleanTarget.Disposable и фильтр обходит.
+        private static readonly string[] _throwawaySegments = new string[] {
+            "\\logs\\", "\\log\\", "\\logfiles\\", "\\temp\\", "\\tmp\\",
+            "\\crashdumps\\", "\\crashes\\", "\\minidump\\", "\\minidumps\\",
+            "\\wer\\", "\\reportqueue\\", "\\reportarchive\\",
+        };
+
+        private static readonly string[] _throwawayExt = new string[] {
+            ".log", ".etl", ".trace", ".dmp", ".mdmp", ".hdmp", ".wer",
+            ".tmp", ".temp", ".old", ".bak", ".cache",
+        };
+
+        private static string[] _appTrees;
+
+        private string[] AppTrees()
+        {
+            string[] cached = _appTrees;
+            if (cached != null) return cached;
+            List<string> roots = new List<string>();
+            string pd = null;
+            try { pd = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData); }
+            catch { }
+            string[] candidates = new string[] { pd, _programFiles, _programFilesX86 };
+            foreach (string r in candidates)
+            {
+                if (string.IsNullOrEmpty(r)) continue;
+                string low = r.TrimEnd('\\').ToLowerInvariant();
+                if (low.Length > 3 && !roots.Contains(low)) roots.Add(low);
+            }
+            cached = roots.ToArray();
+            _appTrees = cached;
+            return cached;
+        }
+
+        private bool IsAppTreePath(string pathLower)
+        {
+            foreach (string root in AppTrees()) if (IsSelfOrUnder(pathLower, root)) return true;
+            return false;
+        }
+
+        // Одноразовый файл: журнал, дамп, временный — или лежащий в папке, которая целиком про них.
+        private static bool IsThrowawayInAppTree(string pathLower)
+        {
+            foreach (string seg in _throwawaySegments)
+                if (pathLower.IndexOf(seg, StringComparison.Ordinal) >= 0) return true;
+            int dot = pathLower.LastIndexOf('.');
+            if (dot <= pathLower.LastIndexOf('\\')) return false;
+            string ext = pathLower.Substring(dot);
+            foreach (string e in _throwawayExt) if (ext == e) return true;
+            return false;
+        }
+
         // Проверка обоих списков разом. Раньше она стояла только в IsAllowedTarget, то есть на корне
         // цели: правило winapp2 с RECURSE над %LocalAppData%\NVIDIA Corporation спокойно доходило до
         // NvBackend\ApplicationOntology, а над профилем — до Saved Games, и повторило бы инцидент
@@ -518,7 +604,7 @@ namespace WindowsProcessCleaner
         private static bool IsGuardedSubPath(string pathLower)
         {
             return HasSegment(pathLower, _saveSegments) || HasSegment(pathLower, _appDataSegments)
-                || IsOwnFolder(pathLower);
+                || HasSegment(pathLower, _payloadSegments) || IsOwnFolder(pathLower);
         }
 
         // Собственные папки приложения: каталог данных (конфиг, история, журналы) и — у
@@ -615,8 +701,10 @@ namespace WindowsProcessCleaner
                 errors++;   // занят другим процессом или нет прав — это норма
             }, dirs, ref errors);
 
-            // подпапки — от самых глубоких к верхним; только пустые уйдут (reparse-точек в списке нет)
-            if (string.IsNullOrEmpty(t.Mask))
+            // подпапки — от самых глубоких к верхним; только пустые уйдут (reparse-точек в списке нет).
+            // В общесистемном дереве приложения не убираем и пустые: там Walk отдал только заведомо
+            // одноразовые файлы, а каркас папок — часть дистрибутива, по которой приложение себя чинит.
+            if (string.IsNullOrEmpty(t.Mask) && !(!t.Disposable && IsAppTreePath(rootPath.ToLowerInvariant())))
             {
                 dirs.Sort(delegate(string a, string b) { return b.Length.CompareTo(a.Length); });
                 foreach (string d in dirs) RemoveDir(LongPath(d), own);

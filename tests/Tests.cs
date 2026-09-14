@@ -269,6 +269,10 @@ namespace WindowsProcessCleaner.Tests
             return c;
         }
 
+        // Вторая разрешённая для удаления область: фикстура в %ProgramData%, которую тест путей заводит
+        // сам, чтобы проверить очистку общесистемного дерева на настоящих путях. Вне блока — пусто.
+        internal static string MachineRoot = "";
+
         // Последний рубеж перед настоящим удалением: цель вне фикстуры или включённая Корзина —
         // это ошибка теста, и лучше уронить прогон, чем выяснить это по пропавшим файлам.
         internal static CleanResult Clean(Engine e, CleanCategory c)
@@ -276,7 +280,7 @@ namespace WindowsProcessCleaner.Tests
             if (c.RecycleBin)
                 throw new InvalidOperationException("a test category must never enable the Recycle Bin");
             foreach (CleanTarget t in c.Targets)
-                if (!IsUnder(t.Path, Root))
+                if (!IsUnder(t.Path, Root) && !(MachineRoot.Length > 0 && IsUnder(t.Path, MachineRoot)))
                     throw new InvalidOperationException("refusing to run a delete outside the fixture: " + t.Path);
             List<CleanCategory> list = new List<CleanCategory>();
             list.Add(c);
@@ -289,8 +293,15 @@ namespace WindowsProcessCleaner.Tests
     // ------------------------------------------------------------------ //
     internal static class TestMain
     {
-        private static int Main()
+        // Имена областей в аргументах — прогнать только их (run-tests.bat downloads); без аргументов — все.
+        private static string[] _only;
+
+        private static int Main(string[] args)
         {
+            // Этот же exe запускается тестами «как браузер» (native messaging host) — до изоляции и прогона.
+            int hostCode;
+            if (WindowsProcessCleaner.Downloads.DlBridge.TryRun(args, out hostCode)) return hostCode;
+            _only = args != null && args.Length > 0 ? args : null;
             // Слепок настоящего конфига пользователя: в конце сверяем, что он не изменился.
             string realConfig = Path.Combine(
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -329,7 +340,13 @@ namespace WindowsProcessCleaner.Tests
                 Area("autostart", AutostartTests.Run);
                 Area("elevation", ElevationTests.Run);
                 Area("ram", RamTests.Run);
+                Area("gpu", GpuTests.Run);
+                Area("foldersize", FolderSizeTests.Run);
+                Area("capture", CaptureTests.Run);
                 Area("browsers", BrowserTests.Run);
+                Area("downloads", DownloadsTests.Run);
+                Area("torrent", TorrentTests.Run);
+                Area("media", MediaTests.Run);
             }
             finally
             {
@@ -356,6 +373,7 @@ namespace WindowsProcessCleaner.Tests
         // Область падает целиком — это тоже провал, но остальные должны отработать.
         private static void Area(string name, Action body)
         {
+            if (_only != null && Array.FindIndex(_only, delegate(string a) { return string.Equals(a, name, StringComparison.OrdinalIgnoreCase); }) < 0) return;
             Console.WriteLine("--- " + name + " ---");
             try { body(); }
             catch (Exception ex)

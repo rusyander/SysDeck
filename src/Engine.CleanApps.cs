@@ -214,7 +214,8 @@ namespace WindowsProcessCleaner
                 AddDir(apps, Path.Combine(ad, codeLike[i] + "\\CachedData"), true);
                 AddDir(apps, Path.Combine(ad, codeLike[i] + "\\CachedExtensionVSIXs"), true);
                 AddDir(apps, Path.Combine(ad, codeLike[i] + "\\CachedProfilesData"), true);
-                AddDir(apps, Path.Combine(ad, codeLike[i] + "\\logs"), true);
+                // Журналы — в свою категорию: в «кэше приложений» они снова включались бы по умолчанию.
+                AddDir(logs, Path.Combine(ad, codeLike[i] + "\\logs"), true);
             }
 
             // Прочие настольные приложения на Electron: ассистенты, музыка, видео, панели вендоров.
@@ -226,7 +227,12 @@ namespace WindowsProcessCleaner
             };
             for (i = 0; i < misc.Length; i++) AddElectronCache(apps, Path.Combine(ad, misc[i]));
             AddElectronCache(apps, Path.Combine(lad, "FortiClient"));
-            AddElectronCache(apps, Path.Combine(lad, "LGHUB"));
+            // %LOCALAPPDATA%\LGHUB — не профиль Electron, а каталог данных G HUB (settings.db,
+            // privacy_settings.db, интеграции, скрипты). Берём только три чисто графических кэша,
+            // общий набор Electron сюда прикладывать нельзя.
+            AddDir(apps, Path.Combine(lad, "LGHUB\\GPUCache"), true);
+            AddDir(apps, Path.Combine(lad, "LGHUB\\GrShaderCache"), true);
+            AddDir(apps, Path.Combine(lad, "LGHUB\\ShaderCache"), true);
 
             // Приложения на WebView2 (Ollama, установщики вендоров, «оболочки» утилит).
             AddWebView2Sweep(apps, ad);
@@ -340,9 +346,12 @@ namespace WindowsProcessCleaner
             AddUnrealSavedJunk(logs, lad);
 
             // ========== Вендорские панели и драйверы ==========
-            // G HUB держит в ProgramData скачанные пакеты обновлений и прошивок — там легко
-            // набирается больше полугигабайта, а нужны они только во время установки.
-            AddDir(apps, Path.Combine(pd, "LGHUB\\cache"), true);
+            // %ProgramData%\LGHUB\cache намеренно НЕ трогаем, хотя имя обещает кэш: это склад
+            // установщика G HUB — по архиву .depot на каждый компонент, из них он ставит и чинит
+            // свои драйверы. 10.09.2026 правило снесло оттуда 698,7 МБ, и G HUB начал отвечать
+            // «Unable to extract extension executable» на установку драйверов, а сам заново эти
+            // архивы не скачивает — только через восстановление. Путь дополнительно закрыт
+            // предохранителем (_payloadSegments), как и любое дерево приложения в %ProgramData%.
             AddDir(logs, Path.Combine(pd, "LGHUB\\logs"), true);
             AddDir(logs, Path.Combine(pd, "NVIDIA Corporation\\NVIDIA Broadcast\\logs"), true);
             AddDir(apps, Path.Combine(lad, "Intel\\PresentMon\\cef-cache"), true);
@@ -368,8 +377,9 @@ namespace WindowsProcessCleaner
             AddDir(logs, Path.Combine(ad, "AnyDesk"), true, "*.trace", 0);
             AddDir(logs, Path.Combine(pd, "AnyDesk"), true, "*.trace", 0);
             AddDir(apps, Path.Combine(lad, "Softdeluxe\\Free Download Manager\\cache"), true);
-            // Java Web Start / апплеты: скачанные jar, подтягиваются заново.
-            AddDir(apps, Path.Combine(lad, "Sun\\Java\\Deployment\\cache"), true);
+            // Java Web Start больше не цель: в этом «кэше» лежат сами приложения JWS, и если сервер,
+            // откуда их поставили, уже не отвечает (а так и бывает с внутренними системами), они
+            // не восстановятся ничем.
             // Chocolatey хранит скачанные установщики отдельно от самих пакетов.
             AddDir(apps, Path.Combine(pd, "ChocolateyHttpCache"), true);
             AddDir(logs, Path.Combine(pd, "Microsoft\\EdgeUpdate\\Log"), true);
