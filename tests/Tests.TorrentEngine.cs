@@ -704,6 +704,7 @@ namespace WindowsProcessCleaner.Tests
             string store = Fx.MakeDir(root, "store");
             DlSettings s = EngSettings(Fx.MakeDir(root, "dl"));
             s.BtWatchFolder = watch;
+            s.BtRecycleTorrentFile = false;   // по умолчанию файл убирается; здесь проверяется обратный случай
             List<string> recycled = new List<string>();
             string recycleError = null;
             DlFiles.Recycler = delegate(string p)
@@ -724,6 +725,10 @@ namespace WindowsProcessCleaner.Tests
             File.WriteAllBytes(part, third);
             DlEngine e = EngEngine(store, s, new FakeDlEnv(), null);
             DlEngine e2 = null;
+            // Папку наблюдения человек завёл затем, чтобы его не спрашивали: вопрос о папке здесь не задаётся никогда.
+            List<string> watchAsked = new List<string>();
+            e.FolderAskNeeded = delegate { return true; };
+            e.FolderAsk = delegate(string tid, string n) { lock (watchAsked) watchAsked.Add(n); };
             try
             {
                 e.BtWatchSeconds = 0;
@@ -734,8 +739,9 @@ namespace WindowsProcessCleaner.Tests
                 EngAge(-10, a, page, deep, part);
                 e.BtIntake();
                 DlItem it = EngByHash(e, m1.HexHash);
-                T.Check("watch: once settled, the top-level .torrent is added from «watch»; a page named .torrent, a subfolder and .torrent.part are not",
-                        it != null && it.Source == "watch" && e.Ids().Count == 1 && File.Exists(a) && recycled.Count == 0, e.Ids().Count + " items");
+                T.Check("watch: once settled, the top-level .torrent is added from «watch» without ever asking where to save it; a page named .torrent, a subfolder and .torrent.part are not added",
+                        it != null && it.Source == "watch" && it.State != DlState.Paused && watchAsked.Count == 0
+                        && e.Ids().Count == 1 && File.Exists(a) && recycled.Count == 0, e.Ids().Count + " items, asked: " + watchAsked.Count);
                 T.Check("watch → page: the source reads «watch folder», not «manual», and the source filter tells them apart",
                         it != null && DlView.SourceTitle(it.Source) == Tr.S("папка наблюдения", "watch folder")
                         && DlView.Matches(it, DlStateFilter.All, "", "watch") && !DlView.Matches(it, DlStateFilter.All, "", "manual"),
@@ -793,8 +799,9 @@ namespace WindowsProcessCleaner.Tests
         {
             byte[] t1 = BtFx.Build("fetched", SesFiles(391, 60000), 32768, 1, false, null);
             byte[] t2 = BtFx.Build("fetched-2", SesFiles(392, 60000), 32768, 1, false, null);
+            byte[] t3 = BtFx.Build("fetched-3", SesFiles(393, 60000), 32768, 1, false, null);
             string err;
-            BtMeta m1 = BtMeta.Parse(t1, out err), m2 = BtMeta.Parse(t2, out err);
+            BtMeta m1 = BtMeta.Parse(t1, out err), m2 = BtMeta.Parse(t2, out err), m3 = BtMeta.Parse(t3, out err);
             string root = Fx.MakeDir(Fx.Root, "bt-eng-chain");
             string dl = Fx.MakeDir(root, "dl");
             List<string> recycled = new List<string>();
@@ -806,8 +813,13 @@ namespace WindowsProcessCleaner.Tests
                 {
                     EngServe(srv, "fetched.torrent", t1);
                     EngServe(srv, "fetched-2.torrent", t2);
+                    EngServe(srv, "fetched-3.torrent", t3);
                     EngServe(srv, "login.torrent", Encoding.UTF8.GetBytes("<html><body>sign in</body></html>"));
-                    e = EngEngine(Fx.MakeDir(root, "store"), EngSettings(dl), new FakeDlEnv(), null);
+                    T.Check("downloaded .torrent: out of the box the .torrent file is not kept — it is a delivery slip, the work is the payload",
+                            new DlSettings().BtRecycleTorrentFile, "default off");
+                    DlSettings keep = EngSettings(dl);
+                    keep.BtRecycleTorrentFile = false;   // первый заход — редкий случай «файл .torrent оставить»
+                    e = EngEngine(Fx.MakeDir(root, "store"), keep, new FakeDlEnv(), null);
                     e.Start();
 
                     string h1 = EngHttp(e, srv.Url("fetched.torrent"), "chrome");
@@ -839,6 +851,53 @@ namespace WindowsProcessCleaner.Tests
                     T.Check("downloaded .torrent: a page saved as login.torrent stays an ordinary finished download — no torrent, no recycle, no complaint",
                             done && e.Find(h3) != null && e.Ids().Count == 4 && recycled.Count == 1
                             && !journal3.Contains("не добавлен торрентом") && !journal3.Contains("not added as a torrent"), EngState(e, h3) + " | " + journal3);
+
+                    // Торрент заводится мимо окна добавления: вопрос «куда скачивать» задаёт движок через хозяина,
+                    // иначе перехваченная у браузера раздача уезжала в папку по умолчанию, ничего не спросив.
+                    DlSettings asking = EngSettings(dl);
+                    asking.BtRecycleTorrentFile = true;
+                    asking.AskFolder = true;
+                    e.UpdateSettings(asking);
+                    DlEngine eng = e;
+                    List<string> asked = new List<string>();
+                    eng.FolderAskNeeded = delegate(string n) { return DlFolderAsk.Needed(eng.Settings, null, n); };
+                    eng.FolderAsk = delegate(string tid, string n)
+                    {
+                        eng.SetWaitReason(tid, Tr.S("ждёт выбора папки", "waiting for a folder"));
+                        lock (asked) asked.Add(n);
+                    };
+                    string h4 = EngHttp(e, srv.Url("fetched-3.torrent"), "chrome");
+                    DlItem t3it = null;
+                    WireWaitFor(delegate { t3it = EngByHash(e, m3.HexHash); return t3it != null; }, 20000);
+                    Thread.Sleep(1500);
+                    if (t3it != null) t3it = e.Find(t3it.Id);
+                    T.Check("downloaded .torrent: with «ask where to save» on, the torrent waits paused with the payload name as the question, the .torrent file itself is gone from disk and from the list, and not a byte of the payload is fetched",
+                            t3it != null && t3it.State == DlState.Paused && t3it.DoneBytes == 0 && e.Find(h4) == null
+                            && recycled.Count == 2 && recycled[1].EndsWith(@"\fetched-3.torrent", StringComparison.OrdinalIgnoreCase) && !File.Exists(recycled[1])
+                            && asked.Count == 1 && asked[0] == m3.Name && t3it.WaitReason.Length > 0,
+                            t3it == null ? "no torrent" : t3it.State + " done=" + t3it.DoneBytes + " asked=" + string.Join("; ", asked.ToArray()));
+
+                    // Отказ: запись завёл движок, а не человек — она уходит целиком, чтобы повторный щелчок
+                    // на трекере снова скачал .torrent и снова спросил, а не упёрся в «уже в списке».
+                    string dropped = t3it == null ? null : t3it.Id;
+                    if (dropped != null) DlFolderAsk.Apply(e, dropped, null, true);
+                    T.Check("downloaded .torrent → «Отмена»: the torrent nobody asked for leaves the list instead of standing in it forever",
+                            dropped != null && e.Find(dropped) == null && EngByHash(e, m3.HexHash) == null, dropped == null ? "no torrent" : EngState(e, dropped));
+
+                    EngHttp(e, srv.Url("fetched-3.torrent"), "chrome");
+                    DlItem again = null;
+                    WireWaitFor(delegate { again = EngByHash(e, m3.HexHash); return again != null; }, 20000);
+                    Thread.Sleep(1500);
+                    if (again != null) again = e.Find(again.Id);
+                    T.Check("downloaded .torrent → the same link once more: it is asked about again from scratch and waits again",
+                            again != null && again.State == DlState.Paused && asked.Count == 2, again == null ? "no torrent" : again.State + " asked=" + asked.Count);
+
+                    string chosen = Fx.MakeDir(root, "chosen"), why4;
+                    bool set = again != null && e.SetFolderBeforeStart(again.Id, chosen, out why4);
+                    if (set) e.Resume(again.Id);
+                    T.Check("downloaded .torrent → answer: the chosen folder lands on the standing torrent and only then does it start",
+                            set && e.Find(again.Id).Folder == chosen && EngWaitState(e, again.Id, DlState.Active, 10000),
+                            again == null ? "no torrent" : EngState(e, again.Id) + " folder=" + e.Find(again.Id).Folder);
                 }
                 finally { if (e != null) e.Dispose(); }
             }

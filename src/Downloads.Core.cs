@@ -288,7 +288,8 @@ namespace WindowsProcessCleaner.Downloads
         public bool BtSeed = true;               // раздавать после загрузки
         public int BtRatioPercent;               // остановить раздачу при рейтинге (150 = 1,5); 0 — без предела
         public int BtSeedMinutes;                // остановить раздачу через столько минут; 0 — без предела
-        public bool BtRecycleTorrentFile;        // .torrent из браузера или папки наблюдения — в Корзину после добавления
+        public bool BtRecycleTorrentFile = true; // .torrent из браузера или папки наблюдения — в Корзину после добавления,
+                                                 // а его загрузка уходит из списка: файл служебный, работа идёт с раздачей
         public string BtWatchFolder = "";        // пусто — не следить
         public bool BtUpdateCheck = true;        // искать новые версии раздач на трекере (rutracker) раз в несколько часов
         // Видео (Media.*.cs, Downloads.Hls/Dash/Media/Ytdlp.cs). Инструменты (yt-dlp, Deno) ставит только кнопка в настройках.

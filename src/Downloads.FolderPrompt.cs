@@ -36,18 +36,26 @@ namespace WindowsProcessCleaner.Downloads
         // Вызывается из потока команд и не ждёт ответа: окно показывается в потоке уведомлений, запись до ответа стоит.
         public static void Begin(DlEngine engine, DlNotifier notifier, string id, string name)
         {
+            Begin(engine, notifier, id, name, false);
+        }
+
+        // dropOnCancel — запись завелась сама (торрент из скачанного .torrent), человек её в список не добавлял:
+        // отказ убирает её целиком, чтобы повторный щелчок на трекере начал разговор с начала, а не наткнулся
+        // на «этот торрент уже в списке». Всё, что человек добавил руками, отказ оставляет на паузе.
+        public static void Begin(DlEngine engine, DlNotifier notifier, string id, string name, bool dropOnCancel)
+        {
             if (engine == null || notifier == null || string.IsNullOrEmpty(id)) return;
             notifier.Hold(true);
-            bool posted = notifier.Post(delegate { Ask(engine, notifier, id, name); });
+            bool posted = notifier.Post(delegate { Ask(engine, notifier, id, name, dropOnCancel); });
             if (posted) return;
             notifier.Hold(false);
-            Apply(engine, id, null);   // потока с окном нет — запись просто стоит, пока человек не выберет папку сам
+            Apply(engine, id, null, false);   // потока с окном нет — запись просто стоит, пока человек не выберет папку сам
         }
 
         // Окно немодальное намеренно. Модальный цикл принадлежит потоку, а не окну: любое уведомление, закрывшееся
         // рядом, обрывало его — вопрос уходил сам через шесть секунд с ответом «Отмена», и загрузка вставала
         // с пометкой «папка не выбрана». Ответ разбирается в FormClosed, ждать здесь нечего.
-        private static void Ask(DlEngine engine, DlNotifier notifier, string id, string name)
+        private static void Ask(DlEngine engine, DlNotifier notifier, string id, string name, bool dropOnCancel)
         {
             DlSettings s = engine.Settings;
             // Список мест: папка из настроек, системные «Загрузки» и всё, что человек сам просил запомнить, —
@@ -65,7 +73,7 @@ namespace WindowsProcessCleaner.Downloads
                 form.FormClosed += delegate
                 {
                     DlFolderChoice choice = form.DialogResult == DialogResult.OK ? form.Choice : null;
-                    try { Forget(eng, form.Forgotten); Apply(eng, rid, choice); }
+                    try { Forget(eng, form.Forgotten); Apply(eng, rid, choice, dropOnCancel); }
                     finally { note.HoldToasts(false); note.Hold(false); form.Dispose(); }
                 };
                 note.HoldToasts(true);          // уведомления ждут: они перекрывают вопрос и мешают ответить
@@ -74,7 +82,7 @@ namespace WindowsProcessCleaner.Downloads
             }
             catch (Exception ex) { DlLog.Report(ex); }
             notifier.Hold(false);
-            Apply(engine, id, null);
+            Apply(engine, id, null, false);
         }
 
         private static void AddPlace(List<string> places, string folder)
@@ -84,13 +92,16 @@ namespace WindowsProcessCleaner.Downloads
             places.Add(folder);
         }
 
-        // Ответ получен — папка записи и её продолжение; отказ оставляет запись на паузе, ничего не удаляя.
-        private static void Apply(DlEngine engine, string id, DlFolderChoice choice)
+        // Ответ получен — папка записи и её продолжение; отказ оставляет запись на паузе, ничего не удаляя,
+        // а заведённую саму собой (dropOnCancel) убирает из списка — скачано ноль байт, терять нечего.
+        internal static void Apply(DlEngine engine, string id, DlFolderChoice choice, bool dropOnCancel)
         {
             try
             {
                 if (choice == null)
                 {
+                    string gone;
+                    if (dropOnCancel && engine.Remove(id, false, out gone)) return;
                     engine.SetWaitReason(id, Tr.S("папка не выбрана — нажмите «Продолжить»", "no folder chosen — press «Resume»"));
                     return;
                 }

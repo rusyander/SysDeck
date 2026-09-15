@@ -64,15 +64,21 @@ The torrent dialog:
   seeding gets slower.
 
 Without a dialog, with default options, these become a torrent:
-- a `.torrent` file downloaded by an ordinary download. The download record itself stays in the list with a log line;
+- a `.torrent` file downloaded by an ordinary download;
 - a `.torrent` file downloaded by the browser when the program could not take it over;
 - a new `.torrent` file in the **watch folder**.
 
 The same torrent is never added twice. A file that turns out to be a web page named `.torrent` stays an ordinary file.
 The watch folder is checked every few seconds while the background process runs, top level only. A file still being
 written waits for the next pass. A torrent removed from the list does not come back from the folder, a restart
-included. With **Remove the .torrent file once added** on, the file goes to the Recycle Bin, and the browser deletes
-its own copy. The program keeps the torrent content for itself.
+included. The `.torrent` file is the delivery slip, not the goods: **Remove the .torrent file once added** is on out of
+the box, so the moment the torrent is added the file goes to the Recycle Bin and its download leaves the list (the
+browser deletes its own copy). Clear the checkbox to keep `.torrent` files — the download then stays in the list with a
+log line. The program keeps the torrent content for itself.
+
+With **Ask where to save** on, the question is asked here too — about the payload, not about the `.torrent` file: until
+it is answered the torrent stands still and fetches nothing. Cancelling drops such a torrent from the list: nobody put
+it there by hand, so clicking the link on the tracker again starts the conversation from scratch.
 
 In the list a torrent has its own states: **checking data · N %**, **downloading · peers (seeds) · upload speed**,
 **seeding**. Its menu has these instead of the single-link commands:

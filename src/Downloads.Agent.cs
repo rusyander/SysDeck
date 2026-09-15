@@ -94,7 +94,11 @@ namespace WindowsProcessCleaner.Downloads
                     n.OpenApp = DlLauncher.OpenDownloadsPage;
                     toasts.Show(n);
                 };
-                commands.AskFolder = delegate(string id, string name) { DlFolderAsk.Begin(eng, toasts, id, name); };
+                commands.AskFolder = delegate(string id, string name, bool drop) { DlFolderAsk.Begin(eng, toasts, id, name, drop); };
+                // Скачанный .torrent движок добавляет торрентом сам, мимо команд: вопрос о папке задаётся и там,
+                // а отказ убирает заведённую запись — щелчок на трекере повторяется с чистого листа.
+                engine.FolderAskNeeded = delegate(string name) { return DlFolderAsk.Needed(eng.Settings, null, name); };
+                engine.FolderAsk = delegate(string id, string name) { commands.AskFolderFor(id, name, true); };
                 engine.Start();
                 server = new DlPipeServer(DlIpc.PipeName, commands.Handle, DlIpc.IsOwnImage);
                 server.Start();
@@ -476,7 +480,8 @@ namespace WindowsProcessCleaner.Downloads
         private long _lastCallTicks;
 
         // Вопрос «куда скачивать» задаёт процесс-хозяин (у него есть поток с окнами); здесь — только повод его задать.
-        public Action<string, string> AskFolder;
+        // Третий довод: отказ убирает запись из списка (её завёл не человек, а движок — торрент из скачанного .torrent).
+        public Action<string, string, bool> AskFolder;
 
         // Запись заводится стоящей: пока человек не ответил, не качается ни байта, и ответ ничего не догоняет.
         private bool HoldForFolder(DlAddRequest r, string name)
@@ -486,11 +491,17 @@ namespace WindowsProcessCleaner.Downloads
             return true;
         }
 
-        private void AskFolderFor(string id, string name)
+        // Публичный: этим же путём спрашивает движок, когда торрент заводится сам (скачанный .torrent).
+        public void AskFolderFor(string id, string name)
+        {
+            AskFolderFor(id, name, false);
+        }
+
+        public void AskFolderFor(string id, string name, bool dropOnCancel)
         {
             if (id == null || AskFolder == null) return;
             _engine.SetWaitReason(id, Tr.S("ждёт выбора папки", "waiting for a folder"));
-            AskFolder(id, name);
+            AskFolder(id, name, dropOnCancel);
         }
 
         // Видео: поток (HLS/DASH), прямой файл или страница для yt-dlp. Вариант качества и контейнер — из настроек,

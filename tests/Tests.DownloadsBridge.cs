@@ -610,6 +610,9 @@ namespace WindowsProcessCleaner.Tests
             bt.BtPex = false;
             bt.BtPortMapping = false;
             e.UpdateSettings(bt);
+            fileSettings.BtRecycleTorrentFile = false;   // по умолчанию копию .torrent убирают; сперва проверяется обратный случай
+            Thread.Sleep(30);
+            fileSettings.Save();
 
             string dir = Dir("bridge-browser");
             byte[] torrent = BtFx.Build("browser-wire", new List<BtFxFile> { new BtFxFile(BtFx.Data(40000, 91), "a.bin") }, 16384, 1, false, null);

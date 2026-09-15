@@ -83,11 +83,11 @@ namespace WindowsProcessCleaner
             watchBar.Controls.AddRange(new Control[] { watchPick, watchOff });
             _chkDlBtRecycle = DlSetCheck(Tr.S("Убирать файл .torrent после добавления", "Remove the .torrent file once added"));
             DlSetNote(Tr.S("Скачанный .torrent и файл из папки наблюдения становятся торрентом сами, с настройками по умолчанию. Папка просматривается, "
-                           + "пока работает процесс загрузок. Убранный файл уходит в Корзину, копию браузера удаляет сам браузер; содержимое торрента "
-                           + "остаётся в папке данных.",
+                           + "пока работает процесс загрузок. Убранный файл уходит в Корзину, а его загрузка пропадает из списка — работа идёт "
+                           + "с раздачей, а не с накладной; копию браузера удаляет сам браузер, содержимое торрента остаётся в папке данных.",
                            "A downloaded .torrent and a file from the watch folder become a torrent by themselves, with default options. The folder "
-                           + "is checked while the download process runs. A removed file goes to the Recycle Bin, the browser deletes its own copy; "
-                           + "the torrent content stays in the data folder."), true);
+                           + "is checked while the download process runs. A removed file goes to the Recycle Bin and its download leaves the list — the "
+                           + "work is the payload, not the delivery slip; the browser deletes its own copy, the torrent content stays in the data folder."), true);
 
             _chkDlBtUpdateCheck = DlSetCheck(Tr.S("Проверять новые версии раздач rutracker раз в 6 часов", "Check rutracker torrents for new versions every 6 hours"));
             DlSetNote(Tr.S("Проверка читает открытые выгрузки api.rutracker.cc — без входа на сайт; форум темы ищется, пока компьютер простаивает. "

@@ -24,6 +24,12 @@ namespace WindowsProcessCleaner.Downloads
         internal int BtWatchSettleSeconds = 2;
         private const int BtWatchSeenMax = 2000;
 
+        // Торрент здесь заводится без окна добавления, поэтому вопрос «куда скачивать» задаёт процесс-хозяин:
+        // первый вызов — нужен ли вопрос для этого имени, второй — задать его для уже заведённой стоящей записи.
+        // Движок про окна ничего не знает; без хозяина (тесты, служба) оба пусты и торрент добавляется как раньше.
+        public Func<string, bool> FolderAskNeeded;
+        public Action<string, string> FolderAsk;
+
         private static bool IsTorrentName(string name)
         {
             return !string.IsNullOrEmpty(name) && name.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase);
@@ -165,10 +171,18 @@ namespace WindowsProcessCleaner.Downloads
             r.TorrentBytes = bytes;
             r.Source = string.IsNullOrEmpty(source) ? "manual" : source;
             r.OnTopicMatch = TopicMatchUpdate;
+            // Папку наблюдения человек завёл ровно затем, чтобы его не спрашивали; всё остальное (ссылка из браузера,
+            // файл, добавленный вручную) спрашивает так же, как обычная загрузка, и до ответа не качает ни байта.
+            bool ask = r.Source != "watch" && FolderAskNeeded != null && FolderAsk != null && FolderAskNeeded(meta.Name);
+            if (ask) r.StartPaused = true;
             string duplicateOf;
             string id = AddTorrent(r, out duplicateOf, out error);
             name = meta.Name;
-            if (id != null) return true;
+            if (id != null)
+            {
+                if (ask) FolderAsk(id, meta.Name);
+                return true;
+            }
             if (r.UpdateOf != null && error == null) { duplicate = true; return true; }
             if (duplicateOf != null) { duplicate = true; error = null; return true; }
             return false;
