@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: запросы (плейлисты, ключи, сегменты), определение вида ссылки, sidx.
+﻿// SysDeck — «Загрузки», видео: запросы (плейлисты, ключи, сегменты), определение вида ссылки, sidx.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Тот же сетевой порядок, что у DlTransfer: редиректы вручную (каждый шаг — DlHttp.CheckRedirect, https → http только
@@ -13,7 +13,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Запросы одной видео-загрузки

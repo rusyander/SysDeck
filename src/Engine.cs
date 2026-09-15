@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — ядро: состояние, кэши процессов, конфиг и история, форматирование
+﻿// SysDeck — ядро: состояние, кэши процессов, конфиг и история, форматирование
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {
@@ -141,7 +141,7 @@ namespace WindowsProcessCleaner
                 "textinputhost.exe","applicationframehost.exe","searchindexer.exe","lockapp.exe",
                 "wudfhost.exe","spoolsv.exe","audiodg.exe","memcompression","sechealthsystray.exe",
                 "securityhealthservice.exe","msmpeng.exe","nissrv.exe","widgets.exe","widgetservice.exe",
-                "windowsprocesscleaner.exe","dax3api.exe","phoneexperiencehost.exe",
+                "sysdeck.exe","windowsprocesscleaner.exe","dax3api.exe","phoneexperiencehost.exe",
                 // --- облака / синхронизация ---
                 "onedrive.exe","dropbox.exe","dropboxupdate.exe","googledrivefs.exe","googledrivesync.exe",
                 "yandexdisk.exe","yandexdisk2.exe","megasync.exe","nextcloud.exe",
@@ -176,25 +176,25 @@ namespace WindowsProcessCleaner
         // Папка данных — одна для окна, headless-режимов и crash.log (Program.ReportCrash).
         //
         // Три источника, в порядке убывания приоритета:
-        //  1. переменная WPC_DATA_DIR — так тесты работают, не трогая настоящие данные
+        //  1. переменная SYSDECK_DATA_DIR — так тесты работают, не трогая настоящие данные
         //     пользователя (иначе первый же прогон переписал бы его конфиг и историю);
         //  2. файл-метка portable.marker рядом с exe — портативная сборка держит всё в своей
         //     папке и не оставляет следов в профиле: флешку вынули, и на компьютере пусто;
-        //  3. обычное место — %APPDATA%\WindowsProcessCleaner (установленная сборка).
+        //  3. обычное место — %APPDATA%\SysDeck (установленная сборка); пока переезд со старого имени не удался —
+        //     %APPDATA%\WindowsProcessCleaner (Rebrand).
         public const string PortableMarker = "portable.marker";
 
         public static string DefaultDataDir()
         {
             string over = null;
-            try { over = Environment.GetEnvironmentVariable("WPC_DATA_DIR"); }
+            try { over = Environment.GetEnvironmentVariable("SYSDECK_DATA_DIR"); }
             catch { }
             if (!string.IsNullOrEmpty(over)) return over.Trim().TrimEnd('\\');
 
             string portable = PortableDataDir();
             if (portable != null) return portable;
 
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                                 "WindowsProcessCleaner");
+            return Rebrand.ResolveStandardDataDir();
         }
 
         // Портативный режим: метка рядом с exe И право писать в эту папку. Портативную

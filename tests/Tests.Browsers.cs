@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «browsers»: обратная запись закладок.
+﻿// SysDeck — область «browsers»: обратная запись закладок.
 //
 // Это самый опасный путь во всём приложении, который НЕ требует прав администратора:
 // программа переписывает живой файл профиля браузера. Поэтому проверка идёт на КОПИИ
@@ -12,7 +12,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class BrowserTests
     {

@@ -1,11 +1,11 @@
-﻿// Windows Process Cleaner — «Захват»: P/Invoke одним списком, чтобы поверхность можно было проверить глазами.
+﻿// SysDeck — «Захват»: P/Invoke одним списком, чтобы поверхность можно было проверить глазами.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace WindowsProcessCleaner.Capture
+namespace SysDeck.Capture
 {
     internal static class CapNative
     {

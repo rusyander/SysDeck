@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Windows: лишнее»: механика выключения / удаления / возврата
+﻿// SysDeck — «Windows: лишнее»: механика выключения / удаления / возврата
 // (реестр, службы, задачи планировщика, Appx, PowerToys, компоненты DISM, OneDrive) и снимок
 // исходного состояния. Каталог элементов — Engine.DebloatCatalog.cs.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
@@ -13,7 +13,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Одно действие внутри элемента каталога. Kind: reg, svc, task, appx, pt, feature, cap, onedrive.
     public class DebloatOp
@@ -41,7 +41,7 @@ namespace WindowsProcessCleaner
     {
         public string Id, Category, Title, What, Pro, Con;
         public int Recommend;            // 0 по желанию, 1 выключить, 2 удалить
-        public bool DefaultChecked;      // отмечен при первом показе — только универсальный мусор
+        public bool DefaultChecked;      // отмечен при первом показе — универсальный мусор и выбранный по умолчанию набор (Game Bar, модули PowerToys)
         public bool Serious;             // предупреждение крупным: Game Bar, OneDrive, поиск Windows…
         public List<DebloatOp> Ops = new List<DebloatOp>();
         public int State;

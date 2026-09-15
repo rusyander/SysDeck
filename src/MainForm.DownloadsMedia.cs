@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: раздел настроек «Видео» — качество, контейнер, субтитры, yt-dlp и Deno.
+﻿// SysDeck — вкладка «Загрузки»: раздел настроек «Видео» — качество, контейнер, субтитры, yt-dlp и Deno.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // yt-dlp и Deno не входят в программу и не ставятся сами: их скачивает только эта кнопка, по нажатию человека.
@@ -8,9 +8,9 @@ using System;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

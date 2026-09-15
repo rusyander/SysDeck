@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «foldersize»: сходятся ли размеры папок на настоящем дереве файлов
+﻿// SysDeck — область «foldersize»: сходятся ли размеры папок на настоящем дереве файлов
 // (обходчик, движок панели и консольная --foldersize-measure собранного exe), не уходит ли обход по
 // ссылкам и в папки с именами, которые Win32 переписывает, и держится ли разбор записей $MFT на мусоре.
 //
@@ -16,9 +16,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Xml;
-using WindowsProcessCleaner.FolderSize;
+using SysDeck.FolderSize;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class FolderSizeTests
     {
@@ -179,7 +179,7 @@ namespace WindowsProcessCleaner.Tests
         // ---------- задача Планировщика: XML, который schtasks примет ----------
         private static void TaskDefinition()
         {
-            string exe = @"C:\Program Files\A & B <x>\WindowsProcessCleaner.exe";
+            string exe = @"C:\Program Files\A & B <x>\SysDeck.exe";
             XmlDocument doc = new XmlDocument();
             string error = null;
             try { doc.LoadXml(FsAutoStart.TaskXml(exe)); }
@@ -203,7 +203,7 @@ namespace WindowsProcessCleaner.Tests
         // ---------- именованные события: окно без прав должно достучаться ----------
         private static void Ipc()
         {
-            string name = @"Local\WindowsProcessCleaner.FolderSize.Test-" + Process.GetCurrentProcess().Id;
+            string name = @"Local\SysDeck.FolderSize.Test-" + Process.GetCurrentProcess().Id;
             using (EventWaitHandle ev = FsIpc.CreateEvent(name))
             {
                 T.Check("a created event is not set", !ev.WaitOne(0));
@@ -597,8 +597,8 @@ namespace WindowsProcessCleaner.Tests
         // ---------- --foldersize-measure собранного exe: вход, которым пользуется человек ----------
         private static void CommandLine(Tree t)
         {
-            string app = Environment.GetEnvironmentVariable("WPC_TEST_APP");
-            if (string.IsNullOrEmpty(app) || !File.Exists(app)) { T.Skip("--foldersize-measure", "WPC_TEST_APP not set"); return; }
+            string app = Environment.GetEnvironmentVariable("SYSDECK_TEST_APP");
+            if (string.IsNullOrEmpty(app) || !File.Exists(app)) { T.Skip("--foldersize-measure", "SYSDECK_TEST_APP not set"); return; }
             // Exe старее порта не знает ключа и открыл бы главное окно — это не проверка, а помеха.
             string source = Path.Combine(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(app)), "src"), "FolderSize.Tray.cs");
             if (File.Exists(source) && File.GetLastWriteTimeUtc(app) < File.GetLastWriteTimeUtc(source))

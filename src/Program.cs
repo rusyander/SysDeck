@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner
+﻿// SysDeck
 // Единый файл. Компилируется встроенным в Windows csc.exe (.NET Framework 4.x).
 // Никакой сторонней установки не требуется. См. build.bat / run.bat.
 //
@@ -18,14 +18,14 @@
 //  - Таймер автоочистки процессов: каждые N часов (1..24), сохраняется в конфиге.
 //  - Системный трей с индикацией активности и меню.
 //  - Автозапуск вместе с Windows через планировщик задач (schtasks, с правами админа).
-//  - История очисток и настройки в JSON (%APPDATA%\WindowsProcessCleaner); запись
+//  - История очисток и настройки в JSON (%APPDATA%\SysDeck); запись
 //    атомарная (tmp + Replace), битый config.json откладывается как .corrupt.
 //  - Single-instance: именованный Mutex; повторный запуск показывает окно первого
 //    экземпляра через локальный TCP-порт 49876 (с /disk <путь> — и передаёт ему путь).
 //  - Ключи: /tray (свернуть в трей), /auto (тихая очистка диска), /analyze (только отчёт),
 //    /disk [путь] (открыть вкладку «Диск» и сразу просканировать путь).
 
-// Windows Process Cleaner — точка входа, локализация, single-instance
+// SysDeck — точка входа, локализация, single-instance
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -50,7 +50,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // ------------------------------------------------------------------ //
     //  Локализация: Tr.S("русский", "english") возвращает строку по языку.
@@ -97,10 +97,14 @@ namespace WindowsProcessCleaner
                         return;
                     }
 
+            // Переезд со старого имени (папка данных, ключи автозапуска) — раньше любого режима, который читает данные.
+            // Хосту расширения некогда ждать остановки старых процессов: браузер ждёт ответа, он работает со старой папкой.
+            if (!SysDeck.Downloads.DlBridge.IsHostLaunch(args)) Rebrand.MigrateOnStart();
+
             // --foldersize* — «Размеры папок»: фоновый режим со своим значком в трее и мьютексом
             // или консольная подкоманда. Окну и его единственному экземпляру не мешает.
             int folderSizeCode;
-            if (WindowsProcessCleaner.FolderSize.FsMode.TryRun(args, out folderSizeCode))
+            if (SysDeck.FolderSize.FsMode.TryRun(args, out folderSizeCode))
             {
                 Environment.ExitCode = folderSizeCode;
                 return;
@@ -108,16 +112,24 @@ namespace WindowsProcessCleaner
 
             // --capture* — «Захват»: фоновый процесс снимков экрана (обычные права, свой мьютекс) или команда ему.
             int captureCode;
-            if (WindowsProcessCleaner.Capture.CapMode.TryRun(args, out captureCode))
+            if (SysDeck.Capture.CapMode.TryRun(args, out captureCode))
             {
                 Environment.ExitCode = captureCode;
+                return;
+            }
+
+            // --hud — оверлей показателей: свой резидент (может работать с правами через задачу Планировщика).
+            int hudCode;
+            if (SysDeck.Capture.HudMode.TryRun(args, out hudCode))
+            {
+                Environment.ExitCode = hudCode;
                 return;
             }
 
             // Запуск браузером как native messaging host (chrome-extension://… или манифест + id дополнения Firefox):
             // кадры по stdin/stdout, окна нет, мьютекс окна не берётся — браузер держит хост, пока открыт порт расширения.
             int hostCode;
-            if (WindowsProcessCleaner.Downloads.DlBridge.TryRun(args, out hostCode))
+            if (SysDeck.Downloads.DlBridge.TryRun(args, out hostCode))
             {
                 Environment.ExitCode = hostCode;
                 return;
@@ -125,7 +137,7 @@ namespace WindowsProcessCleaner
 
             // --downloads* — «Загрузки»: фоновый процесс загрузок (обычные права, свой мьютекс) или команда ему.
             int downloadsCode;
-            if (WindowsProcessCleaner.Downloads.DlMode.TryRun(args, out downloadsCode))
+            if (SysDeck.Downloads.DlMode.TryRun(args, out downloadsCode))
             {
                 Environment.ExitCode = downloadsCode;
                 return;
@@ -158,7 +170,7 @@ namespace WindowsProcessCleaner
             // не запускалось вообще: bind не удался, значит «уже запущено» — и выход.
             // Мьютекс освобождается ядром сразу, как процесс умер, при любом сценарии.
             bool primary;
-            _instanceMutex = new Mutex(true, @"Local\WindowsProcessCleaner.singleinstance", out primary);
+            _instanceMutex = new Mutex(true, @"Local\SysDeck.singleinstance", out primary);
             if (!primary)
             {
                 // /disk <путь> при уже открытом окне: путь уходит первому экземпляру, иначе он бы потерялся
@@ -195,7 +207,10 @@ namespace WindowsProcessCleaner
             if (args != null && args.Contains("/selftest"))
                 _form.SetSelfTest(true);
             else
-                WindowsProcessCleaner.Capture.CapLauncher.StartIfEnabled();
+            {
+                SysDeck.Capture.CapLauncher.StartIfEnabled();
+                SysDeck.Capture.HudLauncher.StartIfWanted();
+            }
             // /disk [путь] — открыть вкладку «Диск»; с путём — сразу просканировать его
             // (удобно вызывать из Проводника или ярлыка на конкретную папку).
             if (args != null)
@@ -236,7 +251,7 @@ namespace WindowsProcessCleaner
                 string msg = Tr.S("Произошла внутренняя ошибка. Подробности записаны в crash.log в папке данных приложения.",
                                   "An internal error occurred. Details were written to crash.log in the application data folder.")
                              + "\r\n\r\n" + (ex == null ? "" : ex.GetType().Name + ": " + ex.Message);
-                MessageBox.Show(msg, "Windows Process Cleaner", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(msg, "SysDeck", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { }
             finally { Interlocked.Exchange(ref _crashShowing, 0); }
@@ -442,10 +457,10 @@ namespace WindowsProcessCleaner
         private static string TorrentArgument(string[] args)
         {
             if (args == null || args.Length == 0) return null;
-            int ti = Array.FindIndex(args, delegate(string a) { return string.Equals(a, WindowsProcessCleaner.Downloads.BtAssoc.OpenSwitch, StringComparison.OrdinalIgnoreCase); });
+            int ti = Array.FindIndex(args, delegate(string a) { return string.Equals(a, SysDeck.Downloads.BtAssoc.OpenSwitch, StringComparison.OrdinalIgnoreCase); });
             string arg = ti >= 0 && ti + 1 < args.Length ? args[ti + 1]
                        : args[0].StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase) ? args[0] : null;
-            return arg == null ? null : WindowsProcessCleaner.Downloads.BtAssoc.ValidateOpenArgument(arg);
+            return arg == null ? null : SysDeck.Downloads.BtAssoc.ValidateOpenArgument(arg);
         }
 
         // Путь после /disk; null — ключа нет или путь не указан.

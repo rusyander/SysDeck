@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: имя и путь файла, правила папок, опасные типы, разреженный файл, Корзина.
+﻿// SysDeck — «Загрузки»: имя и путь файла, правила папок, опасные типы, разреженный файл, Корзина.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Имя приходит от сервера или страницы — то есть от кого угодно. Отсюда: никаких разделителей пути и двоеточий (ADS),
@@ -12,7 +12,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class DlFiles
     {

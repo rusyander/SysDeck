@@ -1,7 +1,7 @@
-﻿// Windows Process Cleaner — область «media», ядро: разбор MPEG-TS, склейка MP4/WebM/M4A/MP3, субтитры.
+﻿// SysDeck — область «media», ядро: разбор MPEG-TS, склейка MP4/WebM/M4A/MP3, субтитры.
 //
 // Проверки идут по настоящему пути: фикстуры tests\media → MdMux.Run → чтение результата Media Foundation (MdFx.ReadBack),
-// ffprobe как независимый оракул (MdFx.FfProbe, WPC_FFPROBE) и свой разбор итогового файла (боксы MP4, элементы EBML).
+// ffprobe как независимый оракул (MdFx.FfProbe, SYSDECK_FFPROBE) и свой разбор итогового файла (боксы MP4, элементы EBML).
 // Чего в фикстурах нет — собирается здесь, в Fx.Root: TS с переполнением 33-битных отметок (отметки настоящих сегментов
 // переписываются), TS с разрывом на 30 с, обрезанный TS, сегменты WebVTT с X-TIMESTAMP-MAP, TTML, враждебный WebM.
 using System;
@@ -10,9 +10,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class MediaTests
     {
@@ -225,8 +225,8 @@ namespace WindowsProcessCleaner.Tests
         {
             output = "";
             why = null;
-            string exe = Environment.GetEnvironmentVariable("WPC_FFPROBE");
-            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) { why = "WPC_FFPROBE not set"; return false; }
+            string exe = Environment.GetEnvironmentVariable("SYSDECK_FFPROBE");
+            if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) { why = "SYSDECK_FFPROBE not set"; return false; }
             ProcessStartInfo psi = new ProcessStartInfo(exe, args + " \"" + path + "\"");
             psi.UseShellExecute = false;
             psi.RedirectStandardOutput = true;

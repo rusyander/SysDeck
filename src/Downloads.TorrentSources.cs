@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Обновить раздачу»: где искать новую версию раздачи.
+﻿// SysDeck — «Обновить раздачу»: где искать новую версию раздачи.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // BtTopic — ссылка на страницу раздачи из .torrent (comment, publisher-url) в каноническом виде: по ней новая версия,
@@ -18,7 +18,7 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class BtTopic
     {
@@ -92,7 +92,7 @@ namespace WindowsProcessCleaner.Downloads
     {
         public string BaseUrl = "https://api.rutracker.cc/v1/";
         public int PauseMs = 500;
-        public string UserAgent = "WindowsProcessCleaner";
+        public string UserAgent = "SysDeck";
         public Func<bool> Cancel = delegate { return false; };
         public Func<bool> MaySweep = delegate { return true; };
         public Func<DateTime> Now = delegate { return DateTime.UtcNow; };

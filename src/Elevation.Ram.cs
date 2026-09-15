@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — права администратора для вкладки «Память».
+﻿// SysDeck — права администратора для вкладки «Память».
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Чем этот случай отличается от всех остальных повышений прав в приложении.
@@ -30,7 +30,7 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Сторона окна: запуск, отправка команд, остановка.
     public sealed class RamAgent

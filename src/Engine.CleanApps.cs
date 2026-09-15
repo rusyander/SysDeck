@@ -1,11 +1,11 @@
-﻿// Windows Process Cleaner — кэши популярных программ (дополнение к BuildCleanCategories).
+﻿// SysDeck — кэши популярных программ (дополнение к BuildCleanCategories).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {

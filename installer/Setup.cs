@@ -208,18 +208,18 @@ namespace WpcSetup
                 catch { return 1; }
             }
 
-            using (WorkForm f = new WorkForm(L.S("Удаление Windows Process Cleaner", "Uninstalling Windows Process Cleaner"),
+            using (WorkForm f = new WorkForm(L.S("Удаление SysDeck", "Uninstalling SysDeck"),
                                              L.S("Удаление программы…", "Removing the program..."),
                                              Work.Uninstall, c))
             {
                 if (f.ShowDialog() != DialogResult.OK) return 1;
             }
 
-            MessageBox.Show(L.S("Windows Process Cleaner удалён.", "Windows Process Cleaner has been removed.")
+            MessageBox.Show(L.S("SysDeck удалён.", "SysDeck has been removed.")
                                 + (deleteData
                                     ? "\r\n" + L.S("Настройки и история тоже удалены.", "Settings and history were removed as well.")
-                                    : "\r\n" + L.S("Настройки и история остались в %APPDATA%\\WindowsProcessCleaner.",
-                                                   "Settings and history are kept in %APPDATA%\\WindowsProcessCleaner.")),
+                                    : "\r\n" + L.S("Настройки и история остались в %APPDATA%\\SysDeck.",
+                                                   "Settings and history are kept in %APPDATA%\\SysDeck.")),
                             L.S("Удаление завершено", "Uninstall complete"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             return 0;
         }

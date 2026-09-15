@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Захват»: модель редактора снимка — фигуры, история правок, скрытие данных, сборка картинки.
+﻿// SysDeck — «Захват»: модель редактора снимка — фигуры, история правок, скрытие данных, сборка картинки.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Фигуры векторные и лежат поверх растра: до сохранения растр не меняется. Сам растр меняют только обрезка и поворот —
@@ -14,7 +14,7 @@ using System.Drawing.Text;
 using System.Globalization;
 using System.Runtime.InteropServices;
 
-namespace WindowsProcessCleaner.Capture
+namespace SysDeck.Capture
 {
     internal enum EditTool { Select, Pen, Marker, Line, Arrow, Rect, Ellipse, Step, Text, Blur, Pixelate, Crop }
 

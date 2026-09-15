@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Память»: что физически занято и кем.
+﻿// SysDeck — вкладка «Память»: что физически занято и кем.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Задача файла — свести всю физическую память к одному разложению, которое СХОДИТСЯ:
@@ -38,7 +38,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // ------------------------------------------------------------------ //
     //  Модель

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — регрессии на конкретные ошибки каталога (аудит 2026-09-10b, раунды 30-33).
+﻿// SysDeck — регрессии на конкретные ошибки каталога (аудит 2026-09-10b, раунды 30-33).
 //
 // Каждая проверка здесь стоит за уже случившейся ошибкой: удалённый registry.bin работающего
 // демона Gradle, снесённая гигабайтами перекачка Gradle/Maven в «рекомендованных», вложение
@@ -10,7 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class RegressTests
     {

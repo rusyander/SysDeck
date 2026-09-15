@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Инструменты»: быстрые исправления, защита, запуск штатных средств Windows
+﻿// SysDeck — «Инструменты»: быстрые исправления, защита, запуск штатных средств Windows
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Пункт «Инструментов». Группа fix/protect выполняется с журналом; open — просто запускает программу.
     public class ToolItem
@@ -511,7 +511,7 @@ namespace WindowsProcessCleaner
                 log(Tr.S("Защита системы выключена — включаю для ", "System Protection is off — enabling for ") + drive);
                 script += "Enable-ComputerRestore -Drive " + PsQuote(drive) + " -ErrorAction Stop; ";
             }
-            string desc = "Windows Process Cleaner " + DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+            string desc = "SysDeck " + DateTime.Now.ToString("yyyy-MM-dd HH:mm");
             script +=
                 "try{Checkpoint-Computer -Description " + PsQuote(desc) + " -RestorePointType MODIFY_SETTINGS -ErrorAction Stop;'OK'}" +
                 "catch{'ERR '+$_.Exception.Message}";

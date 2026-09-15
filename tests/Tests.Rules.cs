@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — тесты правил winapp2.ini.
+﻿// SysDeck — тесты правил winapp2.ini.
 //
 // Файл правил кладут в папку, куда пишет любой процесс от имени пользователя, а чистим мы от
 // администратора. Поэтому здесь проверяется не только разбор (что читается, а что сознательно
@@ -11,7 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class RuleTests
     {

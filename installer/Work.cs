@@ -205,7 +205,44 @@ namespace WpcSetup
             c.Log(L.S("Запись в список установленных программ…", "Registering in installed programs..."));
             WriteRegistry(c, exe, uninstaller, version);
 
+            RemoveLegacy(c);
+
             c.Log(L.S("Готово.", "Done."));
+        }
+
+        // Установка поверх сборки со старым именем: её ярлыки, запись в списке программ и файлы уходят, иначе в «Приложениях»
+        // остались бы две программы. Настройки не трогаются — их переносит сама программа при первом запуске.
+        private static void RemoveLegacy(WorkContext c)
+        {
+            string legacyDir = null;
+            bool registered = false;
+            try
+            {
+                using (RegistryKey root = Root(c.Scope))
+                using (RegistryKey k = root.OpenSubKey(Product.LegacyRegKey))
+                    if (k != null) { registered = true; legacyDir = k.GetValue("InstallLocation") as string; }
+            }
+            catch { }
+            string inPlace = Path.Combine(c.Dir, Product.LegacyExeName);
+            if (!registered && !File.Exists(inPlace)) return;
+
+            c.Log(L.S("Удаление сборки со старым именем (Windows Process Cleaner)…", "Removing the build under the old name (Windows Process Cleaner)..."));
+            DeleteFileQuiet(Path.Combine(Path.GetDirectoryName(StartMenuLnk(c.Scope)), Product.LegacyShortcutFile), c);
+            DeleteFileQuiet(Path.Combine(Path.GetDirectoryName(DesktopLnk(c.Scope)), Product.LegacyShortcutFile), c);
+            if (File.Exists(inPlace)) DeleteFileQuiet(inPlace, c);
+            if (!string.IsNullOrEmpty(legacyDir) && File.Exists(Path.Combine(legacyDir, Product.LegacyExeName))
+                && !Product.Norm(legacyDir).Equals(Product.Norm(c.Dir), StringComparison.OrdinalIgnoreCase))
+            {
+                if (RunningIn(legacyDir).Length > 0)
+                    c.Log(L.S("    старая копия запущена, её папка оставлена: ", "    the old copy is running, its folder is kept: ") + legacyDir);
+                else DeleteTree(legacyDir, c);
+            }
+            try
+            {
+                using (RegistryKey root = Root(c.Scope))
+                    root.DeleteSubKeyTree(Product.LegacyRegKey, false);
+            }
+            catch (Exception ex) { c.Log("    " + ex.Message); }
         }
 
         private static void ExtractApp(Stream dst)
@@ -433,6 +470,14 @@ namespace WpcSetup
                 string data = Product.DataDir();
                 c.Log(L.S("Удаление настроек и истории…", "Removing settings and history...") + " " + data);
                 if (Directory.Exists(data)) DeleteTree(data, c);
+                // Точка соединения, оставленная переездом со старого имени (Rebrand в src\), — только сама ссылка.
+                string legacyData = Path.Combine(Path.GetDirectoryName(data), "WindowsProcessCleaner");
+                try
+                {
+                    DirectoryInfo link = new DirectoryInfo(legacyData);
+                    if (link.Exists && (link.Attributes & FileAttributes.ReparsePoint) != 0) { link.Delete(); c.Log("    " + legacyData); }
+                }
+                catch (Exception ex) { c.Log("    " + ex.Message); }
             }
 
             c.Log(L.S("Готово.", "Done."));
@@ -446,7 +491,7 @@ namespace WpcSetup
             @"Mozilla\NativeMessagingHosts\org.wpc.downloads",
         };
         private const string RunKey = @"Microsoft\Windows\CurrentVersion\Run";
-        private const string DownloadsRunValue = "WindowsProcessCleaner.Downloads";
+        private const string DownloadsRunValue = "SysDeck.Downloads";
 
         // Эти записи в HKCU пишет сама программа, а не установщик. Удаляются только свои: ключ браузера — если ведёт
         // в папку манифестов этой папки данных, автозапуск загрузок — если запускает exe из папки установки.

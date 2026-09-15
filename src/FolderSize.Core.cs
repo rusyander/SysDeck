@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Размеры папок»: пути, журнал, настройки, автозапуск, связь процессов, P/Invoke.
+﻿// SysDeck — «Размеры папок»: пути, журнал, настройки, автозапуск, связь процессов, P/Invoke.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Перенос отдельной программы FolderSizePanel внутрь этого exe. Работает отдельным фоновым
@@ -19,14 +19,14 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner.FolderSize
+namespace SysDeck.FolderSize
 {
     // ------------------------------------------------------------------ //
     //  Пути
     // ------------------------------------------------------------------ //
     internal static class FsPaths
     {
-        // Внутри папки данных приложения: WPC_DATA_DIR уводит туда же и тесты, и фоновый режим.
+        // Внутри папки данных приложения: SYSDECK_DATA_DIR уводит туда же и тесты, и фоновый режим.
         public static string DataDir { get { return Path.Combine(Engine.DefaultDataDir(), "foldersize"); } }
         public static string SettingsFile { get { return Path.Combine(DataDir, "settings.json"); } }
         public static string SizesFile { get { return Path.Combine(DataDir, "sizes.json"); } }
@@ -323,8 +323,8 @@ namespace WindowsProcessCleaner.FolderSize
     internal static class FsAutoStart
     {
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        public const string ValueName = "WindowsProcessCleaner.FolderSize";
-        public const string TaskName = "WindowsProcessCleaner FolderSize";
+        public const string ValueName = "SysDeck.FolderSize";
+        public const string TaskName = "SysDeck FolderSize";
         public const string LegacyName = "FolderSizePanel";
 
         public static bool IsEnabled() { return HasRunEntry() || HasScheduledTask(); }
@@ -465,7 +465,7 @@ namespace WindowsProcessCleaner.FolderSize
             StringBuilder sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n");
             sb.Append("<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n");
-            sb.Append("  <RegistrationInfo><Description>Windows Process Cleaner FolderSize</Description></RegistrationInfo>\r\n");
+            sb.Append("  <RegistrationInfo><Description>SysDeck FolderSize</Description></RegistrationInfo>\r\n");
             sb.Append("  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>").Append(Escape(account)).Append("</UserId></LogonTrigger></Triggers>\r\n");
             sb.Append("  <Principals><Principal id=\"Author\"><UserId>").Append(Escape(principal)).Append("</UserId>");
             sb.Append("<LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>\r\n");
@@ -505,10 +505,10 @@ namespace WindowsProcessCleaner.FolderSize
     // ------------------------------------------------------------------ //
     internal static class FsIpc
     {
-        public const string MutexName = @"Local\WindowsProcessCleaner.FolderSize";
-        public const string ShutdownName = @"Local\WindowsProcessCleaner.FolderSize.Shutdown";
-        public const string ReloadName = @"Local\WindowsProcessCleaner.FolderSize.Reload";
-        public const string ShowName = @"Local\WindowsProcessCleaner.FolderSize.Show";
+        public const string MutexName = @"Local\SysDeck.FolderSize";
+        public const string ShutdownName = @"Local\SysDeck.FolderSize.Shutdown";
+        public const string ReloadName = @"Local\SysDeck.FolderSize.Reload";
+        public const string ShowName = @"Local\SysDeck.FolderSize.Show";
         public const string LegacyShutdownName = @"Local\FolderSizePanel.Shutdown";
         public const string LegacyMutexName = @"Local\FolderSizePanel.SingleInstance";
 

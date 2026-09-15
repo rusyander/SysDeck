@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: карточка торрента на странице — разбор ответа команд torrent и updateInfo, строки вкладок.
+﻿// SysDeck — «Загрузки»: карточка торрента на странице — разбор ответа команд torrent и updateInfo, строки вкладок.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Без окна и канала, как DlView: разбор и подписи проверяются тестами. Пока процесс загрузок не запущен, карточка
@@ -7,7 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlTorrentFile
     {

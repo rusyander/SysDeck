@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Размеры папок»: управление фоновым режимом (трей, панель у Проводника,
+﻿// SysDeck — вкладка «Размеры папок»: управление фоновым режимом (трей, панель у Проводника,
 // числа в колонке «Размер»), его настройки, автозапуск и быстрый режим NTFS.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
@@ -7,9 +7,9 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.FolderSize;
+using SysDeck.FolderSize;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

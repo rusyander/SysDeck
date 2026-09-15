@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: диалог добавления торрента (файл .torrent или magnet-ссылка).
+﻿// SysDeck — вкладка «Загрузки»: диалог добавления торрента (файл .torrent или magnet-ссылка).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Диалог разбирает торрент сам — чтобы показать файлы до добавления, — но окончательно проверяет его процесс загрузок
@@ -10,9 +10,9 @@ using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

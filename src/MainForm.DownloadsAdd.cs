@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: диалог добавления ссылок и маленький диалог ввода строки.
+﻿// SysDeck — вкладка «Загрузки»: диалог добавления ссылок и маленький диалог ввода строки.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Диалог только собирает параметры: проверяет ссылки, папку и хеш окончательно процесс загрузок — тем же кодом, что и
@@ -10,9 +10,9 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

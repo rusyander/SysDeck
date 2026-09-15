@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — брандмауэр: правило входящих соединений для торрентов.
+﻿// SysDeck — брандмауэр: правило входящих соединений для торрентов.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Торрент-сессия слушает TCP только после кнопки «Разрешить входящие»: слушатель без правила вызывает окно Windows
@@ -17,13 +17,13 @@ using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public enum FirewallInbound { Unknown, None, Allowed, Blocked }
 
     public partial class Engine
     {
-        public const string FirewallRuleName = "Windows Process Cleaner (BitTorrent)";
+        public const string FirewallRuleName = "SysDeck (BitTorrent)";
 
         // Состояние входящих для exe: запрещающее правило побеждает разрешающее (так работает сам брандмауэр).
         // Unknown — служба брандмауэра недоступна или COM не ответил.
@@ -103,7 +103,7 @@ namespace WindowsProcessCleaner
             return "\"" + s + "\"";
         }
 
-        // Правило может хранить путь с %ProgramFiles%, 8.3-псевдонимами (RUSYAN~1) и в другом регистре — брандмауэр
+        // Правило может хранить путь с %ProgramFiles%, 8.3-псевдонимами (USERNA~1) и в другом регистре — брандмауэр
         // сопоставляет по настоящему файлу, значит и сравнивать надо канонический вид.
         private static string NormalizeExe(string path)
         {

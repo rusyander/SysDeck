@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Захват»: запись видео — параметры из настроек, сессия записи, рамка области, панель с
+﻿// SysDeck — «Захват»: запись видео — параметры из настроек, сессия записи, рамка области, панель с
 // таймером, значок в трее на время записи, восстановление файла после сбоя.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
@@ -13,7 +13,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.Capture
+namespace SysDeck.Capture
 {
     // Что записываем: область монитора или окно (тогда Area — его границы на момент старта).
     internal sealed class RecordTarget

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — конфигурация, история, модели данных (процессы, порты, очистка, обновления, автозапуск)
+﻿// SysDeck — конфигурация, история, модели данных (процессы, порты, очистка, обновления, автозапуск)
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // ------------------------------------------------------------------ //
     //  Конфигурация и история (сериализуются в JSON)
@@ -112,7 +112,7 @@ namespace WindowsProcessCleaner
             c.UpdateUseChoco = true;
             c.UpdateBatchSize = 5;
             c.DiskMinMb = 1;
-            c.SmartBoostEnabled = false;
+            c.SmartBoostEnabled = true;
             c.SmartBoostPercent = 90;
             c.UiChecks = new List<string>();
             c.ConfigVersion = CurrentVersion;

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Главная»: снимок состояния системы (карточки) и проверка здоровья
+﻿// SysDeck — «Главная»: снимок состояния системы (карточки) и проверка здоровья
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -11,7 +11,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Строка проверки состояния: уровень, что проверяли, подробности, что с этим делать.
     public class HealthItem

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: установка и обновление yt-dlp и Deno с GitHub.
+﻿// SysDeck — «Загрузки», видео: установка и обновление yt-dlp и Deno с GitHub.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Оба инструмента — официальные сборки из выпусков GitHub, лежат в <данные загрузок>\tools. Тег выпуска берётся из
@@ -19,7 +19,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class MdToolStatus
     {

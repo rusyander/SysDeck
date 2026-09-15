@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — тесты обхода и настоящего удаления.
+﻿// SysDeck — тесты обхода и настоящего удаления.
 //
 // Все проверки здесь ДЕЙСТВИТЕЛЬНО удаляют файлы — но только внутри своей папки под
 // %LOCALAPPDATA%\Temp и только через категорию, собранную руками, с выключенной Корзиной
@@ -8,7 +8,7 @@
 using System;
 using System.IO;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class CleanTests
     {

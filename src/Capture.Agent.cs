@@ -1,14 +1,15 @@
-﻿// Windows Process Cleaner — «Захват»: фоновый процесс (ключ --capture), горячие клавиши, команды, сценарии снимков.
+﻿// SysDeck — «Захват»: фоновый процесс (ключ --capture), горячие клавиши, команды, сценарии снимков.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.Capture
+namespace SysDeck.Capture
 {
     // ------------------------------------------------------------------ //
     //  Ключи exe. Проверяются в Main раньше мьютекса главного окна: агент — отдельный процесс со своим мьютексом.
@@ -17,7 +18,8 @@ namespace WindowsProcessCleaner.Capture
     {
         public const string Switch = "--capture";              // фоновый процесс захвата
         public const string ExitSwitch = "--capture-exit";     // остановить работающий
-        public const string ShotSwitch = "--capture-shot";     // region|screen|window — попросить работающий агент о снимке
+        public const string ShotSwitch = "--capture-shot";     // region|screen|window — попросить работающий агент о снимке; hud — показать / скрыть показатели
+        public const string WaitSwitch = "--capture-wait";     // вместе с --capture: дождаться выхода прежнего агента (перезапуск на новой сборке)
 
         public static bool TryRun(string[] args, out int exitCode)
         {
@@ -33,12 +35,14 @@ namespace WindowsProcessCleaner.Capture
             {
                 string kind = at + 1 < args.Length ? args[at + 1] : "region";
                 string command = ShotCommand(kind);
+                // Оверлей — отдельный процесс: работает и без агента «Захвата».
+                if (command == "Hud") { exitCode = HudLauncher.Toggle() == null ? 0 : 1; return true; }
                 exitCode = command != null && CapIpc.Signal(command) ? 0 : command == null ? 2 : 1;
                 return true;
             }
             if (IndexOf(args, Switch) >= 0)
             {
-                exitCode = RunAgent();
+                exitCode = RunAgent(IndexOf(args, WaitSwitch) >= 0);
                 return true;
             }
             return false;
@@ -51,6 +55,7 @@ namespace WindowsProcessCleaner.Capture
                 case "region": return "ShotRegion";
                 case "screen": return "ShotScreen";
                 case "window": return "ShotWindow";
+                case "hud": return "Hud";
                 default: return null;
             }
         }
@@ -62,13 +67,19 @@ namespace WindowsProcessCleaner.Capture
             return -1;
         }
 
-        private static int RunAgent()
+        private static int RunAgent(bool waitPrevious)
         {
             try { Tr.En = new Engine().Config.Language == "en"; }
             catch (Exception ex) { CapLog.Report(ex); }
 
             bool first;
             Mutex instance = CapIpc.CreateInstanceMutex(out first);
+            if (!first && instance != null && waitPrevious)
+            {
+                // Прежний агент закрывает запись файлов и отпускает клавиши — обычно доли секунды.
+                try { first = instance.WaitOne(15000); }
+                catch (AbandonedMutexException) { first = true; }
+            }
             if (!first)
             {
                 if (instance != null) instance.Dispose();
@@ -159,7 +170,7 @@ namespace WindowsProcessCleaner.Capture
             foreach (CapAction a in new List<CapAction>(errors.Keys))
             {
                 HotkeySpec spec;
-                if (errors[a] == 0 || !keys.TryGetValue(a, out spec) || spec.IsEmpty) continue;
+                if (errors[a] <= 0 || !keys.TryGetValue(a, out spec) || spec.IsEmpty) continue;
                 int id = (int)a + 1;
                 if (!CapNative.RegisterHotKey(Handle, id, spec.Mods | 0x4000, spec.Vk)) continue;
                 _ids.Add(id);
@@ -195,6 +206,188 @@ namespace WindowsProcessCleaner.Capture
         {
             UnregisterAll();
             if (Handle != IntPtr.Zero) DestroyHandle();
+        }
+    }
+
+    // Сочетание, занятое другой программой (NVIDIA App держит Alt+R, GameCenter — F3), RegisterHotKey не получит: Windows
+    // отдаёт его тому, кто занял первым. Низкоуровневый хук клавиатуры видит нажатие раньше этой раздачи и забирает его.
+    // Свой поток с очередью сообщений: Windows молча снимает хук, чей обработчик не ответил вовремя, а поток агента бывает
+    // занят снимком. Win-сочетания не забираются — хук сломал бы меню «Пуск».
+    internal sealed class KeyGrabber : IDisposable
+    {
+        private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr dwExtraInfo; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public int x, y; }
+
+        [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int idHook, HookProc proc, IntPtr module, uint threadId);
+        [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
+        [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern int GetMessage(out MSG msg, IntPtr hwnd, uint min, uint max);
+        [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+        [DllImport("kernel32.dll")] private static extern IntPtr GetModuleHandle(string name);
+        [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+
+        private const int WH_KEYBOARD_LL = 13;
+        private const uint WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105, WM_QUIT = 0x12;
+        private const uint KEYEVENTF_KEYUP = 2;
+        // Не назначенная клавиша: после забранного Alt+R отпущенный Alt не выглядит одиночным нажатием и не открывает меню окна.
+        private const byte VkMask = 0xE8;
+
+        private readonly Action<CapAction> _pressed;
+        private readonly HookProc _proc;   // ссылка держит делегат живым, пока хук стоит
+        private volatile Dictionary<CapAction, HotkeySpec> _keys = new Dictionary<CapAction, HotkeySpec>();
+        private Thread _thread;
+        private uint _threadId;
+        private IntPtr _hook;
+        private uint _downVk;              // только в потоке хука
+
+        public KeyGrabber(Action<CapAction> pressed)
+        {
+            _pressed = pressed;
+            _proc = OnKey;
+        }
+
+        public bool Active { get { return _thread != null; } }
+
+        // Из потока агента. false — хук не поставился, сочетания остаются «занято».
+        public bool Set(Dictionary<CapAction, HotkeySpec> keys)
+        {
+            _keys = new Dictionary<CapAction, HotkeySpec>(keys);
+            if (keys.Count == 0) { Stop(); return true; }
+            if (_thread != null) return true;
+            ManualResetEvent ready = new ManualResetEvent(false);
+            bool installed = false;
+            Thread t = new Thread(delegate()
+            {
+                _threadId = GetCurrentThreadId();
+                _hook = SetWindowsHookEx(WH_KEYBOARD_LL, _proc, GetModuleHandle(null), 0);
+                installed = _hook != IntPtr.Zero;
+                if (!installed) CapLog.Write("keyboard hook failed, code " + Marshal.GetLastWin32Error());
+                ready.Set();
+                if (!installed) return;
+                MSG m;
+                while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) { }
+                UnhookWindowsHookEx(_hook);
+                _hook = IntPtr.Zero;
+            });
+            t.Name = "wpc-capture-keygrab";
+            t.IsBackground = true;
+            t.Start();
+            // Событие не закрывается: опоздавший поток ещё может его установить.
+            ready.WaitOne(5000);
+            if (!installed) { t.Join(1000); return false; }
+            _thread = t;
+            return true;
+        }
+
+        private void Stop()
+        {
+            if (_thread == null) return;
+            PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+            _thread.Join(2000);
+            _thread = null;
+        }
+
+        private IntPtr OnKey(int code, IntPtr wParam, IntPtr lParam)
+        {
+            if (code >= 0)
+            {
+                KBDLLHOOKSTRUCT k = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
+                uint msg = (uint)wParam.ToInt64();
+                if (k.vkCode != VkMask)
+                {
+                    if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+                    {
+                        if (k.vkCode == _downVk) { _downVk = 0; return new IntPtr(1); }
+                    }
+                    else if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+                    {
+                        // Автоповтор удерживаемой клавиши — без повторного срабатывания (как MOD_NOREPEAT).
+                        if (k.vkCode == _downVk) return new IntPtr(1);
+                        uint mods = CurrentMods();
+                        CapAction action;
+                        if (KeyGrab.Match(_keys, k.vkCode, mods, out action))
+                        {
+                            _downVk = k.vkCode;
+                            if ((mods & HotkeySpec.MOD_ALT) != 0)
+                            {
+                                keybd_event(VkMask, 0, 0, UIntPtr.Zero);
+                                keybd_event(VkMask, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                            }
+                            try { _pressed(action); }
+                            catch (Exception ex) { CapLog.Report(ex); }
+                            return new IntPtr(1);
+                        }
+                    }
+                }
+            }
+            return CallNextHookEx(_hook, code, wParam, lParam);
+        }
+
+        private static uint CurrentMods()
+        {
+            uint mods = 0;
+            if (CapNative.GetAsyncKeyState(0x11) < 0) mods |= HotkeySpec.MOD_CONTROL;
+            if (CapNative.GetAsyncKeyState(0x12) < 0) mods |= HotkeySpec.MOD_ALT;
+            if (CapNative.GetAsyncKeyState(0x10) < 0) mods |= HotkeySpec.MOD_SHIFT;
+            if (CapNative.GetAsyncKeyState(0x5B) < 0 || CapNative.GetAsyncKeyState(0x5C) < 0) mods |= HotkeySpec.MOD_WIN;
+            return mods;
+        }
+
+        public void Dispose() { Stop(); }
+    }
+
+    internal static class KeyGrab
+    {
+        // Забирать можно сочетание с Ctrl/Alt/Shift или одиночную клавишу; с Win — нет.
+        public static bool Eligible(HotkeySpec spec)
+        {
+            return !spec.IsEmpty && (spec.Mods & HotkeySpec.MOD_WIN) == 0;
+        }
+
+        // Точное совпадение: Alt+R не срабатывает на Ctrl+Alt+R и наоборот.
+        public static bool Match(IDictionary<CapAction, HotkeySpec> keys, uint vk, uint mods, out CapAction action)
+        {
+            foreach (KeyValuePair<CapAction, HotkeySpec> kv in keys)
+                if (kv.Value.Vk == vk && kv.Value.Mods == mods) { action = kv.Key; return true; }
+            action = CapAction.ShotRegion;
+            return false;
+        }
+
+        // Какие отказавшие из-за занятости сочетания забрать хуком.
+        public static Dictionary<CapAction, HotkeySpec> Busy(IDictionary<CapAction, HotkeySpec> keys, IDictionary<CapAction, int> errors, bool take)
+        {
+            Dictionary<CapAction, HotkeySpec> grab = new Dictionary<CapAction, HotkeySpec>();
+            if (!take) return grab;
+            foreach (KeyValuePair<CapAction, int> kv in errors)
+            {
+                HotkeySpec spec;
+                if (kv.Value == HotkeyOwners.ErrorHotkeyAlreadyRegistered && keys.TryGetValue(kv.Key, out spec) && Eligible(spec)) grab[kv.Key] = spec;
+            }
+            return grab;
+        }
+    }
+
+    // Смена сборки exe под работающим агентом.
+    internal static class AgentBuild
+    {
+        // Время записи exe; MinValue — файл не читается (переименован и ещё не заменён, удалён).
+        public static DateTime Stamp(string exe)
+        {
+            try { return File.Exists(exe) ? File.GetLastWriteTimeUtc(exe) : DateTime.MinValue; }
+            catch { return DateTime.MinValue; }
+        }
+
+        // Компилятор пишет exe несколько секунд: новый файл должен пролежать нетронутым 10 с.
+        public static bool ShouldRestart(DateTime started, DateTime now, DateTime utcNow, bool busy)
+        {
+            if (busy || started == DateTime.MinValue || now == DateTime.MinValue || now == started) return false;
+            return utcNow - now >= TimeSpan.FromSeconds(10);
         }
     }
 
@@ -235,6 +428,9 @@ namespace WindowsProcessCleaner.Capture
         private readonly List<EditorForm> _editors = new List<EditorForm>();
         private RecordSession _record;
         private GalleryForm _gallery;
+        private readonly System.Windows.Forms.Timer _buildWatch = new System.Windows.Forms.Timer();
+        private readonly KeyGrabber _grabber;
+        private readonly DateTime _buildStamp = AgentBuild.Stamp(CapPaths.ExecutablePath);
 
         public AgentApp()
         {
@@ -244,12 +440,15 @@ namespace WindowsProcessCleaner.Capture
             _settings = CapSettings.Load();
             _hotkeys = new HotkeyWindow();
             _hotkeys.Pressed += OnHotkey;
+            _grabber = new KeyGrabber(delegate(CapAction a) { Post(delegate { Run(a); }); });
             _toasts = new ToastHost();
             _toasts.EditRequested += EditFile;
             _toasts.GalleryRequested += ShowGallery;
             // Сочетание, занятое другой программой (GameCenter до удаления), подхватывается, как только освободится.
             _retry.Interval = 15000;
             _retry.Tick += delegate { RetryBusyKeys(); };
+            _buildWatch.Interval = 20000;
+            _buildWatch.Tick += delegate { RestartIfRebuilt(); };
         }
 
         public CapSettings Settings { get { return _settings; } }
@@ -263,6 +462,36 @@ namespace WindowsProcessCleaner.Capture
             // Программа запускается с Windows свёрнутой в трей; галерея — единственное окно, которое по просьбе
             // пользователя должно открываться развёрнутым.
             if (_settings.GalleryOnStart) ShowGallery(null);
+            // Оверлей — свой процесс (ему нужны права, агенту нельзя): агент лишь поднимает его вместе с собой.
+            HudLauncher.StartIfWanted();
+            _buildWatch.Start();
+        }
+
+        // exe пересобрали или обновили установщиком, а агент работает со старым кодом: держит прежние сочетания и
+        // не знает новых команд. Перезапуск — только когда ничего не прервётся: нет записи, выделения, редактора, галереи.
+        private void RestartIfRebuilt()
+        {
+            bool busy = _record != null || _overlay != null || _delay != null && _delay.Enabled || _editors.Count > 0 ||
+                        _gallery != null && !_gallery.IsDisposed;
+            string exe = CapPaths.ExecutablePath;
+            if (!AgentBuild.ShouldRestart(_buildStamp, AgentBuild.Stamp(exe), DateTime.UtcNow, busy)) return;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(exe, CapMode.Switch + " " + CapMode.WaitSwitch);
+                psi.UseShellExecute = false;
+                Process p = Process.Start(psi);
+                if (p != null) p.Dispose();
+            }
+            catch (Exception ex)
+            {
+                // Новый exe не запускается (антивирус, файл ещё пишется) — старый агент продолжает работать.
+                CapLog.Report(ex);
+                _buildWatch.Stop();
+                return;
+            }
+            _buildWatch.Stop();
+            CapLog.Write("new build of the exe, agent restarts");
+            Application.ExitThread();
         }
 
         // Метка записи пережила прошлый процесс — запись оборвалась (сбой, выключение). fMP4 чинится перемуксом.
@@ -314,6 +543,7 @@ namespace WindowsProcessCleaner.Capture
             if (_keysBack != null) _keysBack.Stop();
             _keys = keys;
             _keyErrors = _hotkeys.RegisterAll(keys);
+            GrabBusyKeys();
             _toasts.Apply(_settings);
             CapStatus.Write(Elevation.IsElevated, _keyErrors, _startedUtc);
             UpdateRetry();
@@ -324,6 +554,7 @@ namespace WindowsProcessCleaner.Capture
         private void HotkeysOff()
         {
             _hotkeys.UnregisterAll();
+            _grabber.Set(new Dictionary<CapAction, HotkeySpec>());
             _retry.Stop();
             if (_keysBack == null)
             {
@@ -335,6 +566,13 @@ namespace WindowsProcessCleaner.Capture
             _keysBack.Start();
         }
 
+        private void GrabBusyKeys()
+        {
+            Dictionary<CapAction, HotkeySpec> grab = KeyGrab.Busy(_keys, _keyErrors, _settings.TakeBusyKeys);
+            if (!_grabber.Set(grab)) return;
+            foreach (CapAction a in grab.Keys) _keyErrors[a] = HotkeyOwners.TakenOver;
+        }
+
         private void RetryBusyKeys()
         {
             if (_hotkeys.RetryFailed(_keys, _keyErrors)) CapStatus.Write(Elevation.IsElevated, _keyErrors, _startedUtc);
@@ -344,7 +582,7 @@ namespace WindowsProcessCleaner.Capture
         private void UpdateRetry()
         {
             bool any = false;
-            foreach (int e in _keyErrors.Values) if (e != 0) any = true;
+            foreach (int e in _keyErrors.Values) if (e > 0) any = true;
             if (any) _retry.Start(); else _retry.Stop();
         }
 
@@ -371,6 +609,7 @@ namespace WindowsProcessCleaner.Capture
                 case "RecStop": if (_record != null) _record.RequestStop(); break;
                 case "Open": OpenRequested(); break;
                 case "Gallery": ShowGallery(null); break;
+                case "Hud": HudLauncher.ToggleAsync(); break;
                 case "HotkeysOff": HotkeysOff(); break;
                 case "HotkeysOn": _settings = CapSettings.Load(); ApplySettings(); break;
             }
@@ -380,6 +619,11 @@ namespace WindowsProcessCleaner.Capture
 
         private void Run(CapAction action)
         {
+            // Показатели не мешают ни выделению, ни записи — клавиша работает всегда.
+            if (action == CapAction.Hud) { HudLauncher.ToggleAsync(); return; }
+            if (action == CapAction.HudReset) { HudLauncher.CommandAsync("ResetStats", false); return; }
+            if (action == CapAction.HudScene) { HudLauncher.CommandAsync("NextScene", true); return; }
+            if (action == CapAction.LagRecord) { HudLauncher.CommandAsync("LagToggle", true); return; }
             // Повторное нажатие «области» при открытом выделении закрывает его — нажатие не пропадает молча.
             if (_overlay != null)
             {
@@ -736,6 +980,8 @@ namespace WindowsProcessCleaner.Capture
             foreach (EditorForm f in new List<EditorForm>(_editors)) f.ForceClose();
             _editors.Clear();
             _retry.Dispose();
+            _buildWatch.Dispose();
+            _grabber.Dispose();
             if (_keysBack != null) _keysBack.Dispose();
             _toasts.Dispose();
             _hotkeys.Dispose();

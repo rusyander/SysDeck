@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Windows: лишнее»: каталог телеметрии, рекламы, Copilot,
+﻿// SysDeck — вкладка «Windows: лишнее»: каталог телеметрии, рекламы, Copilot,
 // предустановленных приложений, служб и компонентов. Слева дерево с галочками, справа —
 // что это, зачем выключать, чем рискуете. Механика — Engine.Debloat.cs, каталог —
 // Engine.DebloatCatalog.cs. Сборка: build.bat (csc.exe из .NET Framework 4.x).
@@ -11,7 +11,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Двойной клик по галочке в TreeView с CheckBoxes переключает её на экране, но AfterCheck
     // не приходит — состояние узла и картинка расходятся (старая ошибка WinForms). Второй клик

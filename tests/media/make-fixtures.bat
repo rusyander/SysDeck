@@ -1,7 +1,7 @@
 @echo off
-rem ==== Windows Process Cleaner - media test fixtures (stage 6: HLS, DASH, TS, WebM, subtitles) ====
+rem ==== SysDeck - media test fixtures (stage 6: HLS, DASH, TS, WebM, subtitles) ====
 rem Regenerates the small streams under tests\media\. Needs ffmpeg ONLY to regenerate: the files are committed and the
-rem test suite never runs ffmpeg (ffprobe is an optional oracle via WPC_FFPROBE). Usage: make-fixtures.bat [path\ffmpeg.exe]
+rem test suite never runs ffmpeg (ffprobe is an optional oracle via SYSDECK_FFPROBE). Usage: make-fixtures.bat [path\ffmpeg.exe]
 setlocal
 chcp 65001 >nul
 set FF=%~1

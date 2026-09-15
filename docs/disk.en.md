@@ -64,6 +64,12 @@ duplicates live on the neighbouring "Disk" tab. Categories:
   (the only supported way). Superseded updates cannot be rolled back afterwards, so the
   category is unchecked by default.
 
+Checks in the window on the first analysis: “Old logs” and “Windows update and driver
+leftovers” are checked, “Windows caches” and “NVIDIA: caches and old versions” are not. The
+window remembers checks set by hand. The quiet `/auto` cleanup uses the remembered checks, and
+for categories never touched in the window its own set: it cleans the Windows and NVIDIA caches
+but not the logs or update leftovers.
+
 Guards: locked files and reparse points (junctions) are skipped; `DriverStore` (only via
 `pnputil`), `Windows\Installer`, WinSxS, System32, drive roots, code and projects are never
 touched directly. Files modified within the last N minutes are kept (N is configurable, 10 by
@@ -104,7 +110,7 @@ The rule file is somebody else's text executed with administrator rights, so it 
 separately from the built-in rules:
 
 - **The downloaded database lives in a protected folder**,
-  `C:\ProgramData\WindowsProcessCleaner\`, with "Administrators and SYSTEM — full control,
+  `C:\ProgramData\SysDeck\`, with "Administrators and SYSTEM — full control,
   Users — read only". In its former home (`%APPDATA%`) the file could be rewritten by any
   process running as you — while the cleanup itself runs as administrator. The old copy is
   deleted on the next download. If the folder cannot be created (running without administrator
@@ -190,7 +196,7 @@ next to it: the current window's folders by size, with a share bar and a file co
   whole volume in seconds; a file with hard links (pnpm's `node_modules`, say) counts in every folder
   where it has a name, as in Explorer's properties. Without rights it is a regular walk: the
   same numbers, just slower. The "Enable fast mode" button is one UAC prompt: it creates the
-  `WindowsProcessCleaner FolderSize` Task Scheduler task with highest privileges and restarts
+  `SysDeck FolderSize` Task Scheduler task with highest privileges and restarts
   background mode through it. From then on it starts elevated at sign-in without UAC, and
   "Restart as administrator" in the tray menu goes through the task as well.
 - **Start with Windows:** don't start, start without rights (the registry `Run` key), or start

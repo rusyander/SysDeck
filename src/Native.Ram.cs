@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — нативный слой вкладки «Память».
+﻿// SysDeck — нативный слой вкладки «Память».
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Всё, чем меряется физическая память, живёт здесь, а не в Engine: одно место, где видно,
@@ -17,7 +17,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     internal static partial class Native
     {

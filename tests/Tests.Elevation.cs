@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «elevation»: кто чем владеет, как задание делится
+﻿// SysDeck — область «elevation»: кто чем владеет, как задание делится
 // между окном и помощником, и почему приложение не может съесть само себя.
 //
 // Прогон идёт БЕЗ прав администратора и не показывает ни одного окна UAC: помощник
@@ -10,7 +10,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class ElevationTests
     {
@@ -29,7 +29,7 @@ namespace WindowsProcessCleaner.Tests
         private static void DataDirContract()
         {
             Engine e = Fx.NewEngine("elev-data");
-            T.Check("WPC_DATA_DIR решает, где лежат данные", Fx.IsUnder(e.DataDir, Fx.Root), e.DataDir);
+            T.Check("SYSDECK_DATA_DIR решает, где лежат данные", Fx.IsUnder(e.DataDir, Fx.Root), e.DataDir);
             T.Eq("метка портативной сборки называется portable.marker", "portable.marker", Engine.PortableMarker);
 
             // Метки рядом с exe нет — значит сборка обычная, и данные ищутся в %APPDATA%.
@@ -219,10 +219,10 @@ namespace WindowsProcessCleaner.Tests
         // самого окна UAC, и прогон остаётся без единого запроса прав.
         private static void HelperProtocol()
         {
-            string exe = Environment.GetEnvironmentVariable("WPC_TEST_APP");
+            string exe = Environment.GetEnvironmentVariable("SYSDECK_TEST_APP");
             if (string.IsNullOrEmpty(exe) || !File.Exists(exe))
             {
-                T.Skip("помощник отвечает на задание", "WPC_TEST_APP не указывает на собранное приложение");
+                T.Skip("помощник отвечает на задание", "SYSDECK_TEST_APP не указывает на собранное приложение");
                 return;
             }
 

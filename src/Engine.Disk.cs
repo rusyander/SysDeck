@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Диск»: карта папок, крупные файлы, пустые папки, дубликаты
+﻿// SysDeck — вкладка «Диск»: карта папок, крупные файлы, пустые папки, дубликаты
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -11,7 +11,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Узел карты папок. Хранит только своё имя — полный путь собирается по цепочке
     // родителей: на системном диске полмиллиона каталогов, и путь в каждом узле стоил

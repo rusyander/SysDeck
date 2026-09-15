@@ -1,28 +1,28 @@
 {
-  "extName": { "message": "Windows Process Cleaner — загрузки" },
-  "extShortName": { "message": "WPC Загрузки" },
-  "extDescription": { "message": "Передаёт загрузки из браузера в менеджер загрузок Windows Process Cleaner на этом компьютере." },
-  "actionTitle": { "message": "Загрузки Windows Process Cleaner" },
+  "extName": { "message": "SysDeck — загрузки" },
+  "extShortName": { "message": "SysDeck Загрузки" },
+  "extDescription": { "message": "Передаёт загрузки из браузера в менеджер загрузок SysDeck на этом компьютере." },
+  "actionTitle": { "message": "Загрузки SysDeck" },
 
-  "menuLink": { "message": "Скачать ссылку через Windows Process Cleaner" },
-  "menuImage": { "message": "Скачать изображение через Windows Process Cleaner" },
-  "menuPage": { "message": "Скачать все ссылки через Windows Process Cleaner" },
-  "menuSelection": { "message": "Скачать выделенные ссылки через Windows Process Cleaner" },
+  "menuLink": { "message": "Скачать ссылку через SysDeck" },
+  "menuImage": { "message": "Скачать изображение через SysDeck" },
+  "menuPage": { "message": "Скачать все ссылки через SysDeck" },
+  "menuSelection": { "message": "Скачать выделенные ссылки через SysDeck" },
 
   "badgeAdded": {
-    "message": "Передано в Windows Process Cleaner: $COUNT$",
+    "message": "Передано в SysDeck: $COUNT$",
     "placeholders": { "count": { "content": "$1", "example": "3" } }
   },
   "badgeNone": { "message": "Ссылок для загрузки нет" },
-  "badgeError": { "message": "Не удалось передать в Windows Process Cleaner" },
+  "badgeError": { "message": "Не удалось передать в SysDeck" },
 
-  "popupTitle": { "message": "Windows Process Cleaner" },
+  "popupTitle": { "message": "SysDeck" },
   "connReady": { "message": "Программа на связи" },
   "connConnecting": { "message": "Подключение…" },
   "connMissing": { "message": "Программа не найдена" },
   "connForbidden": { "message": "Программа не приняла расширение" },
   "connLost": { "message": "Нет связи с программой" },
-  "hintMissing": { "message": "Установите Windows Process Cleaner и включите интеграцию с браузером в настройках загрузок." },
+  "hintMissing": { "message": "Установите SysDeck и включите интеграцию с браузером в настройках загрузок." },
   "hintForbidden": { "message": "Выключите и снова включите интеграцию с браузером в настройках загрузок программы." },
   "hintLost": { "message": "Расширение само повторяет попытки подключиться." },
 

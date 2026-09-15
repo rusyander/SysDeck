@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: HTTP(S) — первый запрос, редиректы, имя из заголовков, сегменты и докачка.
+﻿// SysDeck — «Загрузки»: HTTP(S) — первый запрос, редиректы, имя из заголовков, сегменты и докачка.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Первый запрос — GET с «Range: bytes=0-», без HEAD (многие серверы отвечают на HEAD не так, как на GET). 206 с
@@ -15,7 +15,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlFailure
     {

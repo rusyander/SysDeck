@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: общие типы и интерфейсы между частями клиента.
+﻿// SysDeck — «Загрузки», торренты: общие типы и интерфейсы между частями клиента.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Части клиента не ссылаются друг на друга напрямую, только на этот файл: трекеры и magnet (Torrent.Trackers.cs,
@@ -15,7 +15,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Адрес пира или узла
@@ -306,7 +306,7 @@ namespace WindowsProcessCleaner.Downloads
         public Func<byte[], IBtSwarm> FindSwarm = delegate { return null; };   // по 20-байтовому хешу
         public Action<string> Log = delegate { };                              // DlLog без секретов
 
-        public const string ClientName = "WPC 1.0";
+        public const string ClientName = "SysDeck 1.0";
 
         public static byte[] NewPeerId()
         {

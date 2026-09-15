@@ -1,8 +1,35 @@
-# Tools and settings
+﻿# Tools and settings
 
 The Tools page, how long operations behave, remembered selections, language, themes, tray, the auto-clean timer, every setting and the history.
 
 [← Overview](../README.en.md) · [All manual pages](README.en.md) · [🇷🇺 Русский](tools-and-settings.md)
+
+## CPU power (window header)
+
+Above every tab there are two buttons: **"Reduced · 99 %"** and **"Maximum · 100 %"**. This is the same parameter
+as "Control Panel → Power Options → Change advanced power settings → Processor power management → Maximum
+processor state" of the active power plan. A button sets the value for both "plugged in" and "on battery" and
+applies it without a reboot; on most PCs 99 % turns off turbo frequencies and lowers heat.
+
+Neither button is selected in advance: the highlighted one is the one whose value Windows has now, and with any
+other value neither is. The value is kept by the Windows power plan itself, so the choice survives restarting the
+program and the computer; switching the power plan makes the highlight follow that plan's value. The current value
+is written next to the buttons (with "on battery" separately when it differs). No administrator rights are needed.
+
+### Graphics card profiles (MSI Afterburner)
+
+When MSI Afterburner is installed and at least one of its overclocking slots holds something, a second header row
+shows **"Profile 1…5"** buttons — filled slots only. The button tooltip lists what the slot sets: power limit,
+core and memory clock offsets, V/F curve. A click does two things: applies the slot in the running Afterburner
+(like its own profile button) and keeps that slot "at Windows sign-in", so Afterburner applies it by itself on
+every start. The highlighted slot is the one set for sign-in; the text on the right names it, or says that no
+overclocking is applied at sign-in.
+
+Afterburner needs administrator rights, and its `Profiles` folder is read-only for the user. When the
+[overlay](capture.en.md) runs with administrator rights, the switch goes through it without a UAC window;
+otherwise a click shows one UAC window. Before every write the program copies the graphics card settings file to
+`Profiles\WPC_Backups` (the last 30 copies are kept). Other Afterburner settings, monitoring included, are not
+touched.
 
 ## Tools
 Built-in Windows tools behind one button each, with an output log at the bottom of the

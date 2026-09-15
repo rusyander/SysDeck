@@ -1,8 +1,8 @@
-﻿// Windows Process Cleaner — область «media»: видео-загрузки этапа 6 (HLS, DASH, склейка, yt-dlp, расширение).
+﻿// SysDeck — область «media»: видео-загрузки этапа 6 (HLS, DASH, склейка, yt-dlp, расширение).
 //
 // Части подключают свои проверки partial-методами: файл части есть в сборке — его тесты идут, нет — вызов исчезает при
 // компиляции. Потоки для проверок — настоящие файлы, заранее сделанные ffmpeg (tests\media\make-fixtures.bat); сам ffmpeg
-// тесты не запускают. Независимая сверка результата — ffprobe из WPC_FFPROBE (нет переменной — SKIP), обязательная —
+// тесты не запускают. Независимая сверка результата — ffprobe из SYSDECK_FFPROBE (нет переменной — SKIP), обязательная —
 // чтение итогового файла Media Foundation (MdFx.ReadBack). Сеть — только петля 127.0.0.1 (DlTestServer).
 
 using System;
@@ -11,10 +11,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
-using WindowsProcessCleaner.Capture;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Capture;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class MediaTests
     {
@@ -75,16 +75,16 @@ namespace WindowsProcessCleaner.Tests
     {
         private static string _dir;
 
-        // tests\media в репозитории: WPC_REPO, иначе папка WPC_TEST_APP, иначе вверх от текущей папки.
+        // tests\media в репозитории: SYSDECK_REPO, иначе папка SYSDECK_TEST_APP, иначе вверх от текущей папки.
         internal static string Dir
         {
             get
             {
                 if (_dir != null) return _dir;
                 List<string> starts = new List<string>();
-                string repo = Environment.GetEnvironmentVariable("WPC_REPO");
+                string repo = Environment.GetEnvironmentVariable("SYSDECK_REPO");
                 if (!string.IsNullOrEmpty(repo)) starts.Add(repo);
-                string app = Environment.GetEnvironmentVariable("WPC_TEST_APP");
+                string app = Environment.GetEnvironmentVariable("SYSDECK_TEST_APP");
                 if (!string.IsNullOrEmpty(app)) { try { starts.Add(Path.GetDirectoryName(Path.GetFullPath(app))); } catch (ArgumentException) { } }
                 starts.Add(Environment.CurrentDirectory);
                 foreach (string s in starts)
@@ -145,7 +145,7 @@ namespace WindowsProcessCleaner.Tests
             }
         }
 
-        // Независимая сверка: ffprobe -count_frames. null — WPC_FFPROBE не задан (why заполнен) или ffprobe не отработал.
+        // Независимая сверка: ffprobe -count_frames. null — SYSDECK_FFPROBE не задан (why заполнен) или ffprobe не отработал.
         internal sealed class Probe
         {
             public string Format = "";
@@ -157,8 +157,8 @@ namespace WindowsProcessCleaner.Tests
         internal static Probe FfProbe(string path, out string why)
         {
             why = null;
-            string exe = Environment.GetEnvironmentVariable("WPC_FFPROBE");
-            if (string.IsNullOrEmpty(exe) || !System.IO.File.Exists(exe)) { why = "WPC_FFPROBE not set"; return null; }
+            string exe = Environment.GetEnvironmentVariable("SYSDECK_FFPROBE");
+            if (string.IsNullOrEmpty(exe) || !System.IO.File.Exists(exe)) { why = "SYSDECK_FFPROBE not set"; return null; }
             // index обязателен: для MPEG-TS ffprobe печатает каждую дорожку дважды (внутри программы и отдельно),
             // без него кадры считались бы по два раза.
             ProcessStartInfo psi = new ProcessStartInfo(exe, "-v error -count_frames -show_entries format=format_name,duration:stream=index,codec_type,codec_name,nb_read_frames -of compact \"" + path + "\"");

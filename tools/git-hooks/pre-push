@@ -1,0 +1,37 @@
+#!/bin/sh
+# Pre-push: build the installer + portable folder + portable zip from the PUSHED commit into <repo>/dist
+# (old portable folder replaced). Built from `git archive` of that commit, so uncommitted edits never leak
+# into the handover build. Never blocks the push: a failed build is reported and the push goes on.
+# Install: tools/install-git-hooks.bat (copies this file into .git/hooks). Skip once: SYSDECK_SKIP_BUILD=1 git push
+
+[ "$SYSDECK_SKIP_BUILD" = "1" ] && exit 0
+
+zero=0000000000000000000000000000000000000000
+sha=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ -z "$sha" ] && [ "$local_sha" != "$zero" ]; then sha="$local_sha"; fi
+done
+[ -z "$sha" ] && exit 0
+
+repo=$(git rev-parse --show-toplevel) || exit 0
+src="${TEMP:-/tmp}/wpc-push-build-$$"
+rm -rf "$src"
+mkdir -p "$src" || exit 0
+
+echo "[pre-push] portable build of ${sha%"${sha#???????}"} -> dist/"
+if git archive "$sha" | tar -x -C "$src"; then
+  SYSDECK_DIST="$(cygpath -w "$repo")\\dist"
+  export SYSDECK_DIST
+  log="$repo/dist/last-build.log"
+  mkdir -p "$repo/dist"
+  if cmd.exe //c "$(cygpath -w "$src")\\build-installer.bat" > "$log" 2>&1; then
+    echo "[pre-push] OK: dist/portable, dist/SysDeck-portable.zip, dist/SysDeck-Setup.exe"
+  else
+    echo "[pre-push] build FAILED (push continues) - see dist/last-build.log"
+    tail -n 15 "$log"
+  fi
+else
+  echo "[pre-push] git archive failed (push continues)"
+fi
+rm -rf "$src"
+exit 0

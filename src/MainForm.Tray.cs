@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — трей, выход, перезапуск от администратора, автоочистка по таймеру
+﻿// SysDeck — трей, выход, перезапуск от администратора, автоочистка по таймеру
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {
@@ -32,7 +32,7 @@ namespace WindowsProcessCleaner
         {
             _tray = new NotifyIcon();
             _tray.Icon = _iconIdle;
-            _tray.Text = "Windows Process Cleaner";
+            _tray.Text = "SysDeck";
             _tray.Visible = true;
             _tray.DoubleClick += delegate { ShowWindow(); };
 
@@ -123,12 +123,12 @@ namespace WindowsProcessCleaner
             if (candidates > 0)
             {
                 _tray.Icon = _iconActive;
-                _tray.Text = Tr.S("Process Cleaner · кандидатов: ", "Process Cleaner · candidates: ") + candidates;
+                _tray.Text = Tr.S("SysDeck · кандидатов: ", "SysDeck · candidates: ") + candidates;
             }
             else
             {
                 _tray.Icon = _iconIdle;
-                _tray.Text = "Windows Process Cleaner";
+                _tray.Text = "SysDeck";
             }
         }
 

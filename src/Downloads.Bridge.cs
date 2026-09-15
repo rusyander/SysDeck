@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: мост к браузерам — режим native messaging host того же exe.
+﻿// SysDeck — «Загрузки»: мост к браузерам — режим native messaging host того же exe.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Браузер сам запускает exe: Chromium — «exe chrome-extension://<id>/ --parent-window=0» через cmd.exe с каналами вместо
@@ -17,7 +17,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Имя хоста, разрешённые расширения, распознавание запуска браузером
@@ -74,6 +74,12 @@ namespace WindowsProcessCleaner.Downloads
         }
 
         // Проверяется в Main раньше мьютекса окна. Чужое расширение — выход без чтения stdin: ему ничего не отвечаем.
+        public static bool IsHostLaunch(string[] args)
+        {
+            string family, id;
+            return TryParse(args, out family, out id);
+        }
+
         public static bool TryRun(string[] args, out int exitCode)
         {
             exitCode = 0;

@@ -23,7 +23,7 @@ The WinAPI in use, parsing of package-manager output, command-line switches, wha
   InstallShield) and breaks on commands with four quotes (NVIDIA via `RunDll32`, Docker
   Desktop). `MsiExec /I{GUID}` is the repair dialog, so MSI packages are uninstalled with
   `/X{GUID}` — what "Programs and Features" does.
-- **Single-instance** — a named `Mutex` (`Local\WindowsProcessCleaner.singleinstance`). The
+- **Single-instance** — a named `Mutex` (`Local\SysDeck.singleinstance`). The
   local TCP port **49876** is only used to ask an already running instance to show its
   window; if the port is taken, the app still starts normally.
 - **Monitoring** runs on a background thread (not the UI one) with a configurable period
@@ -57,6 +57,12 @@ The WinAPI in use, parsing of package-manager output, command-line switches, wha
   use `RegisterHotKey`, no global keyboard hook; shots are a `BitBlt` of the desktop in physical
   pixels (the thread runs Per-Monitor DPI v2); the notification is excluded from capture with
   `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`.
+- **Background process updates:** the capture, overlay and downloads processes watch the exe's
+  modification time. Once the exe is rebuilt or updated and has not changed for 10 seconds, the
+  process starts a new copy with a wait switch and exits; the new copy waits until the old one
+  releases the mutex. The restart
+  waits while a video is recording, a region is being selected, the editor or gallery is open, lag
+  is being recorded, the overlay is being dragged, or something is downloading or seeding. Rights are inherited from the old process.
 - **Display scaling (DPI):** the window scales to 125/150 % (`AutoScaleMode.Dpi`), button
   bars wrap onto the next line, the settings columns are computed from the label widths, and
   the minimum window size never exceeds the screen working area.
@@ -85,6 +91,8 @@ The WinAPI in use, parsing of package-manager output, command-line switches, wha
 |------|---------|
 | `src\*.cs` | application code, one file per area: `Program.cs` (entry, switches), `Engine*.cs` (logic: processes, cleanup, disk, drivers, winapp2, updates, programs, startup, Docker, health check, tools), `MainForm*.cs` (window, one file per section; Downloads is `MainForm.Downloads*.cs`), `Native.cs` (WinAPI), `Theme.cs`, `Json.cs`, `Browser*.cs`, `FastListView.cs`, `FolderSize.*.cs` (the Folder sizes background mode: counting, $MFT reading, Explorer through UI Automation, the overlay, the panel, the tray), `Downloads.*.cs` (the download engine in a separate process: segments, resume, queue, speed limits, start conditions, the "from the internet" mark, the named pipe; `Downloads.View.cs` is what the page shows, `Downloads.Verify.cs` the signature check, `Downloads.Bridge.cs` the native messaging host for the browser extension: one-request link check, handing the download to the background process, `Downloads.Browsers.cs` registry keys, manifests, unpacking the extension) |
 | `extension\` | the browser extension: `src\` (shared code, the popup, `_locales`), `manifest.chromium.json` and `manifest.firefox.json`, `test\` (Node tests: `node --test test/*.test.js`). Embedded into the exe as resources at build time, without `test\` |
+| `toolkit\` | the scripts of the "Scripts" page, one folder per item; embedded into the exe as `toolkit/<path>` resources and deployed to disk by a button |
+| `resources.bat` | writes the csc response file with every embedded resource (`extension\` minus `test\`, and `toolkit\`); called by `build.bat`, `buildcheck.bat` and `tests\run-tests.bat` — the cmd.exe command line stops at 8191 characters |
 | `tools\pack-extension.ps1` | builds the unpacked folders and the store zips in `dist\` |
 | `app.manifest` | manifest (asInvoker, DPI, long paths) |
 | `installer\*.cs` | installer and uninstaller sources (a separate program with its own manifest) |

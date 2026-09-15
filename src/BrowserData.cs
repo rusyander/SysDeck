@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — профили браузеров, закладки, группы вкладок, сеансы, контрольная сумма закладок
+﻿// SysDeck — профили браузеров, закладки, группы вкладок, сеансы, контрольная сумма закладок
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // ---------------- модели ----------------
 

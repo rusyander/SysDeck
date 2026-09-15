@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: пути, журнал, атомарная запись, настройки, окружение (часы, простой ПК, питание).
+﻿// SysDeck — «Загрузки»: пути, журнал, атомарная запись, настройки, окружение (часы, простой ПК, питание).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Загрузки живут в отдельном фоновом процессе того же exe — ключ --downloads, обычные права, свой мьютекс: закрытое окно
@@ -12,14 +12,14 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Пути и атомарная запись
     // ------------------------------------------------------------------ //
     internal static class DlPaths
     {
-        // Внутри папки данных приложения: WPC_DATA_DIR уводит туда же и тесты.
+        // Внутри папки данных приложения: SYSDECK_DATA_DIR уводит туда же и тесты.
         public static string DataDir { get { return Path.Combine(Engine.DefaultDataDir(), "downloads"); } }
         public static string ItemsDir { get { return Path.Combine(DataDir, "items"); } }
         public static string TorrentsDir { get { return Path.Combine(DataDir, "torrents"); } }   // = DlEngine.TorrentsDir у процесса
@@ -225,14 +225,14 @@ namespace WindowsProcessCleaner.Downloads
 
     internal sealed class DlSettings
     {
-        public const string DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WindowsProcessCleaner/1.0";
+        public const string DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SysDeck/1.0";
 
         public int Segments = 4;                 // потоков на файл
         public int MaxPerServer = 8;             // соединений на один сервер
         public int MaxActive = 3;                // одновременных загрузок
         public int MaxPerHost = 2;               // одновременных загрузок с одного сайта
         public int SmallFileMB = 5;              // меньше — вне очереди (но с учётом лимита сайта); 0 — выключено
-        public DlSpeedMode Mode = DlSpeedMode.Normal;
+        public DlSpeedMode Mode = DlSpeedMode.Unlimited;
         public int LimitKBps;                    // общий лимит в обычном режиме; 0 — без ограничения
         public int QuietKBps = 256;              // «тихий» режим
         public bool NightEnabled;                // ночной лимит скорости
@@ -246,7 +246,7 @@ namespace WindowsProcessCleaner.Downloads
         public int MaxRetries = 8;
         public int RetryMaxSeconds = 300;
         public bool OnlyWhenIdle;                // вся очередь ждёт простоя ПК
-        public int IdleMinutes = 5;
+        public int IdleMinutes = 2;
         public int IdleCpuPercent = 30;
         public bool IdleNoFullscreen = true;
         public bool PauseOnMetered = true;

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Размеры папок»: фоновый режим (значок в трее), его ключи командной строки.
+﻿// SysDeck — «Размеры папок»: фоновый режим (значок в трее), его ключи командной строки.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Collections.Generic;
@@ -11,7 +11,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.FolderSize
+namespace SysDeck.FolderSize
 {
     // ------------------------------------------------------------------ //
     //  Ключи exe для «Размеров папок». Проверяются в Main раньше мьютекса основного окна: фоновый режим —

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — главная форма: поля, конструктор, навигация, каркас UI, диалоги
+﻿// SysDeck — главная форма: поля, конструктор, навигация, каркас UI, диалоги
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm : Form
     {
@@ -141,6 +141,7 @@ namespace WindowsProcessCleaner
             if (_currentPage == PageGpu && index != PageGpu) GpuLeave();
             if (_currentPage == PageFolderSize && index != PageFolderSize) FolderSizeLeave();
             if (_currentPage == PageCapture && index != PageCapture) CaptureLeave();
+            if (_currentPage == PageOverlay && index != PageOverlay) OverlayLeave();
             if (_currentPage == PageDownloads && index != PageDownloads) DownloadsLeave();
 
             _currentPage = index;
@@ -155,8 +156,8 @@ namespace WindowsProcessCleaner
         // навигации не разъезжались с массивом при вставке новой вкладки.
         private const int PageHome = 0, PageScan = 1, PageRam = 2, PageGpu = 3, PageDev = 4, PageClean = 5, PageDisk = 6,
                           PageFolderSize = 7, PageBrowsers = 8, PageDocker = 9, PageApps = 10, PageUpdates = 11,
-                          PageStartup = 12, PageDebloat = 13, PageTools = 14, PageCapture = 15, PageDownloads = 16,
-                          PageSettings = 17, PageHistory = 18;
+                          PageStartup = 12, PageDebloat = 13, PageTools = 14, PageToolkit = 15, PageCapture = 16, PageOverlay = 17,
+                          PageDownloads = 18, PageSettings = 19, PageHistory = 20;
 
         private ListView VisibleList(int index)
         {
@@ -173,6 +174,7 @@ namespace WindowsProcessCleaner
                 case PageApps: return _lvApps;
                 case PageUpdates: return _lvUpdates;
                 case PageStartup: return _lvStartup;
+                case PageToolkit: return _lvTk;
                 case PageDownloads: return _dlSetView != null && _dlSetView.Visible ? _lvDlRules : _lvDl;
                 case PageHistory: return _lvHistory;
                 default: return null;
@@ -192,12 +194,14 @@ namespace WindowsProcessCleaner
                     case PageGpu: GpuEnter(); break;
                     case PageFolderSize: FolderSizeEnter(); break;
                     case PageCapture: CaptureEnter(); break;
+                    case PageOverlay: OverlayEnter(); break;
                     case PageDownloads: DownloadsEnter(); break;
                     case PageDev: RefreshPorts(); break;
                     case PageApps: RefreshApps(); break;
                     case PageStartup: RefreshStartup(); break;
                     case PageDebloat: RefreshDebloat(false); break;
                     case PageTools: RefreshToolsState(); break;
+                    case PageToolkit: ToolkitEnter(); break;
                     case PageHistory: RefreshHistory(); break;
                     case PageBrowsers: RefreshBrowsers(false); break;
                 }
@@ -226,6 +230,7 @@ namespace WindowsProcessCleaner
             AutoFillLastColumnDeferred(_lvGpuCards);
             AutoFillLastColumnDeferred(_lvDl);
             AutoFillLastColumnDeferred(_lvDlCard);
+            AutoFillLastColumnDeferred(_lvTk);
         }
 
         // Цвет подложки активного пункта и наведения — чуть светлее/темнее фона окна.
@@ -268,7 +273,7 @@ namespace WindowsProcessCleaner
 
         private void BuildUi()
         {
-            Text = "Windows Process Cleaner";
+            Text = "SysDeck";
             Width = 1320;
             Height = 760;
             StartPosition = FormStartPosition.CenterScreen;
@@ -277,8 +282,8 @@ namespace WindowsProcessCleaner
             // содержимому остаётся ширина окна минус NavWidth. Минимум 1200 даёт страницам ~1000 px —
             // столько им хватало и раньше. Высота 700 — чтобы все 17 пунктов навигации и подпись прав
             // помещались столбиком без наложения; подгонка под рабочую область экрана — ClampToScreen() после DPI.
-            // С «Захватом» и «Загрузками» пунктов 19 — каждый новый пункт добавляет к минимуму высоту кнопки с зазором.
-            MinimumSize = new Size(1200, 814);
+            // С «Захватом», «Оверлеем» и «Загрузками» пунктов 21 (со «Скриптами») — каждый новый пункт добавляет к минимуму высоту кнопки с зазором.
+            MinimumSize = new Size(1200, 886);
             Icon = _iconWindow;
             ShowIcon = true;
 
@@ -291,8 +296,8 @@ namespace WindowsProcessCleaner
             _content = new Panel();
             _content.Dock = DockStyle.Fill;
 
-            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildGpuTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildFolderSizeTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildCaptureTab(), BuildDownloadsTab(), BuildSettingsTab(), BuildHistoryTab() };
-            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), Tr.S("Видеопамять", "Video memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Размеры папок", "Folder sizes"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Захват", "Capture"), Tr.S("Загрузки", "Downloads"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
+            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildGpuTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildFolderSizeTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildToolkitTab(), BuildCaptureTab(), BuildOverlayTab(), BuildDownloadsTab(), BuildSettingsTab(), BuildHistoryTab() };
+            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), Tr.S("Видеопамять", "Video memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Размеры папок", "Folder sizes"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Скрипты", "Scripts"), Tr.S("Захват", "Capture"), Tr.S("Оверлей", "Overlay"), Tr.S("Загрузки", "Downloads"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
             // Разрывы между группами: главная | обслуживание | программы | система | служебное.
             int[] groupStart = { PageScan, PageApps, PageDebloat, PageSettings };
 
@@ -370,6 +375,7 @@ namespace WindowsProcessCleaner
                 page.Visible = false;
                 _content.Controls.Add(page);
             }
+            _content.Controls.Add(BuildCpuPowerBar());   // после страниц — стыкуется сверху раньше их заливки
 
             Controls.Add(_content);
             Controls.Add(nav);
@@ -388,7 +394,7 @@ namespace WindowsProcessCleaner
                     CaptureLeave();
                     DownloadsLeave();
                     string ops = ActiveWriteOps();
-                    _tray.ShowBalloonTip(2000, "Windows Process Cleaner",
+                    _tray.ShowBalloonTip(2000, "SysDeck",
                         Tr.S("Свёрнуто в трей. Работает в фоне.", "Minimized to tray. Running in background.")
                         + (ops != null ? Tr.S("\r\nПродолжается: ", "\r\nStill running: ") + ops : ""), ToolTipIcon.Info);
                     return;
@@ -473,6 +479,7 @@ namespace WindowsProcessCleaner
             RefreshHistory();
             RefreshPorts();
             if (!_startHidden && _currentPage == PageHome) HomeEnter();
+            if (!_startHidden) RebrandOfferOnce();
             BeginInvoke((MethodInvoker)delegate { FillColumns(); });
             // одноразовая до-подгонка после окончательной раскладки окна
             System.Windows.Forms.Timer once = new System.Windows.Forms.Timer();

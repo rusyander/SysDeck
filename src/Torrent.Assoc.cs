@@ -1,10 +1,10 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: открытие .torrent и magnet: этой программой (реестр текущего пользователя).
+﻿// SysDeck — «Загрузки», торренты: открытие .torrent и magnet: этой программой (реестр текущего пользователя).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
-// Только HKCU и только по переключателю, который пользователь нажал сам. Пишется своё: ProgID WindowsProcessCleaner.Torrent и
-// WindowsProcessCleaner.Magnet, Capabilities + RegisteredApplications (программа появляется в «Приложениях по умолчанию»),
+// Только HKCU и только по переключателю, который пользователь нажал сам. Пишется своё: ProgID SysDeck.Torrent и
+// SysDeck.Magnet, Capabilities + RegisteredApplications (программа появляется в «Приложениях по умолчанию»),
 // значение по умолчанию .torrent и ключ протокола magnet. Прежний обработчик из HKCU запоминается в Software\
-// WindowsProcessCleaner\Associations и возвращается при отключении, если на его месте всё ещё мы.
+// SysDeck\Associations и возвращается при отключении, если на его месте всё ещё мы.
 // UserChoice (выбор, сделанный в самой Windows) программа не трогает: он защищён хешем, и перебить его — ровно то, за что
 // Windows наказывает сбросом ассоциаций. Если там другое приложение, результат — NeedsSettings: окно открывает страницу
 // «Приложения по умолчанию» на этой программе.
@@ -15,18 +15,18 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum BtAssocState { Off, On, NeedsSettings }
 
     internal static class BtAssoc
     {
-        public const string TorrentProgId = "WindowsProcessCleaner.Torrent";
-        public const string MagnetProgId = "WindowsProcessCleaner.Magnet";
-        public const string AppName = "Windows Process Cleaner";
+        public const string TorrentProgId = "SysDeck.Torrent";
+        public const string MagnetProgId = "SysDeck.Magnet";
+        public const string AppName = "SysDeck";
         public const string OpenSwitch = "/torrent";
         public const long MaxTorrentFile = 32L * 1024 * 1024;   // крупнейшие .torrent с сотнями тысяч файлов — единицы МБ
-        private const string AppKey = @"WindowsProcessCleaner";
+        private const string AppKey = @"SysDeck";
         private const string CapabilitiesKey = AppKey + @"\Capabilities";
         private const string SavedKey = AppKey + @"\Associations";
         private const string TorrentChoice = @"Microsoft\Windows\CurrentVersion\Explorer\FileExts\.torrent\UserChoice";
@@ -132,6 +132,55 @@ namespace WindowsProcessCleaner.Downloads
             using (RegistryKey ua = software.OpenSubKey(CapabilitiesKey + @"\URLAssociations", true))
                 if (ua != null) ua.DeleteValue("magnet", false);
             CleanupCapabilities(software);
+        }
+
+        // ---------- переезд со старого имени (Rebrand) ----------
+        // Привязки старой сборки этой же копии становятся привязками SysDeck. Выбранное пользователем не меняется: .torrent
+        // переходит на новую ProgID, только если открывался старой; запомненные чужие привязки переносятся под новый ключ.
+        // true — что-то перенесено.
+        internal static bool MigrateLegacy(RegistryKey software, string exe)
+        {
+            string legacyTorrent = Rebrand.LegacyName + ".Torrent", legacyMagnet = Rebrand.LegacyName + ".Magnet";
+            bool torrent = ReadDefault(software, @"Classes\" + legacyTorrent) != null;
+            string magnetCmd = ReadDefault(software, @"Classes\magnet\shell\open\command"), args;
+            bool magnet = magnetCmd != null && magnetCmd.IndexOf(" " + OpenSwitch + " ", StringComparison.OrdinalIgnoreCase) >= 0
+                          && Rebrand.IsLegacyCopyOf(Rebrand.SplitCommand(magnetCmd, out args), exe);
+            bool legacyApp;
+            using (RegistryKey app = software.OpenSubKey(Rebrand.LegacyName)) legacyApp = app != null;
+            if (!torrent && !magnet && !legacyApp && ReadDefault(software, @"Classes\" + legacyMagnet) == null) return false;
+
+            using (RegistryKey old = software.OpenSubKey(Rebrand.LegacyName + @"\Associations"))
+                if (old != null)
+                    using (RegistryKey saved = software.CreateSubKey(SavedKey))
+                        foreach (string name in old.GetValueNames())
+                            if (saved.GetValue(name) == null) saved.SetValue(name, old.GetValue(name));
+            if (torrent)
+            {
+                WriteProgId(software, TorrentProgId, Tr.S("Торрент-файл", "Torrent file"), exe, false);
+                using (RegistryKey ext = software.CreateSubKey(@"Classes\.torrent"))
+                {
+                    if (ext.GetValue("") as string == legacyTorrent) ext.SetValue("", TorrentProgId);
+                    using (RegistryKey open = ext.CreateSubKey("OpenWithProgids"))
+                    {
+                        open.DeleteValue(legacyTorrent, false);
+                        open.SetValue(TorrentProgId, "");
+                    }
+                }
+            }
+            if (magnet)
+            {
+                WriteProgId(software, MagnetProgId, "URL:Magnet link", exe, true);
+                WriteHandler(software, @"Classes\magnet", "URL:Magnet link", exe, true);
+            }
+            software.DeleteSubKeyTree(@"Classes\" + legacyTorrent, false);
+            software.DeleteSubKeyTree(@"Classes\" + legacyMagnet, false);
+            using (RegistryKey reg = software.OpenSubKey("RegisteredApplications", true))
+                if (reg != null) reg.DeleteValue(Rebrand.LegacyName, false);
+            software.DeleteSubKeyTree(Rebrand.LegacyName, false);
+            if (torrent || magnet) WriteCapabilities(software);
+            CleanupCapabilities(software);
+            NotifyShell();
+            return true;
         }
 
         // Проводник перечитывает ассоциации только после уведомления.

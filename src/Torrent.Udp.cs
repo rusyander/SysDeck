@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: UDP-сокет сессии (DHT, UDP-трекеры) и поток приёма.
+﻿// SysDeck — «Загрузки», торренты: UDP-сокет сессии (DHT, UDP-трекеры) и поток приёма.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Один сокет на порт сессии: ответы трекеров BEP 15 и сообщения DHT различаются по содержимому, и каждый обработчик сам
@@ -10,7 +10,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtUdp : IBtUdp, IDisposable
     {

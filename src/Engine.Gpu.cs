@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Видеопамять»: что занято на видеокарте и кем.
+﻿// SysDeck — вкладка «Видеопамять»: что занято на видеокарте и кем.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Разложение устроено так же, как у оперативной памяти, и обещает то же: сумма блоков схемы
@@ -32,7 +32,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Виды блоков схемы видеопамяти. Номера не пересекаются с RamKind: блоки обеих вкладок —
     // один и тот же RamSlice, и цвет выбирается по виду.
@@ -597,7 +597,7 @@ namespace WindowsProcessCleaner
         {
             "system", "registry", "idle", "secure system", "memcompression", "smss.exe", "csrss.exe", "wininit.exe",
             "winlogon.exe", "services.exe", "lsass.exe", "lsaiso.exe", "fontdrvhost.exe", "dwm.exe", "svchost.exe",
-            "windowsprocesscleaner.exe"
+            "sysdeck.exe", "windowsprocesscleaner.exe"
         }, StringComparer.OrdinalIgnoreCase);
 
         internal static bool GpuIsProtectedName(string name)

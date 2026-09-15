@@ -1,7 +1,7 @@
-﻿// Windows Process Cleaner — «Загрузки»: фоновый процесс (ключ --downloads), именованный канал, команды, клиент, автозапуск.
+﻿// SysDeck — «Загрузки»: фоновый процесс (ключ --downloads), именованный канал, команды, клиент, автозапуск.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
-// Канал \\.\pipe\WindowsProcessCleaner.dl.<SID>: доступ только у текущего пользователя, а подключившийся процесс обязан
+// Канал \\.\pipe\SysDeck.dl.<SID>: доступ только у текущего пользователя, а подключившийся процесс обязан
 // быть этим же exe (окно программы, позже — мост к браузерам). Кадры — 4 байта длины (LE) + JSON в UTF-8, как у native
 // messaging. Ни одна команда не принимает путь для удаления или запуска: «удалить в Корзину» работает только с файлом,
 // который движок сам скачал, а папка новой загрузки проходит ту же проверку, что и в движке.
@@ -18,7 +18,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Ключи exe. Проверяются в Main раньше мьютекса главного окна.
@@ -27,6 +27,7 @@ namespace WindowsProcessCleaner.Downloads
     {
         public const string Switch = "--downloads";
         public const string ExitSwitch = "--downloads-exit";
+        public const string WaitSwitch = "--downloads-wait";   // вместе с --downloads: дождаться выхода прежнего процесса (новая сборка)
 
         public static bool TryRun(string[] args, out int exitCode)
         {
@@ -44,20 +45,26 @@ namespace WindowsProcessCleaner.Downloads
             {
                 if (string.Equals(a, Switch, StringComparison.OrdinalIgnoreCase))
                 {
-                    exitCode = RunAgent();
+                    exitCode = RunAgent(Array.Exists(args, delegate(string x) { return string.Equals(x, WaitSwitch, StringComparison.OrdinalIgnoreCase); }));
                     return true;
                 }
             }
             return false;
         }
 
-        private static int RunAgent()
+        private static int RunAgent(bool waitPrevious)
         {
             try { Tr.En = new Engine().Config.Language == "en"; }
             catch (Exception ex) { DlLog.Report(ex); }
 
             bool first;
             Mutex instance = DlIpc.CreateInstanceMutex(out first);
+            if (!first && instance != null && waitPrevious)
+            {
+                // Прежний процесс сохраняет очередь и закрывает канал — обычно секунда-две.
+                try { first = instance.WaitOne(30000); }
+                catch (AbandonedMutexException) { first = true; }
+            }
             if (!first)
             {
                 if (instance != null) instance.Dispose();
@@ -106,13 +113,34 @@ namespace WindowsProcessCleaner.Downloads
                 DlLauncher.SyncAutostart(settings, engine);
                 ThreadPool.QueueUserWorkItem(delegate { DlBrowsers.EnsureDefault(settings); });
                 DlIdleExit idle = new DlIdleExit(DateTime.UtcNow, DlIdleExit.DefaultSeconds);
-                while (!shutdown.WaitOne(1000))
+                string exe = SysDeck.Capture.CapPaths.ExecutablePath;
+                DateTime buildStamp = SysDeck.Capture.AgentBuild.Stamp(exe);
+                for (int tick = 1; !shutdown.WaitOne(1000); tick++)
                 {
                     idle.Touch(commands.LastCallUtc);
-                    if (idle.ShouldExit(DateTime.UtcNow, engine.HasPendingWork || notifier.Busy))
+                    bool busy = engine.HasPendingWork || notifier.Busy;
+                    if (idle.ShouldExit(DateTime.UtcNow, busy))
                     {
                         DlLog.Write("nothing to do for " + DlIdleExit.DefaultSeconds + " s, exiting");
                         break;
+                    }
+                    // exe пересобрали, а процесс держат вызовы окна или расширения: перезапуск на новом коде, пока
+                    // ничего не качается, не раздаётся и не показано. Новый процесс ждёт, пока этот отпустит мьютекс.
+                    if (tick % 20 == 0 && SysDeck.Capture.AgentBuild.ShouldRestart(buildStamp, SysDeck.Capture.AgentBuild.Stamp(exe), DateTime.UtcNow, busy))
+                    {
+                        try
+                        {
+                            ProcessStartInfo psi = new ProcessStartInfo(exe, Switch + " " + WaitSwitch);
+                            psi.UseShellExecute = false;
+                            using (Process p = Process.Start(psi)) { }
+                            DlLog.Write("new build of the exe, agent restarts");
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            DlLog.Report(ex);
+                            buildStamp = DateTime.MinValue;
+                        }
                     }
                 }
             }
@@ -141,7 +169,7 @@ namespace WindowsProcessCleaner.Downloads
     // ------------------------------------------------------------------ //
     internal static class DlIpc
     {
-        private const string BaseName = @"Local\WindowsProcessCleaner.Downloads";
+        private const string BaseName = @"Local\SysDeck.Downloads";
         public const int MaxFrame = 16 * 1024 * 1024;
 
         public static SecurityIdentifier User()
@@ -149,7 +177,7 @@ namespace WindowsProcessCleaner.Downloads
             using (WindowsIdentity id = WindowsIdentity.GetCurrent()) return id.User;
         }
 
-        // Один процесс загрузок — на одно хранилище. Копия программы со своей папкой данных (портативная, WPC_DATA_DIR
+        // Один процесс загрузок — на одно хранилище. Копия программы со своей папкой данных (портативная, SYSDECK_DATA_DIR
         // тестов и снимков) получает свои имена: иначе её окно управляло бы чужим списком, а её процесс не стартовал бы
         // вовсе — имя уже занято. У хранилища по умолчанию суффикса нет.
         public static string Channel
@@ -157,7 +185,7 @@ namespace WindowsProcessCleaner.Downloads
             get
             {
                 string standard;
-                try { standard = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WindowsProcessCleaner", "downloads"); }
+                try { standard = Path.Combine(Rebrand.ResolveStandardDataDir(), "downloads"); }
                 catch { return ""; }
                 return ChannelFor(DlPaths.DataDir, standard);
             }
@@ -184,7 +212,7 @@ namespace WindowsProcessCleaner.Downloads
 
         public static string MutexName { get { return BaseName + Channel; } }
         public static string ShutdownEventName { get { return BaseName + Channel + ".Shutdown"; } }
-        public static string PipeName { get { return "WindowsProcessCleaner.dl." + User().Value + Channel; } }
+        public static string PipeName { get { return "SysDeck.dl." + User().Value + Channel; } }
 
         public static Mutex CreateInstanceMutex(out bool first)
         {
@@ -848,7 +876,7 @@ namespace WindowsProcessCleaner.Downloads
     internal static class DlLauncher
     {
         private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        public static string RunValueName { get { return "WindowsProcessCleaner.Downloads" + DlIpc.Channel; } }
+        public static string RunValueName { get { return "SysDeck.Downloads" + DlIpc.Channel; } }
 
         // null — запущен (или уже работал), иначе причина. Из повышенного окна — через Проводник, с обычными правами:
         // файлы загрузок не должны принадлежать администратору.

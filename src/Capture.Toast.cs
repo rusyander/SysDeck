@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Захват»: уведомления о снимке в углу монитора.
+﻿// SysDeck — «Захват»: уведомления о снимке в углу монитора.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Системные уведомления Windows требуют у неупакованной программы AppUserModelID и ярлыка в «Пуске», поэтому окно своё:
@@ -15,7 +15,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.Capture
+namespace SysDeck.Capture
 {
     internal enum ToastKind { Copied, Saved, Error, Download, Intercepted }
 
@@ -385,7 +385,7 @@ namespace WindowsProcessCleaner.Capture
             TopMost = true;
             DoubleBuffered = true;
             BackColor = Color.FromArgb(32, 32, 32);
-            Text = "Windows Process Cleaner — capture";
+            Text = "SysDeck — capture";
             int height = info.Kind == ToastKind.Error ? S(92) : S(114);
             // Ширина вмещает подписанную «Галерею» и четыре значка справа от миниатюры.
             Size = new Size(S(460), height);

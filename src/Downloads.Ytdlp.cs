@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: извлечение форматов со страниц сайтов через yt-dlp.
+﻿// SysDeck — «Загрузки», видео: извлечение форматов со страниц сайтов через yt-dlp.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // yt-dlp только описывает страницу (-J): форматы, прямые ссылки, заголовки, субтитры. Качает наш движок — с паузой,
@@ -17,7 +17,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Запуск внешнего exe: задание Windows, таймаут, предел вывода

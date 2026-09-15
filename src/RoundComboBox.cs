@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — выпадающий список в цветах темы со сглаженными углами.
+﻿// SysDeck — выпадающий список в цветах темы со сглаженными углами.
 // Штатный ComboBox даже в FlatStyle.Flat рисует рамку и кнопку со стрелкой системными
 // цветами: в тёмной теме — серый прямоугольник с белой кнопкой. Здесь после штатной
 // отрисовки (WM_PAINT) поверх кладётся своя: углы — цветом родителя, скруглённая рамка
@@ -17,7 +17,7 @@ using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public class RoundComboBox : ComboBox
     {

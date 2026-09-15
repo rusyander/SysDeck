@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — минимальный JSON-DOM с сохранением порядка и незнакомых полей
+﻿// SysDeck — минимальный JSON-DOM с сохранением порядка и незнакомых полей
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // ================================================================== //
     //  Данные браузеров: закладки, сохранённые группы вкладок,
@@ -233,6 +233,62 @@ namespace WindowsProcessCleaner
                     sb.Append("}");
                     break;
             }
+        }
+
+        // Как JSON.stringify(v, null, 2) у Node: отступ 2, не-ASCII как есть. Для файлов, которые пишет Node-программа
+        // (settings.json Claude Code), — чтобы добавление одной записи не переформатировало весь файл.
+        public static string WriteNodeStyle(JVal v)
+        {
+            StringBuilder sb = new StringBuilder(1 << 16);
+            WriteNode(sb, v, 0);
+            sb.Append("\n");
+            return sb.ToString();
+        }
+
+        private static void WriteNode(StringBuilder sb, JVal v, int lvl)
+        {
+            switch (v.Kind)
+            {
+                case JKind.Null: sb.Append("null"); break;
+                case JKind.Bool: sb.Append(v.B ? "true" : "false"); break;
+                case JKind.Num: sb.Append(v.Raw); break;
+                case JKind.Str: WriteNodeStr(sb, v.Raw); break;
+                case JKind.Arr:
+                case JKind.Obj:
+                    {
+                        bool obj = v.Kind == JKind.Obj;
+                        if (v.V.Count == 0) { sb.Append(obj ? "{}" : "[]"); break; }
+                        sb.Append(obj ? '{' : '[');
+                        for (int i = 0; i < v.V.Count; i++)
+                        {
+                            if (i > 0) sb.Append(',');
+                            sb.Append('\n').Append(' ', (lvl + 1) * 2);
+                            if (obj) { WriteNodeStr(sb, v.K[i]); sb.Append(": "); }
+                            WriteNode(sb, v.V[i], lvl + 1);
+                        }
+                        sb.Append('\n').Append(' ', lvl * 2).Append(obj ? '}' : ']');
+                        break;
+                    }
+            }
+        }
+
+        private static void WriteNodeStr(StringBuilder sb, string s)
+        {
+            sb.Append('"');
+            if (s != null)
+                foreach (char c in s)
+                {
+                    if (c == '"') sb.Append("\\\"");
+                    else if (c == '\\') sb.Append("\\\\");
+                    else if (c == '\n') sb.Append("\\n");
+                    else if (c == '\r') sb.Append("\\r");
+                    else if (c == '\t') sb.Append("\\t");
+                    else if (c == '\b') sb.Append("\\b");
+                    else if (c == '\f') sb.Append("\\f");
+                    else if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                    else sb.Append(c);
+                }
+            sb.Append('"');
         }
 
         private static void WriteStr(StringBuilder sb, string s)

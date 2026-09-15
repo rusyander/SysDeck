@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «torrent», движок загрузок с торрентами: DlEngine добавляет .torrent и magnet,
+﻿// SysDeck — область «torrent», движок загрузок с торрентами: DlEngine добавляет .torrent и magnet,
 // запускает их в своей сессии, ставит на паузу, переживает падение процесса, качает выбранные файлы, останавливает
 // раздачу по рейтингу и условиям очереди, удаляет в Корзину.
 //
@@ -13,9 +13,9 @@ using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Threading;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class TorrentTests
     {
@@ -591,7 +591,7 @@ namespace WindowsProcessCleaner.Tests
             BtMeta meta = BtMeta.Parse(torrent, out err);
             string root = Fx.MakeDir(Fx.Root, "bt-eng-pipe");
             string dl = Fx.MakeDir(root, "dl");
-            string name = "WindowsProcessCleaner.dl.bttest-" + System.Diagnostics.Process.GetCurrentProcess().Id;
+            string name = "SysDeck.dl.bttest-" + System.Diagnostics.Process.GetCurrentProcess().Id;
             List<string> recycled = new List<string>();
             DlFiles.Recycler = delegate(string p) { lock (recycled) recycled.Add(p); return null; };
             DlEngine e = EngEngine(Fx.MakeDir(root, "store"), EngSettings(dl), new FakeDlEnv(), null);

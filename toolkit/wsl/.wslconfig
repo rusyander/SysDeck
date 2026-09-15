@@ -1,0 +1,17 @@
+# WSL2 / Docker Desktop resource limits.
+# Without this file WSL2 takes up to 50% of host RAM as its ceiling (~47 GB on a 96 GB host)
+# and never hands freed memory back to Windows - which is why VmmemWSL sat at
+# 5.7 GB with three idle containers.
+[wsl2]
+memory=24GB
+swap=8GB
+
+# Returns unused guest memory to Windows instead of holding the peak forever.
+# dropcache (was gradual, 10.09.2026): gradual trickles memory back over minutes and in
+# practice never caught up - the guest sat at its 24 GB peak while Windows starved.
+# dropcache drops the guest page cache the moment the VM idles, so freed RAM comes back
+# at once. Cost is a re-read from NVMe on the next access, which is not measurable here.
+autoMemoryReclaim=dropcache
+
+# Lets the virtual disk shrink when data is deleted.
+sparseVhd=true

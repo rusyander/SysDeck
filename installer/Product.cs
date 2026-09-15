@@ -18,16 +18,21 @@ namespace WpcSetup
     // оставит после себя мусор, поэтому менять их надо парой.
     internal static class Product
     {
-        public const string Name = "Windows Process Cleaner";
-        public const string ExeName = "WindowsProcessCleaner.exe";
+        public const string Name = "SysDeck";
+        public const string ExeName = "SysDeck.exe";
         public const string UninstallExeName = "uninstall.exe";
-        public const string FolderName = "WindowsProcessCleaner";
-        public const string ShortcutFile = "Windows Process Cleaner.lnk";
-        public const string TaskName = "WindowsProcessCleaner";
-        public const string DataFolderName = "WindowsProcessCleaner";
+        public const string FolderName = "SysDeck";
+        public const string ShortcutFile = "SysDeck.lnk";
+        public const string TaskName = "SysDeck";
+        public const string DataFolderName = "SysDeck";
         public const string Publisher = "rusyander";
         public const string About = "https://github.com/rusyander/cleaner";
-        public const string RegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsProcessCleaner";
+        public const string RegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SysDeck";
+
+        // Прежнее имя программы (до 15.09.2026): установка поверх убирает его ярлыки, запись и файлы (Work.RemoveLegacy).
+        public const string LegacyExeName = "WindowsProcessCleaner.exe";
+        public const string LegacyShortcutFile = "Windows Process Cleaner.lnk";
+        public const string LegacyRegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsProcessCleaner";
 
         // Имя ресурса, под которым exe приложения зашит в установщик (см. build-installer.bat).
         public const string ResourceName = "app.exe";

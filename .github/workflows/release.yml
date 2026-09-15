@@ -1,0 +1,45 @@
+# Every push to main: build the installer and the portable zip on a Windows runner (csc.exe of .NET Framework,
+# the same build-installer.bat) and replace the rolling release "latest" with them.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-latest
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build installer and portable
+        shell: cmd
+        run: build-installer.bat
+
+      - name: Replace release "latest"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${GITHUB_SHA:0:7}"
+          subject="$(git log -1 --format=%s)"
+          notes="Сборка из коммита ${short}: ${subject}
+
+          - SysDeck-portable.zip — портативная версия: распакуйте и запустите SysDeck.exe
+          - SysDeck-Setup.exe — установщик"
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            dist/SysDeck-portable.zip \
+            dist/SysDeck-Setup.exe \
+            --target "$GITHUB_SHA" \
+            --title "SysDeck — сборка $(date -u +%Y-%m-%d) ($short)" \
+            --notes "$notes" \
+            --latest

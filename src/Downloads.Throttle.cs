@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: ограничение скорости (ведро токенов) и замер скорости.
+﻿// SysDeck — «Загрузки»: ограничение скорости (ведро токенов) и замер скорости.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Два уровня: общее ведро на весь движок и своё у каждой загрузки. Поток сегмента берёт токены сначала у загрузки,
@@ -8,7 +8,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlTokenBucket
     {

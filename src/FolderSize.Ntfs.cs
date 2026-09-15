@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Размеры папок»: быстрый режим, размеры всех папок тома из таблицы $MFT.
+﻿// SysDeck — «Размеры папок»: быстрый режим, размеры всех папок тома из таблицы $MFT.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Collections.Generic;
@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
-namespace WindowsProcessCleaner.FolderSize
+namespace SysDeck.FolderSize
 {
     internal struct DirTotals
     {

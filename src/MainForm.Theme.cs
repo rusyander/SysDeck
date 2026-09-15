@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — иконки, owner-draw таблиц, применение темы
+﻿// SysDeck — иконки, owner-draw таблиц, применение темы
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {
@@ -364,7 +364,7 @@ namespace WindowsProcessCleaner
             TextFormatFlags ell = _pathColumns.TryGetValue(lv, out pathCol) && pathCol == e.ColumnIndex
                 ? TextFormatFlags.PathEllipsis : TextFormatFlags.EndEllipsis;
             TextRenderer.DrawText(e.Graphics, e.SubItem != null ? e.SubItem.Text : "", lv.Font, rt, fg,
-                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | ell);
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | ell);
         }
 
         private void DrawCheck(Graphics g, Rectangle r, bool check)

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: обмен метаданными с пирами (BEP 9, ut_metadata) — magnet без .torrent.
+﻿// SysDeck — «Загрузки», торренты: обмен метаданными с пирами (BEP 9, ut_metadata) — magnet без .torrent.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Словарь info приходит кусками по 16 КБ от пиров, объявивших metadata_size. Размер — по большинству голосов и не больше
@@ -10,7 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtMetadataExt : IBtExtension
     {

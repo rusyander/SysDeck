@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: свой разбор и запись Matroska/WebM (VP9, AV1, Opus, Vorbis без перекодирования).
+﻿// SysDeck — «Загрузки», видео: свой разбор и запись Matroska/WebM (VP9, AV1, Opus, Vorbis без перекодирования).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // MF на чистой Windows WebM не читает (нужны кодеки из Store), а VP9/Opus из WebM в MP4 не переносятся — поэтому раздельные
@@ -13,7 +13,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class MdMkvTrack
     {
@@ -494,8 +494,8 @@ namespace WindowsProcessCleaner.Downloads
             _infoPos = _fs.Position - _segData;
             MemoryStream info = new MemoryStream();
             MdEbml.UIntEl(info, MdEbml.IdTimecodeScale, 1000000);
-            MdEbml.StrEl(info, MdEbml.IdMuxingApp, "WindowsProcessCleaner");
-            MdEbml.StrEl(info, MdEbml.IdWritingApp, "WindowsProcessCleaner");
+            MdEbml.StrEl(info, MdEbml.IdMuxingApp, "SysDeck");
+            MdEbml.StrEl(info, MdEbml.IdWritingApp, "SysDeck");
             MdEbml.Id(info, MdEbml.IdDuration);
             MdEbml.Size(info, 8);
             long durationInInfo = info.Position;

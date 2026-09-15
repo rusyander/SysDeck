@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — нативный слой вкладки «Видеопамять».
+﻿// SysDeck — нативный слой вкладки «Видеопамять».
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Три источника, и все три не зависят от производителя видеокарты — NVIDIA, AMD, Intel,
@@ -16,7 +16,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Видеокарта глазами DXGI. Luid — тот же идентификатор, что стоит в именах экземпляров
     // счётчиков («luid_0x00000000_0x00014e6a»), по нему они и сводятся.

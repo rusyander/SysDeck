@@ -1,12 +1,12 @@
-﻿// Windows Process Cleaner — прогон тестов: изоляция данных, реестр областей, помощники фикстур.
+﻿// SysDeck — прогон тестов: изоляция данных, реестр областей, помощники фикстур.
 // Сборка и запуск: tests\run-tests.bat (тот же csc.exe, что и build.bat; src\*.cs + tests\*.cs).
 //
 // Почему всё устроено именно так:
 //  * приложение УДАЛЯЕТ файлы. Поэтому каждый разрушающий тест работает только внутри своей
 //    папки под %LOCALAPPDATA%\Temp, с категорией, собранной руками и с выключенной Корзиной;
 //    Fx.Clean отказывается запускать удаление, если хоть одна цель лежит вне фикстуры;
-//  * движок хранит конфиг, историю и логи в %APPDATA%\WindowsProcessCleaner. Прогон подменяет
-//    эту папку переменной WPC_DATA_DIR и убеждается в подмене ДО первого new Engine(): иначе
+//  * движок хранит конфиг, историю и логи в %APPDATA%\SysDeck. Прогон подменяет
+//    эту папку переменной SYSDECK_DATA_DIR и убеждается в подмене ДО первого new Engine(): иначе
 //    первый же тест переписал бы настройки и историю пользователя;
 //  * результат каждой проверки — одна строка PASS/FAIL/SKIP, в конце «RESULT n passed, m failed»
 //    и код возврата, равный числу падений. Ровно так же вели себя одиночные пробники, из
@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     // ------------------------------------------------------------------ //
     //  Счёт проверок
@@ -77,7 +77,7 @@ namespace WindowsProcessCleaner.Tests
     internal static class Fx
     {
         // Корень всех фикстур. Берём именно %LOCALAPPDATA%\Temp, а не %TEMP%: у второго на
-        // многих машинах короткое имя 8.3 (C:\Users\RUSYAN~1\...), и половина проверок путей
+        // многих машинах короткое имя 8.3 (C:\Users\USERNA~1\...), и половина проверок путей
         // сравнивала бы канонические пути с неканоническими.
         internal static string Root;
 
@@ -227,10 +227,10 @@ namespace WindowsProcessCleaner.Tests
         internal static Engine NewEngine(string sub)
         {
             string dir = MakeDir(Root, sub);
-            Environment.SetEnvironmentVariable("WPC_DATA_DIR", dir);
+            Environment.SetEnvironmentVariable("SYSDECK_DATA_DIR", dir);
             string seen = Engine.DefaultDataDir();
             if (!IsUnder(seen, Root))
-                throw new InvalidOperationException("WPC_DATA_DIR ignored, data dir would be " + seen);
+                throw new InvalidOperationException("SYSDECK_DATA_DIR ignored, data dir would be " + seen);
             Engine e = new Engine();
             if (!IsUnder(e.DataDir, Root))
                 throw new InvalidOperationException("engine data dir escaped the fixture: " + e.DataDir);
@@ -300,12 +300,12 @@ namespace WindowsProcessCleaner.Tests
         {
             // Этот же exe запускается тестами «как браузер» (native messaging host) — до изоляции и прогона.
             int hostCode;
-            if (WindowsProcessCleaner.Downloads.DlBridge.TryRun(args, out hostCode)) return hostCode;
+            if (SysDeck.Downloads.DlBridge.TryRun(args, out hostCode)) return hostCode;
             _only = args != null && args.Length > 0 ? args : null;
             // Слепок настоящего конфига пользователя: в конце сверяем, что он не изменился.
             string realConfig = Path.Combine(
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                             "WindowsProcessCleaner"), "config.json");
+                             "SysDeck"), "config.json");
             DateTime realStamp = DateTime.MinValue;
             bool realExisted = File.Exists(realConfig);
             if (realExisted) realStamp = File.GetLastWriteTimeUtc(realConfig);
@@ -317,7 +317,7 @@ namespace WindowsProcessCleaner.Tests
             Fx.Root = root;
 
             // Проверка изоляции ДО первого new Engine(). Не сошлось — прогон не начинается вовсе.
-            Environment.SetEnvironmentVariable("WPC_DATA_DIR", Path.Combine(root, "data"));
+            Environment.SetEnvironmentVariable("SYSDECK_DATA_DIR", Path.Combine(root, "data"));
             string dataDir = Engine.DefaultDataDir();
             if (!Fx.IsUnder(dataDir, root))
             {
@@ -338,11 +338,14 @@ namespace WindowsProcessCleaner.Tests
                 Area("config", ConfigTests.Run);
                 Area("rules", RuleTests.Run);
                 Area("autostart", AutostartTests.Run);
+                Area("rebrand", RebrandTests.Run);
+                Area("toolkit", ToolkitTests.Run);
                 Area("elevation", ElevationTests.Run);
                 Area("ram", RamTests.Run);
                 Area("gpu", GpuTests.Run);
                 Area("foldersize", FolderSizeTests.Run);
                 Area("capture", CaptureTests.Run);
+                Area("hud", HudTests.Run);
                 Area("browsers", BrowserTests.Run);
                 Area("downloads", DownloadsTests.Run);
                 Area("torrent", TorrentTests.Run);

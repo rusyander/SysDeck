@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «torrent», собранный клиент: BtWiring.Install подключает все части, и сессии на
+﻿// SysDeck — область «torrent», собранный клиент: BtWiring.Install подключает все части, и сессии на
 // 127.0.0.1 работают так же, как в приложении — трекер, ut_metadata, MSE, PEX, DHT вместе.
 //
 // Ненастоящие здесь только окружение сети: HTTP-трекер на петле (TrkHttpServer), узел DHT для первого знакомства
@@ -11,9 +11,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class TorrentTests
     {
@@ -263,16 +263,18 @@ namespace WindowsProcessCleaner.Tests
                 bool linked = WireWaitFor(delegate { return l2.ConnectedPeers().Count >= 1; }, 5000);
                 l3.AddPeer(WireEp(s2));
                 BtPeerInfo viaPex = null;
+                // Сид узнаётся по битовой карте, а она приходит после рукопожатия: проверять Seed в момент подключения —
+                // гонка (тест однажды упал). Ждём и подключения, и карты.
                 bool introduced = WireWaitFor(delegate
                 {
                     foreach (BtPeerInfo p in l3.ConnectedPeers())
-                        if (p.Origin == BtPeerOrigin.Pex && p.Endpoint != null && p.Endpoint.Port == s1.Context.Port) { viaPex = p; return true; }
+                        if (p.Origin == BtPeerOrigin.Pex && p.Endpoint != null && p.Endpoint.Port == s1.Context.Port && p.Seed) { viaPex = p; return true; }
                     return false;
                 }, 10000);
                 StringBuilder peers = new StringBuilder();
                 foreach (BtPeerInfo p in l3.ConnectedPeers()) peers.Append(p.Endpoint).Append(' ').Append(p.Origin).Append("; ");
                 T.Check("session: PEX — the third peer, given only the second, connects to the seed learned from ut_pex",
-                        linked && introduced && viaPex.Seed, "l3 peers: " + peers + " seed port " + s1.Context.Port + " l2 " + WireState(l2));
+                        linked && introduced, "linked " + linked + " l3 peers: " + peers + " seed port " + s1.Context.Port + " l2 " + WireState(l2));
             }
             finally { WireDispose(sessions); }
         }

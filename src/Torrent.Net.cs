@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: сетевой реактор пиров — один поток на все соединения сессии.
+﻿// SysDeck — «Загрузки», торренты: сетевой реактор пиров — один поток на все соединения сессии.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Сокеты неблокирующие, ожидание — Socket.Select с таймаутом 50 мс; поток на пира не заводится. Всё состояние пиров,
@@ -13,7 +13,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class BtNetClock
     {

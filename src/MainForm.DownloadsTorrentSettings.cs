@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: раздел настроек «Торренты» — входящие, сеть, раздача, папка наблюдения, ассоциации.
+﻿// SysDeck — вкладка «Загрузки»: раздел настроек «Торренты» — входящие, сеть, раздача, папка наблюдения, ассоциации.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Входящие соединения открываются только кнопкой: правило брандмауэра добавляет элевированный помощник (одно окно UAC), после
@@ -10,9 +10,9 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

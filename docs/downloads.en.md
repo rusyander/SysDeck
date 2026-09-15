@@ -5,13 +5,12 @@ finished file and moving what was downloaded.
 
 [← Overview](../README.en.md) · [All manual pages](README.en.md) · [🇷🇺 Русский](downloads.md)
 
-> The module is being built in stages. The engine, the background process, this page, taking over downloads from
-> Chrome, Edge, Yandex Browser and Firefox through the extension and the built-in BitTorrent client work now. Video
-> from web pages comes in the next stage.
+> Working now: the engine, the background process, this page, taking over downloads from Chrome, Edge, Yandex Browser
+> and Firefox through the extension, the built-in BitTorrent client and video from web pages.
 
 ## Background process
 The window does not download anything itself: a separate process of the same exe does
-(`WindowsProcessCleaner.exe --downloads`), so downloads continue while the program window is closed. It runs
+(`SysDeck.exe --downloads`), so downloads continue while the program window is closed. It runs
 **without administrator rights** even when the window has them: downloaded files must belong to you, not to the
 administrator.
 
@@ -44,98 +43,8 @@ If a link is already in the list, the program asks whether to download it again;
 name.
 
 ## Torrents
-Torrents are downloaded by the same background process with its own BitTorrent client, no third-party programs. A
-torrent sits in the common list next to ordinary downloads.
-
-Adding a torrent:
-- **Torrent…** on the toolbar picks a `.torrent` file.
-- `Ctrl+V` or dragging onto the list: magnet links from text and `.torrent` files. The same torrent pasted twice with
-  different trackers is added once.
-- Double-clicking a `.torrent` file or a magnet link in the browser, if the program is set for them in the settings.
-
-The torrent dialog:
-- The file list with check boxes and sizes, **Select all / Clear all**. For a magnet link the list comes from the
-  peers, so everything downloads at first; unwanted files are unchecked later on the Files tab.
-- **Folder** and the free space on the disk next to the size of the selected files, so a shortage shows at once.
-- **Torrent folder name** (the file name for a single-file torrent).
-- If the folder already holds this torrent's data, the **check it, download what is missing and seed** box uses it
-  instead of a new copy.
-- **Start** now or paused, **priority**, **download pieces in order**: a video can be watched while it downloads, but
-  seeding gets slower.
-
-Without a dialog, with default options, these become a torrent:
-- a `.torrent` file downloaded by an ordinary download;
-- a `.torrent` file downloaded by the browser when the program could not take it over;
-- a new `.torrent` file in the **watch folder**.
-
-The same torrent is never added twice. A file that turns out to be a web page named `.torrent` stays an ordinary file.
-The watch folder is checked every few seconds while the background process runs, top level only. A file still being
-written waits for the next pass. A torrent removed from the list does not come back from the folder, a restart
-included. The `.torrent` file is the delivery slip, not the goods: **Remove the .torrent file once added** is on out of
-the box, so the moment the torrent is added the file goes to the Recycle Bin and its download leaves the list (the
-browser deletes its own copy). Clear the checkbox to keep `.torrent` files — the download then stays in the list with a
-log line. The program keeps the torrent content for itself.
-
-With **Ask where to save** on, the question is asked here too — about the payload, not about the `.torrent` file: until
-it is answered the torrent stands still and fetches nothing. Cancelling drops such a torrent from the list: nobody put
-it there by hand, so clicking the link on the tracker again starts the conversation from scratch.
-
-In the list a torrent has its own states: **checking data · N %**, **downloading · peers (seeds) · upload speed**,
-**seeding**. Its menu has these instead of the single-link commands:
-- **Check the data**, **Ask the trackers for peers**, **Download in order**;
-- **Copy the magnet link**;
-- **Seed again** for a torrent stopped by ratio or time;
-- **New version of the torrent** and, once one is found, **Update the torrent…** — see below.
-
-"Download again", refreshing the link, mirrors and moving are not available for a torrent.
-
-### New version of the torrent
-Trackers re-upload torrents: episodes get added, a file gets replaced. The old one stops being seeded, and the new
-one has a different info-hash. The program finds the new version and moves the same list item onto it: what was
-downloaded stays in place, and only the changes download.
-
-The program takes the topic link from the `.torrent` itself (the comment or publisher URL field) and shows it in the
-card as **Topic**. It checks only rutracker on its own, through rutracker's public API `api.rutracker.cc`, without
-signing in:
-- every 6 hours while **Check rutracker torrents for new versions every 6 hours** is on;
-- at once when the tracker answers "Torrent not registered", but no more than once an hour per torrent.
-
-For other trackers (nnmclub, kinozal, rutor and so on) take the new version as a file from the topic page.
-
-When a new version is found:
-- a notification arrives, the list state gets **new version available**, and the card gets a **New version** row;
-- the program asks the swarm for the new version's metadata through the old version's trackers, with the same
-  passkey. Nothing is written to the download folder for that. With no peers, it retries in an hour;
-- the torrent itself does not change until you press **Update**.
-
-In the item's menu, under **New version of the torrent**:
-- **Check rutracker now** — only for torrents with a rutracker topic;
-- **Take it from a .torrent file…** — any tracker; the topic is not compared. A file of the same version is
-  refused, and what happens to the files is shown in the window before updating;
-- **Open the topic page** — in the default browser.
-
-Opening a `.torrent` of the same topic as a listed torrent but with a different info-hash asks first: **Yes**
-updates that torrent, **No** adds it as a separate download. Such a file in the watch folder, or one fetched by a
-regular download, becomes the new version without asking, and it still replaces nothing until the button.
-
-**Update the torrent…** opens the "New version of the torrent" window. It shows the info-hash, a summary by files
-(stay, move, changed, new, to the Recycle Bin) and what happens to each file. The buttons:
-- **Update** stops the torrent, sends the files missing from the new version to the Recycle Bin, moves renamed ones
-  and checks the data against the new version. Only changed and new files download, files unticked as "don't
-  download" stay unticked, and the folder keeps its name;
-- **Don't update** — this version is not offered again; the next one will be;
-- **Close** changes nothing;
-- **Open the topic page** and **From a .torrent file…** — when a different version is needed.
-
-While the metadata has not arrived, the window says so and **Update** is unavailable. An update is also refused in
-these cases (the window states the reason above the buttons):
-- it is the same version;
-- the torrent became a folder, or a single file — add that one separately;
-- the new version is BitTorrent v2 only;
-- foreign files sit where the new files go.
-
-While an update runs, the item cannot be started, checked or removed. If the process stops halfway, it finishes the
-update on the next start.
+Torrents are downloaded by the same background process with its own BitTorrent client; everything about them is on
+the [Torrents](torrents.en.md) page.
 
 ## Video
 Video on the web almost never sits in a single file: the page serves a playlist, and the clip itself is cut into
@@ -174,9 +83,9 @@ downloaded file is verified; if it does not match, the file is not started and t
 Without them HLS/DASH streams and direct links still work; video-site pages do not.
 
 ## Downloads from the browser
-The "Windows Process Cleaner — downloads" extension hands downloads started in Chrome, Edge, Yandex Browser and Firefox
+The "SysDeck — downloads" extension hands downloads started in Chrome, Edge, Yandex Browser and Firefox
 to the program. The browser and the program talk through native messaging: the browser itself starts
-`WindowsProcessCleaner.exe` and exchanges messages with it on this computer; nothing goes to the network. What the
+`SysDeck.exe` and exchanges messages with it on this computer; nothing goes to the network. What the
 extension reads is described in [Extension privacy](extension-privacy.en.md).
 
 Setting it up:
@@ -185,7 +94,7 @@ Setting it up:
    once. While the integration is on, the background process checks at every start that the keys lead to the current
    exe.
 2. Pick a browser in the list and press **Install the extension…**. The program unpacks the extension into
-   `%APPDATA%\WindowsProcessCleaner\downloads\extension\` and opens the browser's extensions page. The steps are shown
+   `%APPDATA%\SysDeck\downloads\extension\` and opens the browser's extensions page. The steps are shown
    below the list:
    - Chrome, Edge, Yandex Browser: turn on "Developer mode", press "Load unpacked" and pick the folder;
    - Firefox: `about:debugging` → "This Firefox" → "Load Temporary Add-on…" → `manifest.json` from the folder. A
@@ -197,7 +106,7 @@ Setting it up:
 3. The "Extension" column shows "connected" with the time of the last connection and the extension version.
 
 Only the copy of the program with the default data folder registers the integration. A portable copy and a copy with
-`WPC_DATA_DIR` say in that section that browsers do not connect to them.
+`SYSDECK_DATA_DIR` say in that section that browsers do not connect to them.
 
 What happens to a download:
 - When you start a download, the extension shows it to the program: in Chrome, Edge and Yandex Browser before the
@@ -229,8 +138,8 @@ program's exceptions), active and queued downloads, speed and **Open downloads**
 sites, the window offers **Allow**: without that access cookies are not passed, and sites that need a sign-in give the
 file to the browser only.
 
-The page context menu has **Download the link**, **the image**, **all links** and **the selected links with Windows
-Process Cleaner**: the chosen links join the program's queue together with the site's cookies.
+The page context menu has **Download the link**, **the image**, **all links** and **the selected links with
+SysDeck**: the chosen links join the program's queue together with the site's cookies.
 
 ## The list
 - Columns: name, size, progress, speed, time left, state, source, folder, when added. Under the progress bar a thin
@@ -321,7 +230,7 @@ it.
   - up to 8 retries after a failure, waiting at most 5 minutes.
 - **When to download**:
   - a schedule by days and hours;
-  - the whole queue only while idle (5 minutes without input, CPU below 30 %, no fullscreen game or movie);
+  - the whole queue only while idle (2 minutes without input, CPU below 30 %, no fullscreen game or movie);
   - pause on a metered connection and on battery;
   - keep the computer awake while downloading.
 - **Safety**: the "from the internet" mark, a Windows Defender scan, a custom User-Agent.
@@ -341,7 +250,7 @@ it.
   file.
 - **Torrents**:
   - **Allow incoming…** asks for administrator rights once and adds the Windows Firewall rule
-    `Windows Process Cleaner (BitTorrent)` for this program only. Without incoming connections a torrent still
+    `SysDeck (BitTorrent)` for this program only. Without incoming connections a torrent still
     downloads and seeds, but only with peers it connected to itself. **Close incoming** stops listening on the port;
     the rule stays, but with no open port it lets nothing in. The line above the buttons shows the firewall state;
   - opening the port on the router (UPnP / NAT-PMP) while incoming connections are allowed;
@@ -351,16 +260,16 @@ it.
   - how many torrents download at once (3 by default, seeding ones do not count), the upload limit, connections in
     total and per torrent, upload slots. Downloading follows the overall download limit;
   - seeding after downloading and when to stop: at a ratio or after N minutes;
-  - the watch folder and **Remove the .torrent file once added**, see [Torrents](#torrents);
+  - the watch folder and **Remove the .torrent file once added**, see [Torrents](torrents.en.md);
   - **Check rutracker torrents for new versions every 6 hours** (on by default), see
-    [New version of the torrent](#new-version-of-the-torrent);
+    [New version of the torrent](torrents.en.md#new-version-of-the-torrent);
   - **Open .torrent files** and **magnet links with this program**. Entries go to `HKCU` only; turning one off
     restores the previous app. If another app is already chosen in Windows, the program does not override that
     choice and offers the **Default apps…** button.
 - **History**: the same three clearing options as in the menu.
 
 ## Where the data lives
-Everything is in `%APPDATA%\WindowsProcessCleaner\downloads\`: `settings.json`, `index.json` (queue order), one
+Everything is in `%APPDATA%\SysDeck\downloads\`: `settings.json`, `index.json` (queue order), one
 file per download in `items\` and the process log `engine.log`. Browser cookies are never written to disk. An
 unfinished file sits in its folder with the `.wpcpart` ending. The browser integration adds `nmh\` (manifests for
 the browsers), `extension\` (the unpacked extension) and `bridge-<browser>.json` (when the extension connected and its
@@ -373,6 +282,6 @@ A found new version waits there as `update-<id>.torrent`, an unfinished update a
 uses it to finish the update after a crash), and `rutracker.json` keeps rutracker's recent answers so it is not asked
 again for nothing.
 
-A copy of the program with its own data folder (portable, or redirected with `WPC_DATA_DIR`) gets its own
+A copy of the program with its own data folder (portable, or redirected with `SYSDECK_DATA_DIR`) gets its own
 background process and its own pipe. It neither sees nor touches the main program's queue. More in
 [Data and rights](data-and-rights.en.md).

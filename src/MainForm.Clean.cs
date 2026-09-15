@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Очистка диска»: анализ, состав категории, удаление, winapp2
+﻿// SysDeck — вкладка «Очистка диска»: анализ, состав категории, удаление, winapp2
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {
@@ -282,11 +282,23 @@ namespace WindowsProcessCleaner
             return c == null ? null : c.Id;
         }
 
-        // Как категория выглядит, если про неё ничего не помним: рекомендованная и непустая.
+        // Как категория выглядит, если про неё ничего не помним: отмеченная по умолчанию и непустая.
         private static bool CleanMemDefault(ListViewItem it)
         {
             CleanCategory c = it.Tag as CleanCategory;
-            return c != null && c.Recommended && c.Size > 0;
+            return c != null && CleanCheckedByDefault(c) && c.Size > 0;
+        }
+
+        // Галочка окна — не то же, что Recommended: по Recommended работает /auto без окна. Отличия — выбранный
+        // набор: старые логи и остатки обновлений отмечены, кэши NVIDIA и Windows (эскизы, иконки) — нет.
+        internal static bool CleanCheckedByDefault(CleanCategory c)
+        {
+            switch (c.Id)
+            {
+                case "logs": case "drivers": return true;
+                case "nvidia": case "shell": return false;
+                default: return c.Recommended;
+            }
         }
 
         private void PopulateClean(List<CleanCategory> cats)
@@ -325,7 +337,7 @@ namespace WindowsProcessCleaner
                 // «рекомендована и непустая» применяется здесь же — но лишь пока пользователь
                 // сам ничего не решил: его галочку анализ больше не сбивает.
                 MemBeginFill();
-                try { it.Checked = MemBool(CleanScope, c.Id, c.Recommended && c.Size > 0, true); }
+                try { it.Checked = MemBool(CleanScope, c.Id, CleanCheckedByDefault(c) && c.Size > 0, true); }
                 finally { MemEndFillPlain(); }
             }
             // саму надпись рисует тикер (он же показывает секундомер и текущую категорию)

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «downloads»: мост к браузерам. Этот же тестовый exe запускается так, как его запускает
+﻿// SysDeck — область «downloads»: мост к браузерам. Этот же тестовый exe запускается так, как его запускает
 // браузер: Chromium — «cmd.exe /d /s /c ""exe" chrome-extension://id/ --parent-window=0" < канал > канал», Firefox —
 // «exe <манифест> <id дополнения>» с перенаправленными stdin/stdout; путь к exe берётся из манифеста, на который указывает
 // раздел реестра, записанный DlBrowsers.Register. Тест играет роль расширения: пишет и читает кадры сам, своим кодом.
@@ -18,9 +18,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class DownloadsTests
     {
@@ -718,7 +718,7 @@ namespace WindowsProcessCleaner.Tests
                 {
                     using (RegistryKey foreign = software.CreateSubKey(@"Google\Chrome\NativeMessagingHosts\com.other.host"))
                         foreign.SetValue("", @"C:\other\host.json");
-                    const string exeA = @"C:\Apps\WPC\WindowsProcessCleaner.exe";
+                    const string exeA = @"C:\Apps\WPC\SysDeck.exe";
                     T.Check("registry: register writes our three keys", DlBrowsers.Register(software, dir, exeA) == null);
                     string chromium = Path.Combine(dir, "org.wpc.downloads.chromium.json");
                     string firefox = Path.Combine(dir, "org.wpc.downloads.firefox.json");
@@ -734,7 +734,7 @@ namespace WindowsProcessCleaner.Tests
                             && DlJson.Str(mc, "path", "") == exeA && mc.Get("allowed_extensions") == null, Jsn.Write(mc));
                     T.Check("registry: the Firefox manifest allows exactly our add-on id", exts.Count == 1 && exts[0] == GeckoId && DlJson.Str(mf, "path", "") == exeA && mf.Get("allowed_origins") == null, Jsn.Write(mf));
                     T.Check("registry: IsRegistered sees this exe", DlBrowsers.IsRegistered(software, dir, exeA, "chromium", @"Microsoft\Edge\NativeMessagingHosts\org.wpc.downloads"));
-                    const string exeB = @"D:\Moved\WindowsProcessCleaner.exe";
+                    const string exeB = @"D:\Moved\SysDeck.exe";
                     T.Check("registry: after the exe moved it is not registered", !DlBrowsers.IsRegistered(software, dir, exeB, "firefox", @"Mozilla\NativeMessagingHosts\org.wpc.downloads"));
                     DlBrowsers.Register(software, dir, exeB);
                     T.Check("registry: registering again rewrites the manifest path", DlBrowsers.IsRegistered(software, dir, exeB, "firefox", @"Mozilla\NativeMessagingHosts\org.wpc.downloads"));

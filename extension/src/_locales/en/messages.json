@@ -1,28 +1,28 @@
 {
-  "extName": { "message": "Windows Process Cleaner Downloads" },
-  "extShortName": { "message": "WPC Downloads" },
-  "extDescription": { "message": "Hands browser downloads over to the Windows Process Cleaner download manager on this computer." },
-  "actionTitle": { "message": "Windows Process Cleaner downloads" },
+  "extName": { "message": "SysDeck Downloads" },
+  "extShortName": { "message": "SysDeck Downloads" },
+  "extDescription": { "message": "Hands browser downloads over to the SysDeck download manager on this computer." },
+  "actionTitle": { "message": "SysDeck downloads" },
 
-  "menuLink": { "message": "Download link with Windows Process Cleaner" },
-  "menuImage": { "message": "Download image with Windows Process Cleaner" },
-  "menuPage": { "message": "Download all links with Windows Process Cleaner" },
-  "menuSelection": { "message": "Download selected links with Windows Process Cleaner" },
+  "menuLink": { "message": "Download link with SysDeck" },
+  "menuImage": { "message": "Download image with SysDeck" },
+  "menuPage": { "message": "Download all links with SysDeck" },
+  "menuSelection": { "message": "Download selected links with SysDeck" },
 
   "badgeAdded": {
-    "message": "Sent to Windows Process Cleaner: $COUNT$",
+    "message": "Sent to SysDeck: $COUNT$",
     "placeholders": { "count": { "content": "$1", "example": "3" } }
   },
   "badgeNone": { "message": "No links to download" },
-  "badgeError": { "message": "Could not reach Windows Process Cleaner" },
+  "badgeError": { "message": "Could not reach SysDeck" },
 
-  "popupTitle": { "message": "Windows Process Cleaner" },
+  "popupTitle": { "message": "SysDeck" },
   "connReady": { "message": "Connected to the app" },
   "connConnecting": { "message": "Connecting…" },
   "connMissing": { "message": "App not found" },
   "connForbidden": { "message": "The app did not accept this extension" },
   "connLost": { "message": "No connection to the app" },
-  "hintMissing": { "message": "Install Windows Process Cleaner and turn on browser integration in its download settings." },
+  "hintMissing": { "message": "Install SysDeck and turn on browser integration in its download settings." },
   "hintForbidden": { "message": "Turn browser integration off and on again in the app's download settings." },
   "hintLost": { "message": "The extension keeps retrying on its own." },
 

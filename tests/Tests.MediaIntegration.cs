@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «media»: собранная цепочка. Всё, что до этого файла проверялось по частям,
+﻿// SysDeck — область «media»: собранная цепочка. Всё, что до этого файла проверялось по частям,
 // здесь идёт настоящим путём: очередь → DlMediaRun → настоящая склейка ядра → готовый файл, который читает
 // Media Foundation. Ни одна часть не подменяется: MdWiring.Install() ставит те же точки, что и рабочая программа.
 //
@@ -8,9 +8,9 @@
 using System;
 using System.Globalization;
 using System.IO;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class MediaTests
     {

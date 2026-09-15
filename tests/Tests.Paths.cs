@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — тесты предохранителя путей.
+﻿// SysDeck — тесты предохранителя путей.
 //
 // Что здесь закрепляется: какие цели движок вообще соглашается чистить. Это самая дорогая
 // ошибка в приложении, которое удаляет файлы: пропущенный запрет — это чужие данные, лишний —
@@ -8,7 +8,7 @@
 using System;
 using System.IO;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class PathTests
     {
@@ -97,7 +97,7 @@ namespace WindowsProcessCleaner.Tests
             // Здесь проверяется не имя вендора, а сам порядок: в %ProgramData% и Program Files
             // отдаётся только заведомо одноразовое, остальное остаётся у любого приложения.
             string pd = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            string vendor = Path.Combine(pd, "WindowsProcessCleaner-selftest");
+            string vendor = Path.Combine(pd, "SysDeck-selftest");
             string payload = Path.Combine(vendor, "cache");
             bool inProgramData = false;
             try { Fx.MakeDir(payload); inProgramData = true; }

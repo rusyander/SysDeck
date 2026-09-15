@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — обход папок, анализ и удаление целей, защита путей, журнал очистки
+﻿// SysDeck — обход папок, анализ и удаление целей, защита путей, журнал очистки
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {
@@ -107,7 +107,7 @@ namespace WindowsProcessCleaner
         }
 
         // Корень обхода в том же каноническом виде, что и исключения: иначе цель, записанная через
-        // 8.3-имя (%TEMP% = C:\Users\RUSYAN~1\…) или junction, не совпадала с исключением по префиксу.
+        // 8.3-имя (%TEMP% = C:\Users\USERNA~1\…) или junction, не совпадала с исключением по префиксу.
         // Вызывается после проверки, что сам корень — не точка повторного разбора.
         private static string CanonicalRoot(string rootPath)
         {

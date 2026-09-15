@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — общие кирпичики раскладки: панели кнопок с переносом,
+﻿// SysDeck — общие кирпичики раскладки: панели кнопок с переносом,
 // строки-подписи, масштаб DPI, добивка ширины списков после ресайза, колонки настроек.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
@@ -8,7 +8,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

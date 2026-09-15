@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — автозапуск: ключи Run, папки Startup, флаги StartupApproved, задача планировщика для самого приложения
+﻿// SysDeck — автозапуск: ключи Run, папки Startup, флаги StartupApproved, задача планировщика для самого приложения
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {
@@ -276,7 +276,7 @@ namespace WindowsProcessCleaner
         // ключ реестра Run для автозапуска не годится (Windows не запускает из него
         // приложения с повышенными правами). Используем Планировщик задач с
         // наивысшими правами — тогда при входе в систему UAC не появляется.
-        private const string TaskName = "WindowsProcessCleaner";
+        private const string TaskName = "SysDeck";
         public static string AutostartTaskName { get { return TaskName; } }
 
         // Возвращает null при успехе, иначе причину. Раньше результат не проверялся вовсе:
@@ -366,7 +366,7 @@ namespace WindowsProcessCleaner
             StringBuilder sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n");
             sb.Append("<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n");
-            sb.Append("  <RegistrationInfo><Description>Windows Process Cleaner</Description></RegistrationInfo>\r\n");
+            sb.Append("  <RegistrationInfo><Description>SysDeck</Description></RegistrationInfo>\r\n");
             sb.Append("  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>").Append(System.Security.SecurityElement.Escape(account)).Append("</UserId></LogonTrigger></Triggers>\r\n");
             sb.Append("  <Principals><Principal id=\"Author\"><UserId>").Append(System.Security.SecurityElement.Escape(principal)).Append("</UserId>");
             sb.Append("<LogonType>InteractiveToken</LogonType><RunLevel>").Append(highest ? "HighestAvailable" : "LeastPrivilege").Append("</RunLevel></Principal></Principals>\r\n");

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: стыковка модуля видео. Здесь и только здесь ядро склейки (Media.*.cs),
+﻿// SysDeck — «Загрузки»: стыковка модуля видео. Здесь и только здесь ядро склейки (Media.*.cs),
 // движок потоков (Downloads.Hls/Dash/MediaFetch/Media.cs) и инструменты (Downloads.Ytdlp*.cs) соединяются с очередью.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
@@ -7,7 +7,7 @@
 using System;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class MdWiring
     {

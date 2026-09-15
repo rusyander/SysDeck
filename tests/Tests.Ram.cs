@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «ram»: сходится ли схема расхода памяти и что
+﻿// SysDeck — область «ram»: сходится ли схема расхода памяти и что
 // принимает канал команд элевированного помощника.
 //
 // Прогон идёт БЕЗ прав администратора и НИЧЕГО не сбрасывает. Ни одна проверка здесь не
@@ -15,7 +15,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class RamTests
     {
@@ -71,18 +71,12 @@ namespace WindowsProcessCleaner.Tests
             {
                 int dead = child.Id;
                 child.WaitForExit(10000);
-                // Пока открыт хоть один описатель, ядро держит номер занятым, и такой pid
-                // честно считается живым. Описатель здесь наш собственный — окно, которое
-                // никого не открывало, этого эффекта не видит; поэтому закрываем и ждём.
-                child.Close();
+                // Описатель намеренно ещё открыт: так же объект ядра держат conhost, антивирус или монитор
+                // окна программы, и pid открывается. Раньше такой процесс считался пережившим завершение —
+                // тест падал через раз, в зависимости от того, успел ли чужой держатель отпустить объект.
                 List<int> one = new List<int>(); one.Add(dead);
-                bool gone = false;
-                for (int i = 0; i < 40 && !gone; i++)
-                {
-                    gone = e.SurvivorsOf(one).Count == 0;
-                    if (!gone) System.Threading.Thread.Sleep(50);
-                }
-                T.Check("завершившийся процесс в списке не остаётся", gone, "pid " + dead);
+                T.Check("завершившийся процесс в списке не остаётся, даже пока его описатель открыт", e.SurvivorsOf(one).Count == 0, "pid " + dead);
+                child.Close();
             }
         }
 

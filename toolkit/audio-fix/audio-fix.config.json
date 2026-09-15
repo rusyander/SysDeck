@@ -1,0 +1,10 @@
+{
+  "preferredEndpoint": "Realtek Digital Output",
+  "restartServices": true,
+  "portReset": true,
+  "allowDriverReinstall": false,
+  "logMaxKB": 200,
+  "shortcutName": "Починить звук",
+  "wakeDelaySec": 90,
+  "wakeCooldownMin": 30
+}

@@ -1,4 +1,4 @@
-﻿# Windows Process Cleaner - scan-app-caches.ps1
+﻿# SysDeck - scan-app-caches.ps1
 # Ищет на текущей машине папки-кэши установленных программ и сверяет их с каталогом очистки
 # (src\*.cs). Скрипт ТОЛЬКО ЧИТАЕТ: единственная запись - файл отчёта .agent\tmp\catalog-scan-<дата>.md.
 # Требуется Windows PowerShell 5.1 (входит в состав Windows), внешних модулей нет.
@@ -233,7 +233,7 @@ function Find-CacheDirs($root, $rootName) {
 
 # ------------------------------------------------------------------ работа ----
 
-Write-Host "Windows Process Cleaner - app cache scanner (read-only)"
+Write-Host "SysDeck - app cache scanner (read-only)"
 Write-Host ("src: {0}" -f $SrcDir)
 
 $programs = Get-InstalledPrograms

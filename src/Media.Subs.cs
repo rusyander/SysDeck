@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: субтитры (склейка сегментов WebVTT, перевод VTT/TTML в SRT, файлы рядом с видео).
+﻿// SysDeck — «Загрузки», видео: субтитры (склейка сегментов WebVTT, перевод VTT/TTML в SRT, файлы рядом с видео).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // HLS режет субтитры на сегменты со своими X-TIMESTAMP-MAP: время реплики = местное − LOCAL + MPEGTS/90000. Склейка
@@ -14,7 +14,7 @@ using System.IO;
 using System.Text;
 using System.Xml;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class MdSubs
     {

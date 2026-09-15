@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: шифрование соединений MSE/PE (Message Stream Encryption).
+﻿// SysDeck — «Загрузки», торренты: шифрование соединений MSE/PE (Message Stream Encryption).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // A — кто соединяется, B — кто принимает:
@@ -17,7 +17,7 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // RC4 на месте; один экземпляр — одно направление одного соединения, без блокировок.
     internal sealed class BtRc4 : IBtCipher

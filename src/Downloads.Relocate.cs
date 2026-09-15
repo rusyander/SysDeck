@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: перенос и копирование скачанного в другую папку, очистка истории, уведомления.
+﻿// SysDeck — «Загрузки»: перенос и копирование скачанного в другую папку, очистка истории, уведомления.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Тот же том — переименование: мгновенно, метка MOTW остаётся на файле. Другой том или копия — поток во временный
@@ -10,7 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum DlNoticeKind { Completed, Failed, NeedsLink, Intercepted, UpdateAvailable }
 

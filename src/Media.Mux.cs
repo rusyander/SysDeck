@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: склейка дорожек в один файл (MP4/M4A через Media Foundation, WebM, MP3, TS).
+﻿// SysDeck — «Загрузки», видео: склейка дорожек в один файл (MP4/M4A через Media Foundation, WebM, MP3, TS).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Без перекодирования: MP4/M4A пишет IMFSinkWriter, которому кадры дают либо свой разборщик (TS, ADTS, MP3 — Media.Ts.cs,
@@ -16,9 +16,9 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using WindowsProcessCleaner.Capture;
+using SysDeck.Capture;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class MdMux
     {

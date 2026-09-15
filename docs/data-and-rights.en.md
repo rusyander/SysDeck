@@ -6,17 +6,18 @@ Where the program keeps settings, history and logs, which operations need admini
 
 ## Where data lives
 
-Everything in one folder — `%APPDATA%\WindowsProcessCleaner\`. The "Data folder" button in
+Everything in one folder — `%APPDATA%\SysDeck\`. The "Data folder" button in
 settings opens it.
 
 | File | What it is |
 |---|---|
 | `config.json` | all settings, including the excluded category folders. Written through a temporary file so a crash cannot leave an empty config; a damaged copy is kept as `config.json.corrupt` |
 | `history.json` | process-cleanup history |
+| `rebrand.log` | what was moved from the old program name (Windows Process Cleaner) on the first SysDeck start |
 | `debloat-snapshot.json` | previous states of the "Windows bloat" items, used by "Restore" |
 | `clean-YYYY-MM.log` | disk-cleanup log (what was deleted and how much was freed) |
 | `updates-YYYY-MM.log` | program-update log |
-| `winapp2.ini` | the downloaded winapp2 rule database, if you fetched it. As of this version it lives in `C:\ProgramData\WindowsProcessCleaner\` instead — a folder no process without administrator rights can write to; the old copy is deleted on the next download |
+| `winapp2.ini` | the downloaded winapp2 rule database, if you fetched it. As of this version it lives in `C:\ProgramData\SysDeck\` instead — a folder no process without administrator rights can write to; the old copy is deleted on the next download |
 | `browser-backups\` | copies of the bookmarks files, taken before every edit |
 | `foldersize\` | the Folder sizes background mode: `settings.json` (its settings), `sizes.json` (remembered sizes), `status.json` (pid and rights of the running process — the tab reads its state from it), its own `crash.log` |
 | `capture\` | Capture: `settings.json` (its settings and shortcuts), `status.json` (pid, rights and shortcut state of the running background process), its own `crash.log`. The screenshots themselves are not kept here but in the chosen folder, `Pictures\Screenshots` by default |
@@ -52,7 +53,7 @@ auto-clean silently skip whatever they lack rights for and write that to the log
 at sign-in stays a Task Scheduler task with highest privileges, so a window opened that way
 already has rights and needs no helper.
 
-Fast mode of Folder sizes asks for UAC once — to create the `WindowsProcessCleaner FolderSize`
+Fast mode of Folder sizes asks for UAC once — to create the `SysDeck FolderSize`
 Task Scheduler task with highest privileges. The program then runs that task itself, without
 rights and without UAC: at sign-in and on a restart from the tray. Deleting the task needs
 rights too.
@@ -63,31 +64,39 @@ Autostart is a value under `HKCU\...\Run`, with no Task Scheduler and no UAC.
 
 The downloads background process (`--downloads`) also runs with ordinary rights only: downloaded
 files must not be owned by the administrator. From an elevated window it is started through
-Explorer. The `WindowsProcessCleaner.Downloads` value under `HKCU\...\Run` exists only while the
+Explorer. The `SysDeck.Downloads` value under `HKCU\...\Run` exists only while the
 queue holds unfinished downloads and "resume after sign-in" is on, and is removed once the queue
 is empty. The process takes commands over a named pipe open to the current user only, and only
 from a process of the same exe; it does not listen to other programs. A copy of the program with
-another data folder (portable or with `WPC_DATA_DIR`) has its own pipe and autostart value, with a
+another data folder (portable or with `SYSDECK_DATA_DIR`) has its own pipe and autostart value, with a
 suffix computed from that folder's path. While the process is not running, the Downloads page only
 reads its files; the one thing it writes itself is `settings.json` when settings change, and the autostart value to match it.
 
 Browser integration is three keys under `HKCU`, with no administrator rights:
 `Software\Google\Chrome\NativeMessagingHosts\org.wpc.downloads` (other Chromium browsers read it too),
 `Software\Microsoft\Edge\NativeMessagingHosts\org.wpc.downloads` and `Software\Mozilla\NativeMessagingHosts\org.wpc.downloads`.
-Each leads to a manifest in `downloads\nmh\`. Through them the browser itself starts `WindowsProcessCleaner.exe` with
+Each leads to a manifest in `downloads\nmh\`. Through them the browser itself starts `SysDeck.exe` with
 the rights of the user the browser runs as. That process talks only to the extension whose id is built into the
 program and hands downloads to the background process over the same pipe. Only the copy with the default data folder
 writes the keys; the "Browser integration" checkbox and the uninstaller remove them. The uninstaller also removes the
-`WindowsProcessCleaner.Downloads` value from `HKCU\...\Run` when it starts the copy being removed.
+`SysDeck.Downloads` value from `HKCU\...\Run` when it starts the copy being removed.
 
 Torrents. Without a firewall rule the background process does not open a port for incoming connections, so the
-Windows "Allow access" dialog never appears by itself. The `Windows Process Cleaner (BitTorrent)` rule is added by the
+Windows "Allow access" dialog never appears by itself. The `SysDeck (BitTorrent)` rule is added by the
 elevated helper, and only through the **Allow incoming…** button. The rule lets incoming connections through for this
 program only. **Close incoming** does not delete it: the process simply stops listening on the port. Opening `.torrent`
 files and magnet links with the program uses keys under `HKCU\Software`, with no administrator rights:
-`Classes\WindowsProcessCleaner.Torrent`, `Classes\WindowsProcessCleaner.Magnet`, `Classes\.torrent`, `Classes\magnet`,
-`WindowsProcessCleaner\Capabilities` and a value in `RegisteredApplications`. The previous handler is saved in
-`WindowsProcessCleaner\Associations` and restored when the option is turned off. An app choice already made in
+`Classes\SysDeck.Torrent`, `Classes\SysDeck.Magnet`, `Classes\.torrent`, `Classes\magnet`,
+`SysDeck\Capabilities` and a value in `RegisteredApplications`. The previous handler is saved in
+`SysDeck\Associations` and restored when the option is turned off. An app choice already made in
 Windows is never overwritten.
+
+Scripts. The [Scripts](scripts.en.md) page creates user Task Scheduler tasks itself, without rights and without UAC.
+Administrator rights are needed only for the audio repair and MPO: the elevated helper copies their scripts into
+`%ProgramData%\SysDeck\toolkit` (writable only by administrators and SYSTEM), registers SYSTEM tasks and writes the
+`OverlayTestMode` value under HKLM. One button press means one UAC prompt, even with both items ticked. Outside the data
+folder the page writes only what it is asked to: script folders (`%USERPROFILE%\.claude\tools\`, `%USERPROFILE%\Tools\`),
+the keys of `.wslconfig` (copy `.wslconfig.sysdeck.bak`) and its own hook in the Claude Code `settings.json`
+(copy `settings.json.bak`).
 
 ---

@@ -1,5 +1,5 @@
-# Windows Process Cleaner - torrent lane C oracle: libtorrent 2.x as an independent MSE/PE and DHT implementation.
-# Started by tests/Tests.TorrentDht.cs with WPC_LT_PYTHON. Binds 127.0.0.1 only; DHT bootstrap, LSD, UPnP, NAT-PMP off.
+# SysDeck - torrent lane C oracle: libtorrent 2.x as an independent MSE/PE and DHT implementation.
+# Started by tests/Tests.TorrentDht.cs with SYSDECK_LT_PYTHON. Binds 127.0.0.1 only; DHT bootstrap, LSD, UPnP, NAT-PMP off.
 #   python dht_mse.py mse <workdir>   seeds a v1 torrent with encryption forced (RC4 only, both directions)
 #   python dht_mse.py dht <workdir>   a lone DHT node, routing/search IP restrictions off
 # stdout lines: "PORT n", "HASH hex" (mse), "READY"; replies to commands: "OK ...", "PEERS a:p,b:p", "ERR ...".

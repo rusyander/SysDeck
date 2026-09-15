@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «torrent», часть «Обновить раздачу»: план перехода данных прежней версии торрента
+﻿// SysDeck — область «torrent», часть «Обновить раздачу»: план перехода данных прежней версии торрента
 // в раскладку новой (торренты собраны сборщиком и разобраны настоящим BtMeta), файловые шаги на настоящей файловой
 // системе и проверка результата хешем новой версии через BtStorage — тем же кодом, что проверяет данные при старте.
 // Подменена только Корзина: делегат переносит файл в папку фикстуры, как настоящая Корзина убирает его с места.
@@ -11,9 +11,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class TorrentTests
     {
@@ -112,7 +112,7 @@ namespace WindowsProcessCleaner.Tests
                         && api.Paths() == "get_tor_hash?by=topic_id&val=100,300,999|static/forum_size|static/pvc/f/22|static/pvc/f/11|static/pvc/f/33",
                         err + " " + api.Paths());
                 T.Check("rutracker: every request names this client (never an empty or Python agent) and the gzip reply is read",
-                        api.AllAgents("WindowsProcessCleaner") && api.GzipServed > 0, api.AgentsText());
+                        api.AllAgents("SysDeck") && api.GzipServed > 0, api.AgentsText());
 
                 // Новый экземпляр — кеш с диска: форумы известны, выгрузки не менялись (304), отсутствующая тема не ищется.
                 api.Clear();
@@ -523,7 +523,7 @@ namespace WindowsProcessCleaner.Tests
                 T.Check("update engine: tracker «Torrent not registered» ⇒ topic checked at once ⇒ new hash offered with one notice, nothing replaced yet",
                         offered && EngNotices(notices, id, DlNoticeKind.UpdateAvailable) == 1 && e.Find(id).InfoHash == oldMeta.HexHash
                         && EngWaitState(e, id, DlState.Seeding, 100), EngState(e, id) + " | " + EngJournal(e, id));
-                WindowsProcessCleaner.Capture.ToastInfo toast = null;
+                SysDeck.Capture.ToastInfo toast = null;
                 lock (notices) foreach (DlNotice n in notices) if (n.Id == id && n.Kind == DlNoticeKind.UpdateAvailable) toast = DlNotifier.InfoFor(n);
                 T.Check("update engine: the notice's toast says a new version was found, not that the torrent was updated, and names the menu item",
                         toast != null && toast.Title == Tr.S("Новая версия раздачи: ", "New version of the torrent: ") + "wire"
@@ -642,7 +642,7 @@ namespace WindowsProcessCleaner.Tests
             string store = Fx.MakeDir(root, "store");
             bool refuseSecond = true;
             List<string> recycled = UpdRecycleInto(bin, dl, delegate(int n) { return refuseSecond && n == 1 ? "файл занят" : null; });
-            string pipe = "WindowsProcessCleaner.dl.updtest-" + System.Diagnostics.Process.GetCurrentProcess().Id;
+            string pipe = "SysDeck.dl.updtest-" + System.Diagnostics.Process.GetCurrentProcess().Id;
             BtSession seed = null;
             DlEngine e = null, e2 = null;
             try

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: вопрос «куда скачивать» для загрузки, пришедшей из браузера.
+﻿// SysDeck — «Загрузки»: вопрос «куда скачивать» для загрузки, пришедшей из браузера.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Запись заводится сразу, но стоит на паузе с пометкой «ждёт выбора папки»: браузеру ответ нужен немедленно, а человек
@@ -11,9 +11,9 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Capture;
+using SysDeck.Capture;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlFolderChoice
     {

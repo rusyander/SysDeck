@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: разбор плейлистов HLS (RFC 8216) — master и media.
+﻿// SysDeck — «Загрузки», видео: разбор плейлистов HLS (RFC 8216) — master и media.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Разборщик не ходит в сеть: текст плейлиста уже скачан (MdLoader), относительные адреса считаются от адреса плейлиста
@@ -10,7 +10,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class MdHls
     {

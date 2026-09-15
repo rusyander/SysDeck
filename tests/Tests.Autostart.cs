@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — тесты описания задачи автозапуска (Engine.AutostartTaskXml).
+﻿// SysDeck — тесты описания задачи автозапуска (Engine.AutostartTaskXml).
 //
 // Проверяется только ТЕКСТ задачи: настоящая задача планировщика здесь не создаётся, не
 // изменяется и не удаляется. Причина, по которой это вообще проверяется: задача, созданная
@@ -10,7 +10,7 @@
 using System;
 using System.Xml;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class AutostartTests
     {
@@ -18,7 +18,7 @@ namespace WindowsProcessCleaner.Tests
 
         internal static void Run()
         {
-            string exe = "C:\\Program Files\\Wpc & Co\\WindowsProcessCleaner.exe";
+            string exe = "C:\\Program Files\\Wpc & Co\\SysDeck.exe";
             string xml = Engine.AutostartTaskXml(exe, true);
 
             XmlDocument doc = new XmlDocument();
@@ -81,7 +81,7 @@ namespace WindowsProcessCleaner.Tests
                  "LeastPrivilege", Text(plain, ns2, "/t:Task/t:Principals/t:Principal/t:RunLevel"));
 
             T.Eq("the scheduled task keeps its stable name",
-                 "WindowsProcessCleaner", Engine.AutostartTaskName);
+                 "SysDeck", Engine.AutostartTaskName);
         }
 
         private static string Text(XmlDocument doc, XmlNamespaceManager ns, string xpath)

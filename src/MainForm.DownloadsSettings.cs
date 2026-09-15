@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: настройки загрузок (папки и правила, скорость, очередь, когда качать, безопасность).
+﻿// SysDeck — вкладка «Загрузки»: настройки загрузок (папки и правила, скорость, очередь, когда качать, безопасность).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Настройки принадлежат процессу загрузок: пока он работает, изменение уходит ему по каналу и он применяет его сразу.
@@ -10,9 +10,9 @@ using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

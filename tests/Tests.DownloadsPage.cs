@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «downloads», этап 2 (страница): перенос и копирование скачанного, продолжение
+﻿// SysDeck — область «downloads», этап 2 (страница): перенос и копирование скачанного, продолжение
 // прерванного переноса, очистка истории, уведомления, «есть ли работа» для ухода процесса, команды канала страницы.
 //
 // Всё — настоящий движок против локального HTTP-сервера и настоящих файлов фикстуры. Подменены только часы и Корзина
@@ -10,10 +10,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
-using WindowsProcessCleaner.Capture;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Capture;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class DownloadsTests
     {
@@ -334,7 +334,7 @@ namespace WindowsProcessCleaner.Tests
         {
             DlTestServer.Res r = srv.Add("pipe-move.bin", new DlTestServer.Res());
             r.Size = 70 * 1024; r.Seed = 70;
-            string name = "WindowsProcessCleaner.dl.test2-" + Process.GetCurrentProcess().Id;
+            string name = "SysDeck.dl.test2-" + Process.GetCurrentProcess().Id;
             string folder = Dir("pipe2"), dest = Dir("pipe2-dest");
             using (DlEngine e = NewEngine(Dir("pipe2-store"), NewSettings(folder), new FakeDlEnv()))
             {
@@ -373,14 +373,14 @@ namespace WindowsProcessCleaner.Tests
         private static void PageView()
         {
             // Канал: у хранилища по умолчанию имён с суффиксом нет, у любой другой папки — свои, устойчивые к регистру и слэшу.
-            string standard = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WindowsProcessCleaner", "downloads");
+            string standard = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SysDeck", "downloads");
             T.Eq("channel: the default data folder keeps the old names", "", DlIpc.ChannelFor(standard, standard));
             T.Eq("channel: case and a trailing slash do not matter", "", DlIpc.ChannelFor(standard.ToUpperInvariant() + "\\", standard));
             string portable = DlIpc.ChannelFor(@"D:\Portable\WPC\data\downloads", standard);
             T.Check("channel: another data folder gets a dot and 12 hex digits", System.Text.RegularExpressions.Regex.IsMatch(portable, "^\\.[0-9a-f]{12}$"), portable);
             T.Eq("channel: the same folder in another case gets the same channel", portable, DlIpc.ChannelFor(@"d:\portable\wpc\DATA\downloads\", standard));
             T.Check("channel: two data folders never share a channel", portable != DlIpc.ChannelFor(@"D:\Portable\WPC2\data\downloads", standard));
-            T.Check("channel: this test run (WPC_DATA_DIR) does not talk to the real process",
+            T.Check("channel: this test run (SYSDECK_DATA_DIR) does not talk to the real process",
                     DlIpc.Channel.Length == 13 && DlIpc.PipeName.EndsWith(DlIpc.Channel) && DlIpc.MutexName.EndsWith(DlIpc.Channel)
                     && DlIpc.ShutdownEventName.Contains(DlIpc.Channel) && DlLauncher.RunValueName.EndsWith(DlIpc.Channel),
                     DlIpc.PipeName + " | " + DlIpc.MutexName);

@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: кому отдавать (choke/unchoke).
+﻿// SysDeck — «Загрузки», торренты: кому отдавать (choke/unchoke).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Решение — чистая функция над снимком пиров: её легко проверить на построенном состоянии, а применяет её рой.
@@ -9,7 +9,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtChokeInfo
     {

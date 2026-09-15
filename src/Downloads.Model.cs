@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: модель загрузки, сегменты, журнал событий и хранилище на диске.
+﻿// SysDeck — «Загрузки»: модель загрузки, сегменты, журнал событий и хранилище на диске.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Каждая загрузка — свой файл items\<id>.json (атомарная запись с .bak), порядок — index.json. Смещения сегментов на диске
@@ -10,7 +10,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum DlState
     {

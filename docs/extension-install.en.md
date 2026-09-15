@@ -1,6 +1,6 @@
 # Installing the extension by hand
 
-Step-by-step installation of the "Windows Process Cleaner Downloads" extension in Chrome, Edge, Yandex Browser, Opera
+Step-by-step installation of the "SysDeck Downloads" extension in Chrome, Edge, Yandex Browser, Opera
 and Opera GX, Brave, Vivaldi and Firefox. What the extension does and how the take-over works is in
 [Downloads](downloads.en.md); what it reads is in [Extension privacy](extension-privacy.en.md).
 
@@ -42,8 +42,8 @@ There are two folders, one per browser family:
 
 | Browser | Folder |
 |---|---|
-| Chrome, Edge, Yandex Browser, Opera, Opera GX, Brave, Vivaldi and other Chromium browsers | `%APPDATA%\WindowsProcessCleaner\downloads\extension\chromium` |
-| Firefox | `%APPDATA%\WindowsProcessCleaner\downloads\extension\firefox` |
+| Chrome, Edge, Yandex Browser, Opera, Opera GX, Brave, Vivaldi and other Chromium browsers | `%APPDATA%\SysDeck\downloads\extension\chromium` |
+| Firefox | `%APPDATA%\SysDeck\downloads\extension\firefox` |
 
 The program's list has only four rows — Google Chrome, Microsoft Edge, Yandex Browser and Mozilla Firefox. For Opera,
 Brave and Vivaldi pick any Chromium row (Google Chrome, say): the folder is the same for all of them. If the picked
@@ -63,10 +63,10 @@ the `key` field in the manifest; editing the manifest changes it, and the progra
    an unpacked extension is not on the page at all.
 4. Press **"Load unpacked"** — top left, it appears together with developer mode.
 5. In the folder picker choose **the folder itself**,
-   `%APPDATA%\WindowsProcessCleaner\downloads\extension\chromium`, and confirm. **Do not go inside it and do not pick
+   `%APPDATA%\SysDeck\downloads\extension\chromium`, and confirm. **Do not go inside it and do not pick
    `manifest.json`** — that is the most common mistake: Chrome expects a folder, not a file.
-6. A card named **"Windows Process Cleaner Downloads"** appears in the list (in a browser with Russian as its language,
-   "Windows Process Cleaner — загрузки") with the id `kfbocmoigekddjcfodbhbiahndahdmal`.
+6. A card named **"SysDeck Downloads"** appears in the list (in a browser with Russian as its language,
+   "SysDeck — загрузки") with the id `kfbocmoigekddjcfodbhbiahndahdmal`.
 7. Press the extension's button on the browser toolbar. The popup should say **"Connected to the app"**. If it offers
    **"Allow"** for access to all sites, allow it: without that, cookies are not handed over and sites with a sign-in
    will give the file to the browser only.
@@ -121,7 +121,7 @@ Opera is the one browser here about which the program does not know whether it r
 popup says "App not found" while Chrome on the same computer is connected, copy the registry key
 `HKCU\Software\Google\Chrome\NativeMessagingHosts\org.wpc.downloads` into the `NativeMessagingHosts` branch of your
 Opera build (the default value is the path to
-`%APPDATA%\WindowsProcessCleaner\downloads\nmh\org.wpc.downloads.chromium.json`).
+`%APPDATA%\SysDeck\downloads\nmh\org.wpc.downloads.chromium.json`).
 
 ## Brave
 
@@ -149,12 +149,12 @@ In Firefox the extension is installed differently and lives **until the browser 
 limitation, not the program's.
 
 1. Do [step 0](#step-0-get-the-extension-folder) with **Mozilla Firefox** picked in the list: the folder will be
-   `%APPDATA%\WindowsProcessCleaner\downloads\extension\firefox`.
+   `%APPDATA%\SysDeck\downloads\extension\firefox`.
 2. Type `about:debugging#/runtime/this-firefox` in the address bar.
 3. Press **"Load Temporary Add-on…"**.
 4. Pick the **`manifest.json`** file from the `…\downloads\extension\firefox` folder. Here, unlike in the Chromium
    browsers, the manifest file itself is what you select.
-5. The add-on **"Windows Process Cleaner Downloads"** appears in the list of temporary extensions with the id
+5. The add-on **"SysDeck Downloads"** appears in the list of temporary extensions with the id
    `wpc-downloads@windows-process-cleaner`.
 6. For private windows, open `about:addons` → this add-on and allow it to run in private windows.
 
@@ -179,7 +179,7 @@ the archive to `.xpi` and install it through `about:addons` → "Install Add-on 
   **Refresh** button next to it.
 - **Browser integration is off.** The box in the Browsers section removes the registry keys at once — tick it again.
 - **The program was moved, or the wrong copy is running.** Only the copy with the default data folder registers the
-  link; a portable copy and a copy with `WPC_DATA_DIR` say in the Browsers section that browsers do not connect to
+  link; a portable copy and a copy with `SYSDECK_DATA_DIR` say in the Browsers section that browsers do not connect to
   them. The path to the exe is re-checked when the section is opened — after moving the program, open it once more.
 - **The browser was running a different profile.** The extension is installed into the profile that was active. Make
   sure the card is visible in the same profile you download in.

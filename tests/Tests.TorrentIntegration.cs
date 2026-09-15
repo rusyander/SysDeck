@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «torrent», обвязка клиента: правило брандмауэра для входящих, привязка .torrent и
+﻿// SysDeck — область «torrent», обвязка клиента: правило брандмауэра для входящих, привязка .torrent и
 // magnet:, передача ссылок движку загрузок.
 //
 // Брандмауэр здесь только читается (COM HNetCfg.FwPolicy2, права не нужны): добавить или удалить правило может лишь
@@ -10,9 +10,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using Microsoft.Win32;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static partial class TorrentTests
     {
@@ -50,8 +50,8 @@ namespace WindowsProcessCleaner.Tests
             string realTorrent = RealDefault(@"Software\Classes\.torrent");
             string realMagnet = RealDefault(@"Software\Classes\magnet\shell\open\command");
             string sub = @"Software\WPC-Tests\" + System.Diagnostics.Process.GetCurrentProcess().Id + "-assoc";
-            string exe = @"C:\Apps\WPC\WindowsProcessCleaner.exe";
-            string other = @"D:\Portable\WPC\WindowsProcessCleaner.exe";
+            string exe = @"C:\Apps\WPC\SysDeck.exe";
+            string other = @"D:\Portable\WPC\SysDeck.exe";
             try
             {
                 using (RegistryKey sw = Registry.CurrentUser.CreateSubKey(sub))
@@ -60,17 +60,17 @@ namespace WindowsProcessCleaner.Tests
                     T.Eq("assoc: .torrent enabled on a clean profile", BtAssocState.On, BtAssoc.EnableTorrent(sw, exe));
                     T.Eq("assoc: .torrent default is our ProgID", BtAssoc.TorrentProgId, Def(sw, @"Classes\.torrent"));
                     T.Eq("assoc: open command passes the file to /torrent", "\"" + exe + "\" /torrent \"%1\"", Def(sw, @"Classes\" + BtAssoc.TorrentProgId + @"\shell\open\command"));
-                    T.Eq("assoc: registered for Default apps", @"Software\WindowsProcessCleaner\Capabilities", Val(sw, "RegisteredApplications", BtAssoc.AppName));
+                    T.Eq("assoc: registered for Default apps", @"Software\SysDeck\Capabilities", Val(sw, "RegisteredApplications", BtAssoc.AppName));
                     T.Eq("assoc: another copy of the app is not reported as on", BtAssocState.Off, BtAssoc.TorrentState(sw, other));
                     T.Eq("assoc: magnet enabled on a clean profile", BtAssocState.On, BtAssoc.EnableMagnet(sw, exe));
                     T.Check("assoc: magnet key is a URL protocol", Val(sw, @"Classes\magnet", "URL Protocol") == "");
                     BtAssoc.DisableTorrent(sw, exe);
                     T.Eq("assoc: .torrent off", BtAssocState.Off, BtAssoc.TorrentState(sw, exe));
                     T.Check("assoc: magnet stays on when only .torrent is off", BtAssoc.MagnetState(sw, exe) == BtAssocState.On
-                            && Val(sw, @"WindowsProcessCleaner\Capabilities\URLAssociations", "magnet") == BtAssoc.MagnetProgId
-                            && Val(sw, @"WindowsProcessCleaner\Capabilities\FileAssociations", ".torrent") == null);
+                            && Val(sw, @"SysDeck\Capabilities\URLAssociations", "magnet") == BtAssoc.MagnetProgId
+                            && Val(sw, @"SysDeck\Capabilities\FileAssociations", ".torrent") == null);
                     BtAssoc.DisableMagnet(sw, exe);
-                    T.Check("assoc: both off leave no keys of ours", sw.OpenSubKey("WindowsProcessCleaner") == null && sw.OpenSubKey(@"Classes\magnet") == null
+                    T.Check("assoc: both off leave no keys of ours", sw.OpenSubKey("SysDeck") == null && sw.OpenSubKey(@"Classes\magnet") == null
                             && sw.OpenSubKey(@"Classes\" + BtAssoc.TorrentProgId) == null && Def(sw, @"Classes\.torrent") == null
                             && Val(sw, "RegisteredApplications", BtAssoc.AppName) == null && Val(sw, @"Classes\.torrent\OpenWithProgids", BtAssoc.TorrentProgId) == null);
 
@@ -126,7 +126,7 @@ namespace WindowsProcessCleaner.Tests
                     && BtAssoc.ValidateOpenArgument("C:\\bad|name.torrent") == null && BtAssoc.ValidateOpenArgument(null) == null);
 
             // Командная строка exe: /torrent <путь или magnet> в любом месте, голая magnet-ссылка — только первым аргументом.
-            MethodInfo arg = typeof(WindowsProcessCleaner.Program).GetMethod("TorrentArgument", BindingFlags.NonPublic | BindingFlags.Static);
+            MethodInfo arg = typeof(SysDeck.Program).GetMethod("TorrentArgument", BindingFlags.NonPublic | BindingFlags.Static);
             Func<string[], string> parse = delegate(string[] a) { return (string)arg.Invoke(null, new object[] { a }); };
             string magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567";
             T.Check("command line: /torrent with a file or a magnet, and a bare magnet first, are taken",
@@ -166,7 +166,7 @@ namespace WindowsProcessCleaner.Tests
 
         private static void FirewallCases()
         {
-            string exe = @"C:\Program Files\Windows Process Cleaner\WindowsProcessCleaner.exe";
+            string exe = @"C:\Program Files\SysDeck\SysDeck.exe";
             string del = Engine.FirewallDeleteArgs(exe);
             T.Check("firewall: delete is limited to inbound rules of this exe", del.Contains(" dir=in ") && del.EndsWith(" program=\"" + exe + "\""), del);
             string add = Engine.FirewallAddArgs(exe);

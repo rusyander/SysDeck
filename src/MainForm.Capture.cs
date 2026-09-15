@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Захват»: фоновый процесс снимков экрана, горячие клавиши, папки и уведомления.
+﻿// SysDeck — вкладка «Захват»: фоновый процесс снимков экрана, горячие клавиши, папки и уведомления.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -8,9 +8,9 @@ using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Capture;
+using SysDeck.Capture;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {
@@ -20,7 +20,7 @@ namespace WindowsProcessCleaner
         private FlowLayoutPanel _capBody;
         private Label _lblCapStatus, _lblCapInfo, _lblCapKeysNote, _lblCapGameCenter, _lblCapFolder, _lblCapPreview, _lblCapPrtScn;
         private Button _btnCapStart, _btnCapStop, _btnCapTry, _btnCapImport;
-        private CheckBox _chkCapAutostart, _chkCapPerApp, _chkCapCursor, _chkCapSound, _chkCapToasts, _chkCapDefer, _chkCapPrtScn, _chkCapGallery;
+        private CheckBox _chkCapAutostart, _chkCapPerApp, _chkCapCursor, _chkCapSound, _chkCapToasts, _chkCapDefer, _chkCapPrtScn, _chkCapGallery, _chkCapTakeKeys;
         private RoundComboBox _cmbCapFormat, _cmbCapAfter, _cmbCapScreen, _cmbCapDelay, _cmbCapToastSec, _cmbCapQuality;
         private TextBox _txtCapTemplate;
         private Label _lblCapVideoFolder, _lblCapVideoNote, _lblCapMicLevel, _lblCapMicNote;
@@ -98,6 +98,11 @@ namespace WindowsProcessCleaner
             Button defaults = MkFlowButton(Tr.S("Сочетания по умолчанию", "Default shortcuts"), 200, false);
             defaults.Click += delegate { CapResetHotkeys(); };
             keyBar.Controls.AddRange(new Control[] { _btnCapImport, defaults });
+            _chkCapTakeKeys = CapCheck(Tr.S("Забирать сочетание, занятое другой программой", "Take over a shortcut another program holds"));
+            CapNote(Tr.S("Например, Alt+R у NVIDIA App: пока работает захват, нажатие достаётся оверлею этой программы, а не NVIDIA. "
+                         + "Сочетания с Win не забираются. Снимите галочку — клавиша вернётся прежнему владельцу.",
+                         "For example Alt+R of NVIDIA App: while capture runs, the press goes to this app's overlay instead of NVIDIA. "
+                         + "Shortcuts with Win are never taken. Untick to give the key back to its owner."), true);
             _chkCapPrtScn = CapCheck(Tr.S("Не отдавать PrtScn «Ножницам» Windows", "Don't give PrtScn to the Windows Snipping Tool"));
             _lblCapPrtScn = CapNote(Tr.S("Нужно, только если сочетание с PrtScn назначено здесь. Меняет параметр Windows «Использовать кнопку PrtScn "
                                          + "для открытия ножниц» (HKCU); при снятии галочки прежнее значение возвращается.",
@@ -220,6 +225,20 @@ namespace WindowsProcessCleaner
             _lblCapMicNote.Name = "warn";
             _chkCapTracks = CapCheck(Tr.S("Отдельные дорожки для монтажа: 1 — общий звук, 2 — система, 3 — микрофон",
                                           "Separate tracks for editing: 1 — mixed, 2 — system, 3 — microphone"));
+
+            CapSection(Tr.S("Показатели поверх всего", "Metrics on top"));
+            CapNote(Tr.S("Столбик в углу экрана с загрузкой, частотами, памятью, температурами и графиками. Включается и выключается сочетанием из "
+                         + "«Горячих клавиш» (по умолчанию Ctrl+Alt+F12). Мышь его не замечает, фокус он не берёт; в эксклюзивном полноэкранном "
+                         + "режиме игры не виден. Какие строки, графики, интервалы и цвета — на странице «Оверлей».",
+                         "A column in a screen corner with load, frequencies, memory, temperatures and graphs. Toggle it with its hotkey "
+                         + "(Ctrl+Alt+F12 by default). The mouse passes through it and it never takes focus; not visible in exclusive fullscreen. "
+                         + "Rows, graphs, intervals and colors are set on the “Overlay” page."), true);
+            FlowLayoutPanel hudBar = CapRow();
+            Button hudToggle = MkFlowButton(Tr.S("Показать / скрыть", "Show / hide"), 170, false);
+            hudToggle.Click += delegate { HudLauncher.ToggleAsync(); };
+            Button hudSettings = MkFlowButton(Tr.S("Настройки оверлея…", "Overlay settings…"), 180, false);
+            hudSettings.Click += delegate { ShowPage(PageOverlay); };
+            hudBar.Controls.AddRange(new Control[] { hudToggle, hudSettings });
 
             CapSection(Tr.S("Уведомления", "Notifications"));
             _chkCapToasts = CapCheck(Tr.S("Показывать уведомление с миниатюрой (ошибки показываются всегда)",
@@ -380,6 +399,7 @@ namespace WindowsProcessCleaner
                 _chkCapAutostart.Checked = CapLauncher.IsAutostartEnabled();
                 foreach (KeyValuePair<CapAction, HotkeyBox> kv in _capKeyBoxes) kv.Value.Spec = s.Hotkey(kv.Key);
                 _chkCapPrtScn.Checked = s.PrintScreenOverride;
+                _chkCapTakeKeys.Checked = s.TakeBusyKeys;
                 _chkCapPerApp.Checked = s.PerAppFolders;
                 _chkCapGallery.Checked = s.GalleryOnStart;
                 if (!_txtCapTemplate.Focused) _txtCapTemplate.Text = s.NameTemplate;
@@ -452,6 +472,7 @@ namespace WindowsProcessCleaner
                 mutate(s);
                 if (!s.Save()) { CapInfo(Tr.S("Не удалось сохранить настройки — подробности в crash.log папки данных.", "Could not save the settings — see crash.log in the data folder.")); return; }
                 CapIpc.Signal("Reload");
+                HudIpc.Signal("Reload");
                 CapInfo(Tr.S("Сохранено.", "Saved."));
             }
             catch (Exception ex) { CapInfo(Tr.S("Не удалось сохранить: ", "Could not save: ") + ex.Message); }
@@ -473,40 +494,56 @@ namespace WindowsProcessCleaner
                 CapTogglePrintScreen(_chkCapPrtScn.Checked);
                 return;
             }
-            CapChange(delegate(CapSettings s)
-            {
-                s.PerAppFolders = _chkCapPerApp.Checked;
-                s.GalleryOnStart = _chkCapGallery.Checked;
-                s.ImageFormat = _cmbCapFormat.SelectedIndex == 1 ? "jpg" : "png";
-                if (_cmbCapQuality.SelectedIndex >= 0) s.JpegQuality = CapQualities[_cmbCapQuality.SelectedIndex];
+            // Пишется только поле изменённого контрола. Раньше в файл уходили все контролы страницы разом: значение,
+            // которое с момента загрузки страницы поменял агент или другая страница, затиралось устаревшим
+            // (так «ToastEnabled» оказывался false без выбора пользователя).
+            CapChange(delegate(CapSettings s) { CapApplyControl(source, s); });
+        }
+
+        private void CapApplyControl(Control source, CapSettings s)
+        {
+            if (source == _chkCapPerApp) s.PerAppFolders = _chkCapPerApp.Checked;
+            else if (source == _chkCapTakeKeys) s.TakeBusyKeys = _chkCapTakeKeys.Checked;
+            else if (source == _chkCapGallery) s.GalleryOnStart = _chkCapGallery.Checked;
+            else if (source == _cmbCapFormat) s.ImageFormat = _cmbCapFormat.SelectedIndex == 1 ? "jpg" : "png";
+            else if (source == _cmbCapQuality) { if (_cmbCapQuality.SelectedIndex >= 0) s.JpegQuality = CapQualities[_cmbCapQuality.SelectedIndex]; }
+            else if (source == _cmbCapAfter)
                 s.After = _cmbCapAfter.SelectedIndex == 1 ? ShotAfter.Save : _cmbCapAfter.SelectedIndex == 2 ? ShotAfter.CopyOnly
                         : _cmbCapAfter.SelectedIndex == 3 ? ShotAfter.OpenEditor : ShotAfter.SaveAndCopy;
-                if (_cmbCapScreen.SelectedIndex >= 0) s.ScreenKey = (ScreenTarget)_cmbCapScreen.SelectedIndex;
+            else if (source == _cmbCapScreen) { if (_cmbCapScreen.SelectedIndex >= 0) s.ScreenKey = (ScreenTarget)_cmbCapScreen.SelectedIndex; }
+            else if (source == _cmbCapDelay)
+            {
                 int[] delays = { 0, 3, 5, 10 };
                 if (_cmbCapDelay.SelectedIndex >= 0) s.DelaySeconds = delays[_cmbCapDelay.SelectedIndex];
-                s.CursorInShots = _chkCapCursor.Checked;
-                s.ShutterSound = _chkCapSound.Checked;
-                s.ToastEnabled = _chkCapToasts.Checked;
-                if (_cmbCapToastSec.SelectedIndex >= 0) s.ToastSeconds = CapToastSeconds[_cmbCapToastSec.SelectedIndex];
-                s.DeferToastsInFullscreen = _chkCapDefer.Checked;
-                if (_cmbCapCodec.SelectedIndex >= 0) s.VideoCodec = CapCodecs[_cmbCapCodec.SelectedIndex];
-                if (_cmbCapEncoder.SelectedIndex >= 0) s.VideoEncoder = CapEncoders[_cmbCapEncoder.SelectedIndex];
-                if (_cmbCapVQuality.SelectedIndex >= 0) s.VideoQuality = CapVideoQualities[_cmbCapVQuality.SelectedIndex];
-                s.VideoFps = _cmbCapFps.SelectedIndex == 0 ? 30 : 60;
-                if (_cmbCapHeight.SelectedIndex >= 0) s.VideoHeight = CapHeights[_cmbCapHeight.SelectedIndex];
-                if (_cmbCapCountdown.SelectedIndex >= 0) s.CountdownSeconds = CapCountdowns[_cmbCapCountdown.SelectedIndex];
+            }
+            else if (source == _chkCapCursor) s.CursorInShots = _chkCapCursor.Checked;
+            else if (source == _chkCapSound) s.ShutterSound = _chkCapSound.Checked;
+            else if (source == _chkCapToasts) s.ToastEnabled = _chkCapToasts.Checked;
+            else if (source == _cmbCapToastSec) { if (_cmbCapToastSec.SelectedIndex >= 0) s.ToastSeconds = CapToastSeconds[_cmbCapToastSec.SelectedIndex]; }
+            else if (source == _chkCapDefer) s.DeferToastsInFullscreen = _chkCapDefer.Checked;
+            else if (source == _cmbCapCodec) { if (_cmbCapCodec.SelectedIndex >= 0) s.VideoCodec = CapCodecs[_cmbCapCodec.SelectedIndex]; }
+            else if (source == _cmbCapEncoder) { if (_cmbCapEncoder.SelectedIndex >= 0) s.VideoEncoder = CapEncoders[_cmbCapEncoder.SelectedIndex]; }
+            else if (source == _cmbCapVQuality) { if (_cmbCapVQuality.SelectedIndex >= 0) s.VideoQuality = CapVideoQualities[_cmbCapVQuality.SelectedIndex]; }
+            else if (source == _cmbCapFps) s.VideoFps = _cmbCapFps.SelectedIndex == 0 ? 30 : 60;
+            else if (source == _cmbCapHeight) { if (_cmbCapHeight.SelectedIndex >= 0) s.VideoHeight = CapHeights[_cmbCapHeight.SelectedIndex]; }
+            else if (source == _cmbCapCountdown) { if (_cmbCapCountdown.SelectedIndex >= 0) s.CountdownSeconds = CapCountdowns[_cmbCapCountdown.SelectedIndex]; }
+            else if (source == _cmbCapLimit)
+            {
                 if (_cmbCapLimit.SelectedIndex >= 0 && _cmbCapLimit.SelectedIndex < CapLimits.Length) s.MaxMinutes = CapLimits[_cmbCapLimit.SelectedIndex];
-                s.CursorInVideo = _chkCapVideoCursor.Checked;
-                s.RecordPanel = _chkCapRecPanel.Checked;
-                s.SystemAudio = _chkCapSysAudio.Checked;
-                s.WindowAudioOnly = _chkCapWindowAudio.Checked;
-                s.Microphone = _chkCapMic.Checked;
+            }
+            else if (source == _chkCapVideoCursor) s.CursorInVideo = _chkCapVideoCursor.Checked;
+            else if (source == _chkCapRecPanel) s.RecordPanel = _chkCapRecPanel.Checked;
+            else if (source == _chkCapSysAudio) s.SystemAudio = _chkCapSysAudio.Checked;
+            else if (source == _chkCapWindowAudio) s.WindowAudioOnly = _chkCapWindowAudio.Checked;
+            else if (source == _chkCapMic) s.Microphone = _chkCapMic.Checked;
+            else if (source == _cmbCapMicDevice)
+            {
                 int mic = _cmbCapMicDevice.SelectedIndex;
                 s.MicDeviceId = mic > 0 && mic - 1 < _capMics.Count ? _capMics[mic - 1].Id : "";
-                if (_cmbCapMicVolume.SelectedIndex >= 0) s.MicVolume = CapMicVolumes[_cmbCapMicVolume.SelectedIndex];
-                s.MicMono = _chkCapMicMono.Checked;
-                s.SeparateTracks = _chkCapTracks.Checked;
-            });
+            }
+            else if (source == _cmbCapMicVolume) { if (_cmbCapMicVolume.SelectedIndex >= 0) s.MicVolume = CapMicVolumes[_cmbCapMicVolume.SelectedIndex]; }
+            else if (source == _chkCapMicMono) s.MicMono = _chkCapMicMono.Checked;
+            else if (source == _chkCapTracks) s.SeparateTracks = _chkCapTracks.Checked;
         }
 
         private void CapTogglePrintScreen(bool take)
@@ -577,6 +614,12 @@ namespace WindowsProcessCleaner
                 else if (!running) text = Tr.S("процесс не запущен", "process not running");
                 else if (!st.HotkeyErrors.TryGetValue(a, out error)) text = Tr.S("применяется…", "applying…");
                 else if (error == 0) { text = Tr.S("✓ работает", "✓ works"); color = ok; }
+                else if (error == HotkeyOwners.TakenOver)
+                {
+                    string owner = HotkeyOwners.Guess(spec);
+                    text = Tr.S("✓ работает · забрано у ", "✓ works · taken over from ") + (owner ?? Tr.S("другой программы", "another program"));
+                    color = ok;
+                }
                 else
                 {
                     text = "⚠ " + HotkeyOwners.Describe(error, spec)
@@ -694,9 +737,11 @@ namespace WindowsProcessCleaner
             root.MenuItems.Add(new MenuItem(Tr.S("Остановить запись", "Stop recording"), delegate { CapShot("RecStop"); }));
             root.MenuItems.Add("-");
             root.MenuItems.Add(new MenuItem(Tr.S("Галерея", "Gallery"), delegate { CapTrayShot("Gallery"); }));
+            root.MenuItems.Add(new MenuItem(Tr.S("Показатели ПК: показать / скрыть", "PC metrics: show / hide"), delegate { HudLauncher.ToggleAsync(); }));
             root.MenuItems.Add(new MenuItem(Tr.S("Папка снимков", "Screenshots folder"), delegate { CapOpenFolder(false); }));
             root.MenuItems.Add(new MenuItem(Tr.S("Папка видео", "Videos folder"), delegate { CapOpenFolder(true); }));
             root.MenuItems.Add(new MenuItem(Tr.S("Настройки захвата…", "Capture settings…"), delegate { ShowWindow(); ShowPage(PageCapture); }));
+            root.MenuItems.Add(new MenuItem(Tr.S("Настройки оверлея…", "Overlay settings…"), delegate { ShowWindow(); ShowPage(PageOverlay); }));
             return root;
         }
 
@@ -868,101 +913,5 @@ namespace WindowsProcessCleaner
         {
             CapChange(delegate(CapSettings s) { foreach (CapAction a in CapActions.All) s.Hotkeys[a] = CapActions.DefaultHotkey(a); });
         }
-    }
-
-    // Поле, в котором сочетание задаётся нажатием. Пока поле в фокусе, агент снимает свои клавиши (иначе F3 в поле
-    // открыло бы выделение области), а Alt+F4 и прочие системные сочетания до окна не доходят.
-    internal sealed class HotkeyBox : TextBox
-    {
-        public event Action<HotkeySpec> HotkeyPicked;
-        public event EventHandler CaptureStarted, CaptureEnded;
-
-        private HotkeySpec _spec;
-        private bool _capturing;
-
-        public HotkeyBox()
-        {
-            ReadOnly = true;
-            ShortcutsEnabled = false;
-            TabStop = false;        // фокус при открытии страницы снял бы клавиши агента
-            Cursor = Cursors.Hand;
-            TextAlign = HorizontalAlignment.Center;
-        }
-
-        public HotkeySpec Spec
-        {
-            get { return _spec; }
-            set { _spec = value; if (!_capturing) ShowSpec(); }
-        }
-
-        private void ShowSpec() { Text = _spec.IsEmpty ? "—" : _spec.ToString(); }
-
-        protected override void OnEnter(EventArgs e)
-        {
-            base.OnEnter(e);
-            _capturing = true;
-            Text = Tr.S("нажмите сочетание…", "press a shortcut…");
-            EventHandler h = CaptureStarted;
-            if (h != null) h(this, EventArgs.Empty);
-        }
-
-        protected override void OnLeave(EventArgs e)
-        {
-            base.OnLeave(e);
-            EndCapture();
-        }
-
-        private void EndCapture()
-        {
-            if (!_capturing) return;
-            _capturing = false;
-            ShowSpec();
-            EventHandler h = CaptureEnded;
-            if (h != null) h(this, EventArgs.Empty);
-        }
-
-        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-        {
-            if (!_capturing) return base.ProcessCmdKey(ref msg, keyData);
-            Keys key = keyData & Keys.KeyCode;
-            Keys mods = keyData & Keys.Modifiers;
-            if (key == Keys.Tab && (mods & (Keys.Control | Keys.Alt)) == 0) return base.ProcessCmdKey(ref msg, keyData);
-            if (mods == Keys.None && key == Keys.Escape) { Finish(); return true; }
-            if (mods == Keys.None && (key == Keys.Back || key == Keys.Delete)) { Pick(new HotkeySpec()); return true; }
-            bool win = (GetKeyState(0x5B) & 0x8000) != 0 || (GetKeyState(0x5C) & 0x8000) != 0;
-            HotkeySpec spec = HotkeySpec.FromKeys(keyData, win);
-            if (!spec.IsEmpty && HotkeySpec.IsKnownKey(spec.Vk)) Pick(spec);
-            return true;    // модификатор без клавиши и системные сочетания окну не отдаются
-        }
-
-        // PrtScn приходит только отпусканием: нажатие забирает система.
-        protected override void OnKeyUp(KeyEventArgs e)
-        {
-            base.OnKeyUp(e);
-            if (_capturing && e.KeyCode == Keys.PrintScreen)
-            {
-                bool win = (GetKeyState(0x5B) & 0x8000) != 0 || (GetKeyState(0x5C) & 0x8000) != 0;
-                Pick(HotkeySpec.FromKeys(e.KeyData, win));
-            }
-        }
-
-        private void Pick(HotkeySpec spec)
-        {
-            _spec = spec;
-            Action<HotkeySpec> h = HotkeyPicked;
-            if (h != null) h(spec);
-            Finish();
-        }
-
-        // Фокус уходит с поля — захват окончен, агент возвращает клавиши.
-        private void Finish()
-        {
-            EndCapture();
-            Form f = FindForm();
-            if (f != null) f.ActiveControl = null;
-        }
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern short GetKeyState(int vk);
     }
 }

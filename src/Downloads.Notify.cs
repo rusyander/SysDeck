@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: уведомления фонового процесса «готово» и «не удалось».
+﻿// SysDeck — «Загрузки»: уведомления фонового процесса «готово» и «не удалось».
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Окно уведомления то же, что у «Захвата» (без активации, поверх всех, стопкой в углу). У процесса загрузок нет цикла
@@ -6,9 +6,9 @@
 using System;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Capture;
+using SysDeck.Capture;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlNotifier : IDisposable
     {

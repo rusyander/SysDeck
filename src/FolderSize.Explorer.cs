@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Размеры папок»: какое окно Проводника впереди, какую папку оно показывает, где его строки.
+﻿// SysDeck — «Размеры папок»: какое окно Проводника впереди, какую папку оно показывает, где его строки.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Collections.Generic;
@@ -8,7 +8,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace WindowsProcessCleaner.FolderSize
+namespace SysDeck.FolderSize
 {
     // ------------------------------------------------------------------ //
     //  Ровно столько COM-API UI Automation, сколько нужно, чтобы прочитать, где Проводник рисует строки и

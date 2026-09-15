@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: обмен адресами пиров ut_pex (BEP 11).
+﻿// SysDeck — «Загрузки», торренты: обмен адресами пиров ut_pex (BEP 11).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Каждому пиру, объявившему ut_pex, не чаще раза в минуту уходит разница с прошлым сообщением: added/added.f/dropped и
@@ -8,7 +8,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtPexExt : IBtExtension
     {

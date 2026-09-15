@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: браузеры — регистрация хоста native messaging, распаковка расширения, состояние.
+﻿// SysDeck — «Загрузки»: браузеры — регистрация хоста native messaging, распаковка расширения, состояние.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Всё в HKCU и в папке данных, права администратора не нужны. Ключ хоста — только с нашим именем org.wpc.downloads:
@@ -14,7 +14,7 @@ using System.Reflection;
 using System.Text;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlBrowserInfo
     {
@@ -54,7 +54,7 @@ namespace WindowsProcessCleaner.Downloads
         {
             JVal o = JVal.NewObj();
             o.Set("name", DlJson.S(DlBridge.HostName));
-            o.Set("description", DlJson.S("Windows Process Cleaner downloads"));
+            o.Set("description", DlJson.S("SysDeck downloads"));
             o.Set("path", DlJson.S(exe));
             o.Set("type", DlJson.S("stdio"));
             if (family == "firefox") o.Set("allowed_extensions", DlJson.Strings(DlBridge.GeckoIds));

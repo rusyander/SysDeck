@@ -1,4 +1,4 @@
-﻿﻿// Windows Process Cleaner — «Загрузки», торренты: DHT (BEP 5) — KRPC поверх общего UDP-сокета сессии.
+﻿﻿// SysDeck — «Загрузки», торренты: DHT (BEP 5) — KRPC поверх общего UDP-сокета сессии.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Один узел на сессию. Таблица маршрутов — корзины по длине общего с собственным id префикса: делится только последняя
@@ -15,7 +15,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtDht : IBtDht
     {

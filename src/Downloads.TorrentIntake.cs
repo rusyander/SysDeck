@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты без диалога: скачанный .torrent и папка наблюдения.
+﻿// SysDeck — «Загрузки», торренты без диалога: скачанный .torrent и папка наблюдения.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Готовая http-загрузка с именем *.torrent (ссылка из браузера или добавленная вручную) становится торрентом с настройками по
@@ -12,7 +12,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed partial class DlEngine
     {

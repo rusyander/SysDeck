@@ -1,6 +1,8 @@
-# Windows Process Cleaner
+﻿# SysDeck
 
 [🇷🇺 Русский](README.md) · 🇬🇧 English
+
+Formerly Windows Process Cleaner. Settings and autostart move by themselves on the first start — see [moving from the old name](docs/install.en.md#moving-from-the-old-name).
 
 Windows maintenance in a single window: **disk cleanup**, **terminating forgotten
 processes**, **breaking down and freeing RAM** (where every gigabyte went — as a live scheme),
@@ -42,7 +44,9 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 | **Startup** | what launches with Windows, enable and disable |
 | **Windows bloat** | telemetry, ads, Copilot, surplus Store apps, services and features: disable, remove, restore |
 | **Tools** | Windows quick fixes (DNS, network, SFC, DISM, hibernation…), protection, shortcuts to built-in tools |
+| **Scripts** | built-in maintenance scripts in one click: stuck process reaper, audio repair after sleep, MPO off, WSL2 limits, Docker cleanup; parameters are edited in the window and the Task Scheduler tasks re-register themselves |
 | **Capture** | region, screen and window screenshots by hotkeys (F3/F4 by default, as in VK Play GameCenter), a notification with a thumbnail, per-program folders |
+| **Overlay** | a metrics column over games and windows: any rows (cores, frequencies, temperatures, HWiNFO and Afterburner sensors) with graphs and their own intervals, live preview, system information |
 | **Downloads** | a download queue with resume, speed limits, a schedule and idle-PC mode; taking over downloads from Chrome, Edge, Yandex Browser and Firefox through an extension; a signature check before a program is run, moving what was downloaded |
 | **Settings** | all thresholds, lists and parameters |
 | **History** | what was cleaned and when |
@@ -55,9 +59,12 @@ This page is the overview. Every section of the window is described in detail in
 - [Processes and memory](docs/processes-and-memory.en.md) — Home, Scan, Memory, Video memory, Dev Cleanup
 - [Disk: cleanup, space map, folder sizes and Docker](docs/disk.en.md) — what counts as junk, how to get the space back and where it went
 - [Programs, updates, browsers, startup and Windows](docs/programs.en.md)
-- [Capture](docs/capture.en.md) — screenshots by hotkeys, region selection, notifications
+- [Capture](docs/capture.en.md) — screenshots and video by hotkeys, region selection, editor, gallery
+- [Overlay](docs/overlay.en.md) — metrics on top of games, lag recording, NVIDIA frame limiter
+- [Torrents](docs/torrents.en.md) — the built-in BitTorrent client
 - [Downloads](docs/downloads.en.md) — the queue, resume, limits, start conditions, downloads from the browser, the card and settings
-- [Tools and settings](docs/tools-and-settings.en.md) — long operations, remembered selections, themes, tray, history
+- [Tools and settings](docs/tools-and-settings.en.md) — CPU power in the window header, long operations, remembered selections, themes, tray, history
+- [Scripts](docs/scripts.en.md) — what is included, parameters, where it installs and which rights it needs
 - [Data and administrator rights](docs/data-and-rights.en.md) — where things are kept and when rights are asked for
 - [Technical notes](docs/internals.en.md) and [tests](docs/tests.md) — for those who edit the code
 
@@ -133,12 +140,14 @@ Visual Studio, the .NET SDK and Node.js are not required: the program is built b
 which already sits inside Windows.
 
 **From source.** Download the repository (for a ZIP, right-click → **Properties** →
-**Unblock** first) and run `run.bat`: it builds `WindowsProcessCleaner.exe` and opens it.
+**Unblock** first) and run `run.bat`: it builds `SysDeck.exe` and opens it.
 After that you can run the `.exe` itself — it is self-contained and can live in a folder you
 carry around.
 
 **Ready-made builds.** `build-installer.bat` produces the installer
-`dist\WindowsProcessCleaner-Setup.exe` and the portable build in `dist\portable\`. Installing
+`dist\SysDeck-Setup.exe` and the portable build in `dist\portable\` (also as
+`dist\SysDeck-portable.zip`); after `tools\install-git-hooks.bat` this happens on every `git push`,
+and GitHub publishes the same as the `latest` release. Installing
 for the current user only asks for no rights at all; the portable build keeps its settings
 next to itself and leaves no trace in the system.
 

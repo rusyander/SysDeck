@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: общие типы и точки сборки этапа 6 (HLS, DASH, yt-dlp, склейка).
+﻿// SysDeck — «Загрузки», видео: общие типы и точки сборки этапа 6 (HLS, DASH, yt-dlp, склейка).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Контракт между тремя частями, которые друг на друга напрямую не ссылаются:
@@ -14,7 +14,7 @@ using System.Globalization;
 // Поля типов-посредников заполняют разные части; в сборке без какой-то части компилятор счёл бы их «никогда не присваиваемыми».
 #pragma warning disable 649
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum MdTrackKind { Muxed, Video, Audio, Subtitles }
 

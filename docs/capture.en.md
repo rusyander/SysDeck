@@ -4,18 +4,17 @@ The Capture page: a screenshot or a video with sound of a region, the screen or 
 
 [← Overview](../README.en.md) · [All manual pages](README.en.md) · [🇷🇺 Русский](capture.md)
 
-> The module is being built in stages. Screenshots, the screenshot editor and video recording with sound work now. The
-> gallery is still in development: its shortcut is listed, but it is not taken from other programs yet.
+> Working now: screenshots, the screenshot editor, video recording with sound and the gallery of shots and recordings.
 
 ## Background process
-Shots are taken by a separate process of the same exe (`WindowsProcessCleaner.exe --capture`), so hotkeys work
+Shots are taken by a separate process of the same exe (`SysDeck.exe --capture`), so hotkeys work
 even while the app window is closed. The process runs **without administrator rights**, even if the window has
 them: that way it sees ordinary windows and needs no UAC. Nothing is uploaded anywhere.
 
 - The process **starts together with the app window** — hotkeys work right away, nothing needs pressing.
 - **Start / Stop** — buttons at the top of the page; the line above them shows whether the process is running.
   Stop is remembered: until Start is pressed, the process is started neither with the window nor from the menu.
-- **Start with Windows** — the `WindowsProcessCleaner.Capture` value in
+- **Start with Windows** — the `SysDeck.Capture` value in
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`: the process starts at sign-in with ordinary rights.
 - **Region screenshot** and **Region video** — check that everything works without pressing the shortcut.
 - The tray icon menu has a Capture submenu: region, screen or window screenshot, region or screen video, stop
@@ -31,6 +30,10 @@ By default — the same keys as VK Play GameCenter, so there is nothing to relea
 | Region screenshot | `F3` |
 | Screen screenshot | `F4` |
 | Region video: start / stop | `F7` |
+| PC metrics on top: show / hide | `Alt+R` |
+| Overlay: reset min / avg / max | `Ctrl+Alt+R` |
+| Overlay: next row set | `Ctrl+Alt+N` |
+| Lag recording: start / stop | `Ctrl+Alt+L` |
 | Active window screenshot, screen video, pause recording, gallery | not assigned |
 
 - Click a field and press the shortcut. `Backspace` clears it, `Esc` keeps the old one. While a field has focus,
@@ -39,6 +42,13 @@ By default — the same keys as VK Play GameCenter, so there is nothing to relea
   next to the field, naming the owner when it can be guessed (Windows Snipping Tool, Xbox Game Bar, NVIDIA App,
   VK Play GameCenter, the Folder sizes panel). The background process retries every 15 seconds: once that program
   exits or releases the key, the shortcut starts working without a restart.
+- **Take over a shortcut another program holds** (on by default). This is how `Alt+R` reaches this app's overlay
+  even while NVIDIA App holds it for its own counter (NVIDIA also holds `Ctrl+Alt+R`): while the capture background
+  process runs, the press is intercepted before Windows hands it to the owner and never reaches NVIDIA. The field
+  then reads “✓ works · taken over from …”. Shortcuts with `Win` are never taken. Untick to give the key back.
+- **Program updates.** The background process notices that `SysDeck.exe` was replaced (rebuild,
+  installer) and restarts itself as soon as it is idle: no recording, selection, open editor or gallery. New
+  shortcuts and commands work without a manual Stop → Start.
 - **Import from VK Play GameCenter** — reads `%LOCALAPPDATA%\GameCenter\GameCenter.ini`: screenshot and video
   shortcuts and the save folders (a folder is taken only if it exists). On the module's first start the import
   runs by itself when the file is found. While GameCenter is running it holds its keys — the page warns about it.
@@ -65,14 +75,20 @@ once and works in physical pixels at any display scale.
 | Done | `Enter` — the “After a shot” action, `Ctrl+C` — clipboard, `Ctrl+S` — file, `E` — the editor, or the panel buttons under the selection |
 | Cancel | `Esc`; the right mouse button first clears the selection, a second press closes |
 
-The panel under the selection ends with two labelled buttons: **Save** (blue, same as `Enter`) and **Cancel** (same
-as `Esc`; turns red under the cursor). For a video, **Start recording** replaces Save. If the labelled panel is
-wider than the monitor, both buttons shrink to icons; every button has a tooltip with its key.
+The panel under the selection always has two rows: annotation tools and colors on top; undo, copy, editor, record
+and two labelled buttons below — **Save** (blue, same as `Enter`) and **Cancel** (same as `Esc`; turns red under the
+cursor). For a video, **Start recording** replaces Save. The panel always stays whole on the monitor, even when the
+selection is flush with a screen edge or covers the whole screen: then it moves inside the selection. If the
+labelled panel is still wider than the monitor, both buttons shrink to icons; every button has a tooltip with its key.
 
 The overlay appears about 0.15 s after the key press even across three monitors of 23 Mpx in total: the frame is
 grabbed straight into memory and put on screen with a single GDI operation, without an intermediate copy.
 
 Switching to another window (`Alt+Tab`, a popup) cancels the selection, as in the Windows Snipping Tool.
+
+## Metrics on top
+The column with computer metrics on top of every window (`Alt+R`), lag recording and the NVIDIA frame limiter
+are described on a separate page — [Overlay](overlay.en.md).
 
 ## Annotating right on the selection
 Once a region is selected, the panel under it carries tools besides the actions: box, ellipse, arrow, line, pen,
@@ -158,8 +174,8 @@ After a shot a card with a thumbnail appears in the bottom-right corner of the m
 
 - For a video the title is “Video saved · duration · size”, and the recording warnings, if any, replace the file
   name. The copy button puts the file itself on the clipboard; videos have no editor.
-- Clicking the card opens the file. The main button is **Gallery**: it opens the common folder of all screenshots
-  (for a video, the videos folder) in Explorer, not the program's subfolder. The app has no gallery of its own yet.
+- Clicking the card opens the file. The main button is **Gallery**: it opens the gallery window of shots and recordings with
+  this file already selected.
   Other buttons: **edit**, **copy** to the clipboard, **show in folder**, **move to Recycle Bin**, **close**. The
   deletion happens when the card closes, and until then “Undo” cancels it.
 - The card stays while the cursor is over it. Up to three cards are shown per monitor.
@@ -211,7 +227,7 @@ alone.
   editor; “Cancel” in any of them keeps the background process running.
 
 ## Where the data is
-The module keeps its settings apart from the main ones — in `%APPDATA%\WindowsProcessCleaner\capture\`:
+The module keeps its settings apart from the main ones — in `%APPDATA%\SysDeck\capture\`:
 `settings.json`, `status.json` (pid, rights and shortcut state of the running process — the page reads its status
 from it), `recording.txt` (the path of the running recording; left behind by a process, it means the recording was
 interrupted and will be repaired), `video-encoders.cache` (the test-encode result, so it is not repeated at every

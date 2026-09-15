@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: движок — очередь, лимиты, условия запуска, повторы, зеркала, обновление ссылки.
+﻿// SysDeck — «Загрузки»: движок — очередь, лимиты, условия запуска, повторы, зеркала, обновление ссылки.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Один поток-планировщик раз в 250 мс: собирает завершившиеся загрузки, проверяет условия (расписание, лимитная сеть,
@@ -11,7 +11,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class DlAddRequest
     {

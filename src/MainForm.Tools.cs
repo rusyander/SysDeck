@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Инструменты»: быстрые исправления, защита, штатные средства Windows
+﻿// SysDeck — вкладка «Инструменты»: быстрые исправления, защита, штатные средства Windows
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -8,7 +8,7 @@ using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

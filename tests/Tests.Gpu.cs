@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «gpu»: сходится ли схема видеопамяти и от чего отказывается
+﻿// SysDeck — область «gpu»: сходится ли схема видеопамяти и от чего отказывается
 // перезапуск GPU-процесса.
 //
 // Прогон НИЧЕГО не сбрасывает: видеодрайвер не перезапускается (это гасит экран), чужие GPU-процессы
@@ -9,7 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class GpuTests
     {
@@ -138,7 +138,7 @@ namespace WindowsProcessCleaner.Tests
         // Список намеренно узкий: мессенджеры и вендорские утилиты человек вправе закрыть сам.
         private static void Protection()
         {
-            string[] never = { "dwm.exe", "csrss.exe", "svchost.exe", "LSASS.EXE", "WindowsProcessCleaner.exe" };
+            string[] never = { "dwm.exe", "csrss.exe", "svchost.exe", "LSASS.EXE", "SysDeck.exe" };
             foreach (string n in never) T.Check("protected: " + n, Engine.GpuIsProtectedName(n));
             string[] allowed = { "chrome.exe", "Telegram.exe", "NVIDIA app.exe", "steam.exe", "", null };
             foreach (string n in allowed) T.Check("not protected: " + (n ?? "null"), !Engine.GpuIsProtectedName(n));

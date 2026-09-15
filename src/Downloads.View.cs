@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: то, что показывает страница: снимок списка, фильтры, подписи состояния, разбор ссылок.
+﻿// SysDeck — «Загрузки»: то, что показывает страница: снимок списка, фильтры, подписи состояния, разбор ссылок.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Здесь нет ни окна, ни канала — только данные и правила, которые проверяются тестами без UI.
@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // Строка страницы: запись и живые значения, которые знает только работающий процесс.
     internal sealed class DlRow

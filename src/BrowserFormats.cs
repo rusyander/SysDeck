@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — форматы Chromium: Snappy, LevelDB, protobuf, SNSS, Pickle
+﻿// SysDeck — форматы Chromium: Snappy, LevelDB, protobuf, SNSS, Pickle
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Распаковка snappy — блоки LevelDB сжаты именно им.
     public static class Snappy

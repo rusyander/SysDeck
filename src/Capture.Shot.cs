@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Захват»: снимок пикселей экрана, мониторы, окна под курсором, имя программы, сохранение.
+﻿// SysDeck — «Захват»: снимок пикселей экрана, мониторы, окна под курсором, имя программы, сохранение.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Скриншоты берутся GDI BitBlt с экрана, собранного DWM: 19 мс на 1440p, 43 мс на весь виртуальный экран из трёх
@@ -15,7 +15,7 @@ using System.Media;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.Capture
+namespace SysDeck.Capture
 {
     // DIB-секция с выбранным в неё DC: GDI (BitBlt) и GDI+ (Image) работают с одной и той же памятью, без копий
     // между ними. Строки сверху вниз, BGRA.

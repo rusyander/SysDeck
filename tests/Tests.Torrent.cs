@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — область «torrent»: основа торрент-клиента (bencode, метаданные v1/v2/гибрид, magnet, дерево
+﻿// SysDeck — область «torrent»: основа торрент-клиента (bencode, метаданные v1/v2/гибрид, magnet, дерево
 // хешей, хранилище на настоящей файловой системе, возобновление, очередь диска, UDP-сокет) и сборщик торрентов для
 // тестов всех частей клиента.
 //
@@ -13,9 +13,9 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal sealed class BtFxFile
     {

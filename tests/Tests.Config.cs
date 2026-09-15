@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — тесты конфига: круговорот полей, миграция версий, полка выбора,
+﻿// SysDeck — тесты конфига: круговорот полей, миграция версий, полка выбора,
 // битый файл, ключи «состава» категории.
 //
 // Настройки — единственное, что пользователь теряет молча: неудачная сериализация нового поля
@@ -12,7 +12,7 @@ using System.IO;
 using System.Runtime.Serialization.Json;
 using System.Text;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class ConfigTests
     {

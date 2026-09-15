@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: разбор манифестов MPEG-DASH (MPD).
+﻿// SysDeck — «Загрузки», видео: разбор манифестов MPEG-DASH (MPD).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // XML читается XmlReader без DTD и без внешних сущностей (XmlResolver = null): манифест приходит из сети.
@@ -16,7 +16,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class MdDash
     {

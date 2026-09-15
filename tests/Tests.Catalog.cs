@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — инварианты каталога категорий (BuildCleanCategories) и подсчёта итога.
+﻿// SysDeck — инварианты каталога категорий (BuildCleanCategories) и подсчёта итога.
 //
 // Каталог собирается по НАСТОЯЩЕЙ машине: цель появляется, только если папка существует.
 // Поэтому проверки написаны как утверждения обо всём каталоге целиком («ни одна цель не лежит
@@ -10,7 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 
-namespace WindowsProcessCleaner.Tests
+namespace SysDeck.Tests
 {
     internal static class CatalogTests
     {

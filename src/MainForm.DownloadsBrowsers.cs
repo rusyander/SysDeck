@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: раздел настроек «Браузеры» — связь с расширением, правила перехвата, установка.
+﻿// SysDeck — вкладка «Загрузки»: раздел настроек «Браузеры» — связь с расширением, правила перехвата, установка.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Регистрацию хоста (ключи HKCU NativeMessagingHosts) пишет процесс загрузок при старте и при смене настроек; окно
@@ -8,9 +8,9 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

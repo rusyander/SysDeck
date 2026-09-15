@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: выбор кусков и блоков для запросов.
+﻿// SysDeck — «Загрузки», торренты: выбор кусков и блоков для запросов.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Порядок: сначала дозапрашиваются начатые куски (недокачанный кусок бесполезен), затем новые — по приоритету файлов,
@@ -9,7 +9,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtBlockReq
     {

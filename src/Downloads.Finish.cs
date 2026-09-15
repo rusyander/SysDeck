@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: завершение — хеш, переименование частичного файла, Mark-of-the-Web, антивирус.
+﻿// SysDeck — «Загрузки»: завершение — хеш, переименование частичного файла, Mark-of-the-Web, антивирус.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Порядок важен: сначала хеш (не совпал — файл остаётся .wpcpart и случайно не запустится), потом имя на место, потом
@@ -14,7 +14,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class DlFinish
     {

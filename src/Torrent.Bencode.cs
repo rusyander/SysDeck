@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: bencode (BEP 3) — разбор и запись.
+﻿// SysDeck — «Загрузки», торренты: bencode (BEP 3) — разбор и запись.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Всё, что сюда приходит, — чужие байты: .torrent из интернета, сообщения пиров, ответы трекеров и узлов DHT. Поэтому
@@ -13,7 +13,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum BKind { Int, Bytes, List, Dict }
 

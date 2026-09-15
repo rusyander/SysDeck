@@ -1,4 +1,4 @@
-# Privacy: the "Windows Process Cleaner Downloads" extension
+# Privacy: the "SysDeck Downloads" extension
 
 What the browser extension for Chrome, Edge, Yandex Browser and Firefox reads, where it sends it, and what it
 never does.
@@ -7,7 +7,7 @@ never does.
 
 ## In short
 
-Nothing leaves your computer. The extension talks only to the Windows Process Cleaner program installed on the
+Nothing leaves your computer. The extension talks only to the SysDeck program installed on the
 same computer, through the browser's native messaging mechanism (host `org.wpc.downloads`). The extension has
 no server, analytics, ads or telemetry, loads no code from the network and makes no network requests of its
 own — only the browser uses the network, when it downloads a file.

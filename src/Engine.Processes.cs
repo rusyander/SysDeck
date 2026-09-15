@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — снимок процессов, мониторинг CPU/простоя, кандидаты, завершение, память, TCP-порты
+﻿// SysDeck — снимок процессов, мониторинг CPU/простоя, кандидаты, завершение, память, TCP-порты
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {
@@ -361,7 +361,15 @@ namespace WindowsProcessCleaner
         private static bool PidGone(int pid)
         {
             IntPtr h = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-            if (h != IntPtr.Zero) { Native.CloseHandle(h); return false; }
+            if (h != IntPtr.Zero)
+            {
+                // Завершившийся процесс открывается, пока чей-то описатель (conhost, антивирус, наш же монитор)
+                // держит объект ядра. Код выхода уже есть — процесс мёртв, а не «пережил завершение».
+                uint code;
+                bool exited = Native.GetExitCodeProcess(h, out code) && code != Native.STILL_ACTIVE;
+                Native.CloseHandle(h);
+                return exited;
+            }
             return Marshal.GetLastWin32Error() == 87; // ERROR_INVALID_PARAMETER
         }
 

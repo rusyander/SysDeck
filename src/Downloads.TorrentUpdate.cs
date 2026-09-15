@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», «Обновить раздачу»: новая версия торрента на месте прежней.
+﻿// SysDeck — «Загрузки», «Обновить раздачу»: новая версия торрента на месте прежней.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Новая версия узнаётся тремя путями: проверка темы rutracker раз в BtUpdateCheckHours (и сразу, когда трекер ответил
@@ -14,7 +14,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed partial class DlEngine
     {

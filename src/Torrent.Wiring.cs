@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: сборка клиента из частей.
+﻿// SysDeck — «Загрузки», торренты: сборка клиента из частей.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Части не знают друг о друге (Torrent.Contracts.cs): сессия берёт трекеры, DHT, LSD, расширения BEP 10 и шифрование
@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class BtWiring
     {

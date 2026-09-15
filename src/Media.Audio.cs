@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», видео: звук — заголовки ADTS и MPEG audio, файлы .aac/.mp3, выход MP3.
+﻿// SysDeck — «Загрузки», видео: звук — заголовки ADTS и MPEG audio, файлы .aac/.mp3, выход MP3.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // ADTS: в MP4 кладётся сырой AAC (заголовок 7/9 байт снимается), а конфигурация уходит в AudioSpecificConfig типа.
@@ -11,9 +11,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using WindowsProcessCleaner.Capture;
+using SysDeck.Capture;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class MdAdts
     {

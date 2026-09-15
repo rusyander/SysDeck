@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: метаданные (.torrent v1, v2, гибрид — BEP 3/12/27/47/52), magnet-ссылка
+﻿// SysDeck — «Загрузки», торренты: метаданные (.torrent v1, v2, гибрид — BEP 3/12/27/47/52), magnet-ссылка
 // (BEP 9) и дерево хешей v2.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
@@ -14,7 +14,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtFile
     {

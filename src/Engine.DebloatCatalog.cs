@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — каталог «Windows: лишнее». Статический список: что это, зачем
+﻿// SysDeck — каталог «Windows: лишнее». Статический список: что это, зачем
 // выключать, чем рискуете, рекомендация. По умолчанию отмечен только универсальный мусор
 // (телеметрия, реклама, Bing, заглушки Store, мёртвые компоненты); всё спорное — Copilot, Xbox,
 // OneDrive, Teams, Phone Link, поиск Windows — в списке, но без галочки и с предупреждением.
@@ -7,7 +7,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {
@@ -440,7 +440,8 @@ namespace WindowsProcessCleaner
               Tr.S("Оверлей Win+G: запись экрана, счётчик FPS, чат Xbox, виджеты производительности.", "The Win+G overlay: screen recording, FPS counter, Xbox chat, performance widgets."),
               Tr.S("Не висит фоном в играх, не перехватывает Win+G и кнопку Xbox на геймпаде; на слабых ПК чуть больше FPS.", "No background overlay in games, no Win+G / Xbox-button hijack; slightly more FPS on weak PCs."),
               Tr.S("⚠ Пропадает запись игр и «последние 30 секунд», счётчик FPS, чат Game Pass; часть игр и Xbox-приложение зовут его для наложений. «Выключить» отключает оверлей политикой и оставляет приложение; «Удалить» сносит пакет.", "⚠ Game recording and “last 30 seconds”, the FPS counter and Game Pass chat are gone; some games and the Xbox app call it for overlays. “Disable” turns the overlay off by policy and keeps the app; “Remove” uninstalls the package."),
-              0, false, true)
+              // Отмечен по умолчанию: запись и счётчик FPS даёт свой «Захват» и оверлей.
+              0, true, true)
                 .Reg("HKCU", "Software\\Microsoft\\GameBar", "UseNexusForGameBarEnabled", 0)
                 .Reg("HKCU", "Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR", "AppCaptureEnabled", 0)
                 .Reg("HKCU", "System\\GameConfigStore", "GameDVR_Enabled", 0)
@@ -613,7 +614,7 @@ namespace WindowsProcessCleaner
                     D(l, cPt, "pt:" + k, d[0], d[1],
                       Tr.S("Модуль не грузится вместе с PowerToys: меньше памяти и одна фоновая горячая клавиша меньше. Действие то же, что переключатель в настройках PowerToys, применяется сразу.",
                            "The module no longer loads with PowerToys: less memory and one background hotkey fewer. Same as the toggle in PowerToys settings, applied immediately."),
-                      d[2], 0, false, false).Pt(k);
+                      d[2], 0, !PowerToysKeptByDefault(k), false).Pt(k);
                 }
             }
             else
@@ -624,6 +625,18 @@ namespace WindowsProcessCleaner
                   "", "", 0, false, false);
             }
             return l;
+        }
+
+        // Модули, которые по умолчанию остаются включёнными : дополнения
+        // Проводника и контекстного меню. Остальные, в том числе новые неизвестные, отмечены к выключению.
+        internal static bool PowerToysKeptByDefault(string key)
+        {
+            switch (key)
+            {
+                case "File Explorer": case "File Locksmith": case "Image Resizer": case "Peek": case "PowerRename": case "RegistryPreview":
+                    return true;
+                default: return false;
+            }
         }
 
         // [заголовок, что это, чем рискуете] для модулей PowerToys; неизвестный модуль — общими словами.

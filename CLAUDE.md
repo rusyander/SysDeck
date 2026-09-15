@@ -1,8 +1,13 @@
-# Windows Process Cleaner — agent entry
+# SysDeck — agent entry
 
 Windows maintenance app: processes, RAM (RAMMap-class «Память» tab), disk-cleanup categories, folder
 map, browsers, updates (winget/choco), programs, startup, Docker, debloat, tools. Single self-contained
-`WindowsProcessCleaner.exe`, tracked in git.
+`SysDeck.exe`, tracked in git.
+
+Renamed from WindowsProcessCleaner on 15.09.2026. `src/Rebrand.cs` migrates legacy data dir (→ junction), Run
+values, torrent assoc on start; tasks + firewall rule via elevated job `rebrand` after a window prompt. Legacy
+ids kept on purpose (installed extension / live transfers / existing backups): `org.wpc.downloads`, gecko id,
+`.wpcpart`/`.wpcmedia`/`.wpcmove`, `WPC_Backups`, NVIDIA profile prefix `WPC `, peer id `-WP1000-`.
 
 ## Build & test — no toolchain to install
 
@@ -39,18 +44,19 @@ Termination uses the one-shot `kill` job instead.
 Deletion is the most expensive decision in this app. `Engine.Clean*` never leaves a target's root, never
 follows junctions, refuses protected trees (`src/Engine.Clean.cs` guards + `tests/Tests.Paths.cs`), and
 the «Диск» page deletes to the Recycle Bin only. Tests run **without administrator rights**, show no UAC
-window, never touch the real `%APPDATA%\WindowsProcessCleaner` (redirected via `WPC_DATA_DIR`), never
+window, never touch the real `%APPDATA%\SysDeck` (redirected via `SYSDECK_DATA_DIR`), never
 purge the Recycle Bin and never reset the machine's memory.
 
 ## Where the working state lives
 
 `.agent/` (git-excluded, this disk only): `PROGRESS.md` = current state and per-round history,
-`notes.md` = accumulated gotchas, `archive/` = closed rounds verbatim, `tmp/` = lane notes and the
-PowerShell tooling for live GUI checks, `screenshots/` = before/after evidence. **Read
+`notes.md` = accumulated gotchas, `verification-backlog*.agent.md` = what was never checked live,
+`tmp/` = live-check tooling, `screenshots/` = before/after evidence of the open task (deleted at close). **Read
 `.agent/PROGRESS.md` first** in a new session; it is the restore point after a compaction.
 
 Human documentation, RU/EN in parallel (`.md` = RU, `.en.md` = EN): `README.md` = landing page only
 (pitch, tab table, safety boundaries, short install); the manual is split per tab group across
-`docs/` — `install`, `processes-and-memory`, `disk`, `programs`, `tools-and-settings`,
-`data-and-rights`, `internals`, plus `docs/tests.md` (RU only). Touching a feature ⇒ update its
+`docs/` — `install`, `processes-and-memory`, `disk`, `programs`, `capture`, `overlay`, `downloads`,
+`torrents`, `extension-install`, `extension-privacy`, `tools-and-settings`, `scripts`, `data-and-rights`, `internals`,
+plus `docs/tests.md` (RU only). Source files >1000 lines are split into partial files at task close. Touching a feature ⇒ update its
 `docs/` page in BOTH languages, and the README only if the pitch or a boundary changed.

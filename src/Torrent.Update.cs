@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Обновить раздачу»: как данные прежней версии торрента переходят в раскладку новой.
+﻿// SysDeck — «Обновить раздачу»: как данные прежней версии торрента переходят в раскладку новой.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // План (BtUpdatePlan) — чистая функция двух словарей info: для каждого файла новой версии — оставить на месте, пометить
@@ -13,7 +13,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum BtUpdateAction { Keep, Changed, Move, New }
 

@@ -43,7 +43,7 @@ namespace WpcSetup
         {
             _args = args;
 
-            Text = L.S("Установка Windows Process Cleaner", "Windows Process Cleaner Setup");
+            Text = L.S("Установка SysDeck", "SysDeck Setup");
             Font = Ui.Base;
             BackColor = Color.White;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -162,8 +162,8 @@ namespace WpcSetup
             _desktop.Checked = true;
 
             Ui.Note(_pageOptions,
-                L.S("Кроме программы будут созданы ярлык в меню «Пуск», запись в списке установленных программ и uninstall.exe рядом с ней. Настройки и история лежат отдельно, в %APPDATA%\\WindowsProcessCleaner, и переустановку переживают.",
-                    "Along with the program you get a Start menu shortcut, an entry in the installed programs list and uninstall.exe next to it. Settings and history live separately, in %APPDATA%\\WindowsProcessCleaner, and survive a reinstall."),
+                L.S("Кроме программы будут созданы ярлык в меню «Пуск», запись в списке установленных программ и uninstall.exe рядом с ней. Настройки и история лежат отдельно, в %APPDATA%\\SysDeck, и переустановку переживают.",
+                    "Along with the program you get a Start menu shortcut, an entry in the installed programs list and uninstall.exe next to it. Settings and history live separately, in %APPDATA%\\SysDeck, and survive a reinstall."),
                 0, Ui.Px(186), w, 3);
 
             _path.Text = Product.DefaultDir(InstallScope.PerUser);
@@ -188,13 +188,13 @@ namespace WpcSetup
         {
             _pageDone = NewPage();
             Ui.Note(_pageDone,
-                L.S("Windows Process Cleaner установлен. Ярлык добавлен в меню «Пуск», удалить программу можно там же, где остальные — «Приложения» в параметрах Windows.",
-                    "Windows Process Cleaner is installed. A Start menu shortcut was created; the program can be removed from the usual place - Apps in Windows Settings."),
+                L.S("SysDeck установлен. Ярлык добавлен в меню «Пуск», удалить программу можно там же, где остальные — «Приложения» в параметрах Windows.",
+                    "SysDeck is installed. A Start menu shortcut was created; the program can be removed from the usual place - Apps in Windows Settings."),
                 0, 0, w, 3);
 
             _doneWhere = Ui.Text(_pageDone, "", 0, Ui.Px(64), w, true);
 
-            _launch = Ui.Check(_pageDone, L.S("Запустить Windows Process Cleaner", "Launch Windows Process Cleaner"),
+            _launch = Ui.Check(_pageDone, L.S("Запустить SysDeck", "Launch SysDeck"),
                                0, Ui.Px(100), w);
             _launch.Checked = true;
 
@@ -208,7 +208,7 @@ namespace WpcSetup
 
         private void ShowOptions()
         {
-            _title.Text = L.S("Установка Windows Process Cleaner", "Install Windows Process Cleaner");
+            _title.Text = L.S("Установка SysDeck", "Install SysDeck");
             _subtitle.Text = L.S("Обслуживание Windows в одном окне", "Windows maintenance in a single window");
             _pageWork.Visible = false;
             _pageDone.Visible = false;
@@ -367,8 +367,8 @@ namespace WpcSetup
                 string root = Path.GetPathRoot(full);
                 if (string.IsNullOrEmpty(root))
                 {
-                    error = L.S("Нужен полный путь, например C:\\Program Files\\WindowsProcessCleaner.",
-                                "A full path is required, for example C:\\Program Files\\WindowsProcessCleaner.");
+                    error = L.S("Нужен полный путь, например C:\\Program Files\\SysDeck.",
+                                "A full path is required, for example C:\\Program Files\\SysDeck.");
                     return false;
                 }
                 if (full.TrimEnd('\\').Equals(root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))

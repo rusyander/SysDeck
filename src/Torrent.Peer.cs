@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: одно соединение с пиром — рукопожатия, состояние, запросы и отдача.
+﻿// SysDeck — «Загрузки», торренты: одно соединение с пиром — рукопожатия, состояние, запросы и отдача.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Все методы, кроме реализации IBtPeerLink, вызываются только из потока реактора. IBtPeerLink может прийти из любого
@@ -12,7 +12,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum BtPeerPhase { Crypto, Handshake, Active }
 

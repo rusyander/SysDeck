@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: протокол пиров — рукопожатие, сообщения BEP 3, BEP 6 (fast), BEP 10.
+﻿// SysDeck — «Загрузки», торренты: протокол пиров — рукопожатие, сообщения BEP 3, BEP 6 (fast), BEP 10.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Кодек без состояния соединения: сборка сообщений в байты и разбор кадров из приёмного буфера. Длина кадра сверяется
@@ -10,7 +10,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal static class BtWire
     {

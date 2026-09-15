@@ -1,6 +1,6 @@
 # Установка расширения вручную
 
-Пошаговая установка расширения «Windows Process Cleaner — загрузки» в Chrome, Edge, Яндекс Браузер, Opera и Opera GX,
+Пошаговая установка расширения «SysDeck — загрузки» в Chrome, Edge, Яндекс Браузер, Opera и Opera GX,
 Brave, Vivaldi и Firefox. Что расширение делает и как устроен перехват — в [Загрузках](downloads.md), что оно читает —
 в [Конфиденциальности расширения](extension-privacy.md).
 
@@ -40,8 +40,8 @@ Brave, Vivaldi и Firefox. Что расширение делает и как у
 
 | Браузер | Папка |
 |---|---|
-| Chrome, Edge, Яндекс Браузер, Opera, Opera GX, Brave, Vivaldi и другие на Chromium | `%APPDATA%\WindowsProcessCleaner\downloads\extension\chromium` |
-| Firefox | `%APPDATA%\WindowsProcessCleaner\downloads\extension\firefox` |
+| Chrome, Edge, Яндекс Браузер, Opera, Opera GX, Brave, Vivaldi и другие на Chromium | `%APPDATA%\SysDeck\downloads\extension\chromium` |
+| Firefox | `%APPDATA%\SysDeck\downloads\extension\firefox` |
 
 В списке программы всего четыре строки — Google Chrome, Microsoft Edge, Яндекс Браузер и Mozilla Firefox. Для Opera,
 Brave и Vivaldi выберите любую строку на Chromium (например, Google Chrome): папка у всех них одна и та же. Если
@@ -61,11 +61,11 @@ Brave и Vivaldi выберите любую строку на Chromium (нап�
 3. Включите переключатель **«Режим разработчика»** в правом верхнем углу страницы. Пока он выключен, кнопки загрузки
    распакованного расширения на странице нет.
 4. Нажмите **«Загрузить распакованное расширение»** — слева вверху, появляется вместе с режимом разработчика.
-5. В окне выбора папки укажите **саму папку** `%APPDATA%\WindowsProcessCleaner\downloads\extension\chromium` и
+5. В окне выбора папки укажите **саму папку** `%APPDATA%\SysDeck\downloads\extension\chromium` и
    подтвердите выбор. **Не заходите внутрь и не выбирайте `manifest.json`** — это самая частая ошибка: Chrome ждёт
    папку, а не файл.
-6. В списке появится карточка **«Windows Process Cleaner — загрузки»** (в браузере с английским языком —
-   «Windows Process Cleaner Downloads») с идентификатором `kfbocmoigekddjcfodbhbiahndahdmal`.
+6. В списке появится карточка **«SysDeck — загрузки»** (в браузере с английским языком —
+   «SysDeck Downloads») с идентификатором `kfbocmoigekddjcfodbhbiahndahdmal`.
 7. Нажмите кнопку расширения на панели браузера. В окошке должно быть **«Программа на связи»**. Если окошко предлагает
    **«Разрешить»** доступ ко всем сайтам — разрешите: без него не передаются cookie, и сайты со входом отдадут файл
    только браузеру.
@@ -120,7 +120,7 @@ Opera — единственный браузер в этом списке, пр
 окошко расширения показывает «Программа не найдена», а в Chrome на том же компьютере связь есть, скопируйте раздел
 реестра `HKCU\Software\Google\Chrome\NativeMessagingHosts\org.wpc.downloads` в собственную ветку
 `NativeMessagingHosts` вашей сборки Opera (значение по умолчанию — путь к файлу
-`%APPDATA%\WindowsProcessCleaner\downloads\nmh\org.wpc.downloads.chromium.json`).
+`%APPDATA%\SysDeck\downloads\nmh\org.wpc.downloads.chromium.json`).
 
 ## Brave
 
@@ -148,12 +148,12 @@ Opera — единственный браузер в этом списке, пр
 программы.
 
 1. Выполните [шаг 0](#шаг-0-получить-папку-с-расширением), выбрав в списке **Mozilla Firefox**: папка будет
-   `%APPDATA%\WindowsProcessCleaner\downloads\extension\firefox`.
+   `%APPDATA%\SysDeck\downloads\extension\firefox`.
 2. Наберите в адресной строке `about:debugging#/runtime/this-firefox`.
 3. Нажмите **«Загрузить временное дополнение…»**.
 4. Выберите файл **`manifest.json`** из папки `…\downloads\extension\firefox`. Здесь, в отличие от Chromium-браузеров,
    выбирается именно файл манифеста.
-5. Дополнение **«Windows Process Cleaner — загрузки»** появится в списке временных расширений с идентификатором
+5. Дополнение **«SysDeck — загрузки»** появится в списке временных расширений с идентификатором
    `wpc-downloads@windows-process-cleaner`.
 6. Для приватных окон откройте `about:addons` → это дополнение и разрешите ему работать в приватных окнах.
 
@@ -177,7 +177,7 @@ Edition или Nightly установите `xpinstall.signatures.required=false
   **«Обновить»** рядом.
 - **Связь с браузерами выключена.** Флажок в разделе «Браузеры» удаляет ключи реестра сразу же — включите его снова.
 - **Программу перенесли или запущена не та копия.** Связь регистрирует только копия со стандартной папкой данных;
-  портативная копия и копия с `WPC_DATA_DIR` пишут в разделе «Браузеры», что браузеры с ними не связываются. Путь к
+  портативная копия и копия с `SYSDECK_DATA_DIR` пишут в разделе «Браузеры», что браузеры с ними не связываются. Путь к
   exe перепроверяется при открытии раздела — после переноса программы откройте его ещё раз.
 - **Браузер работал с другим профилем.** Расширение ставится в тот профиль, который был активен. Проверьте, что
   карточка расширения видна в том же профиле, в котором вы качаете.

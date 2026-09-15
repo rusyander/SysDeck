@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: проброс порта на роутере (UPnP IGD, NAT-PMP).
+﻿// SysDeck — «Загрузки», торренты: проброс порта на роутере (UPnP IGD, NAT-PMP).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Вся сеть — в своём фоновом потоке: SSDP M-SEARCH, описание устройства, SOAP AddPortMapping (TCP и UDP, аренда 3600 с,
@@ -18,11 +18,11 @@ using System.Text;
 using System.Threading;
 using System.Xml;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtPortMapper : IBtPortMapper
     {
-        public const string Description = "Windows Process Cleaner";
+        public const string Description = "SysDeck";
         private const int MaxXml = 256 * 1024;
         private static readonly string[] ServiceTypes =
         {
@@ -447,7 +447,7 @@ namespace WindowsProcessCleaner.Downloads
                 req.ReadWriteTimeout = HttpTimeoutMs;
                 req.AllowAutoRedirect = false;
                 req.KeepAlive = false;
-                req.UserAgent = "WindowsProcessCleaner UPnP/1.1";
+                req.UserAgent = "SysDeck UPnP/1.1";
                 if (post != null)
                 {
                     byte[] data = Encoding.UTF8.GetBytes(post);

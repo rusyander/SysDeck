@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — P/Invoke: kernel32 / user32 / advapi32 / psapi / iphlpapi / shell32 / setupapi / ntdll
+﻿// SysDeck — P/Invoke: kernel32 / user32 / advapi32 / psapi / iphlpapi / shell32 / setupapi / ntdll
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -23,7 +23,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // ------------------------------------------------------------------ //
     //  WinAPI
@@ -409,7 +409,7 @@ namespace WindowsProcessCleaner
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern uint GetFinalPathNameByHandleW(Microsoft.Win32.SafeHandles.SafeFileHandle h, StringBuilder path, uint bufLen, uint flags);
 
-        // Канонический вид пути: 8.3-псевдонимы раскрыты (RUSYAN~1 → rusyander), junction/symlink в
+        // Канонический вид пути: 8.3-псевдонимы раскрыты (USERNA~1 → username), junction/symlink в
         // самом пути заменены целью, регистр — как на диске. Исключение «не чистить эти пути» должно
         // совпадать с корнем обхода, как бы пользователь его ни записал. Несуществующий или
         // недоступный путь (и путь на томе без буквы) возвращается как есть, без префикса \\?\.

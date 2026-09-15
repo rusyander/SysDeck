@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: новая версия раздачи — что изменится, обновление по кнопке, версия из файла.
+﻿// SysDeck — вкладка «Загрузки»: новая версия раздачи — что изменится, обновление по кнопке, версия из файла.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Окно только показывает ответ процесса загрузок (updateInfo) и шлёт команды: план замены, Корзину и проверку хешем
@@ -7,9 +7,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

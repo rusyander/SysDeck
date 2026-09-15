@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Загрузки»: карточка выбранной загрузки (обзор, сегменты, сеть, журнал).
+﻿// SysDeck — вкладка «Загрузки»: карточка выбранной загрузки (обзор, сегменты, сеть, журнал).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Ссылки в карточке проходят через DlLog.Redact — токены из строки запроса не видны через плечо и не уходят в скриншот.
@@ -9,9 +9,9 @@ using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
-using WindowsProcessCleaner.Downloads;
+using SysDeck.Downloads;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {

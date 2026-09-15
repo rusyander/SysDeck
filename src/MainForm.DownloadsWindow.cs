@@ -1,4 +1,4 @@
-// Windows Process Cleaner — «Загрузки» отдельным окном: та же страница, вынутая из вкладки в собственное окно.
+// SysDeck — «Загрузки» отдельным окном: та же страница, вынутая из вкладки в собственное окно.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Страница не копируется, а переезжает: список, карточка и настройки — живые элементы с одним состоянием, второй их
@@ -11,7 +11,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class MainForm
     {
@@ -49,7 +49,7 @@ namespace WindowsProcessCleaner
             if (_dlTabHost == null) return;
 
             Form f = new Form();
-            f.Text = Tr.S("Загрузки — Windows Process Cleaner", "Downloads — Windows Process Cleaner");
+            f.Text = Tr.S("Загрузки — SysDeck", "Downloads — SysDeck");
             f.StartPosition = FormStartPosition.Manual;
             f.Bounds = DlWindowBounds();
             f.BackColor = _theme.Surface;

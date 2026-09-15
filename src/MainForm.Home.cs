@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — вкладка «Главная»: карточки состояния, «Ускорить», проверка состояния, умное ускорение
+﻿// SysDeck — вкладка «Главная»: карточки состояния, «Ускорить», проверка состояния, умное ускорение
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -10,7 +10,7 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Карточка «Главной»: заголовок, крупное значение, подпись и полоса заполнения. Рисует себя сама —
     // цвета темы ей выставляет форма (ApplyHomeTheme), пиксельные размеры умножаются на Dpi.

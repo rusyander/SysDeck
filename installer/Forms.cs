@@ -15,7 +15,7 @@ namespace WpcSetup
 
         public UninstallDialog(string dir)
         {
-            Text = L.S("Удаление Windows Process Cleaner", "Uninstall Windows Process Cleaner");
+            Text = L.S("Удаление SysDeck", "Uninstall SysDeck");
             Font = Ui.Base;
             BackColor = Color.White;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -28,7 +28,7 @@ namespace WpcSetup
             int pad = Ui.Px(22);
             int w = ClientSize.Width - pad * 2;
 
-            Label title = Ui.Text(this, L.S("Удалить Windows Process Cleaner?", "Remove Windows Process Cleaner?"),
+            Label title = Ui.Text(this, L.S("Удалить SysDeck?", "Remove SysDeck?"),
                                   pad, Ui.Px(20), w, false);
             title.Font = Ui.Head;
             title.Size = new Size(w, Ui.Px(28));
@@ -46,8 +46,8 @@ namespace WpcSetup
             // удаления программы, — здесь это обещание и заканчивается, поэтому текст
             // говорит прямо, что именно исчезнет и где оно лежало.
             Ui.Note(this,
-                L.S("Запомненный выбор, настройки и история лежат в %APPDATA%\\WindowsProcessCleaner и сохраняются до полного удаления программы. Оставьте флажок снятым — они переживут удаление, и после новой установки всё вернётся как было. Поставьте — исчезнут вместе с программой.",
-                    "Remembered selections, settings and history live in %APPDATA%\\WindowsProcessCleaner and are kept until the program is fully uninstalled. Leave the box unticked and they survive, so a new installation picks up exactly where you left off. Tick it and they go away with the program."),
+                L.S("Запомненный выбор, настройки и история лежат в %APPDATA%\\SysDeck и сохраняются до полного удаления программы. Оставьте флажок снятым — они переживут удаление, и после новой установки всё вернётся как было. Поставьте — исчезнут вместе с программой.",
+                    "Remembered selections, settings and history live in %APPDATA%\\SysDeck and are kept until the program is fully uninstalled. Leave the box unticked and they survive, so a new installation picks up exactly where you left off. Tick it and they go away with the program."),
                 pad + Ui.Px(22), Ui.Px(152), w - Ui.Px(22), 4);
 
             int bw = Ui.Px(118);

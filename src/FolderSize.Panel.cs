@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Размеры папок»: боковая панель рядом с Проводником и её список.
+﻿// SysDeck — «Размеры папок»: боковая панель рядом с Проводником и её список.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Collections.Generic;
@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner.FolderSize
+namespace SysDeck.FolderSize
 {
     // ------------------------------------------------------------------ //
     //  Панель. Не активируется намеренно: щелчок по ней не должен уводить фокус из Проводника, иначе каждый

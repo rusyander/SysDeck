@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки»: проверка скачанного — подпись Authenticode, метка «из интернета».
+﻿// SysDeck — «Загрузки»: проверка скачанного — подпись Authenticode, метка «из интернета».
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Подпись проверяется WinVerifyTrust без интерфейса и без похода в сеть за списками отзыва: карточка открывается мгновенно
@@ -7,7 +7,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum DlSignature { Valid, Unsigned, Invalid, Untrusted, Error }
 

@@ -127,7 +127,7 @@ safely be deleted in the browser.
 
 - Editing is possible **only while the browser is fully closed**. A running browser keeps
   bookmarks in memory and rewrites the file on exit, so the edit would simply be lost.
-- **Before every write** the file is copied into `%APPDATA%\WindowsProcessCleanerrowser-backups\`
+- **Before every write** the file is copied into `%APPDATA%\SysDeckrowser-backups\`
   with a timestamp. Those copies are never deleted automatically.
 - The bookmarks file carries a checksum computed by the browser itself. The program first
   recomputes it for the **untouched** file and compares it with the stored one. No match
@@ -159,8 +159,11 @@ tasks, packages).
 
 Only universal junk is checked by default: telemetry, ads and tips, Bing in Start,
 widgets, dead and promotional Store apps, unneeded services and features (PowerShell 2.0,
-XPS…). Everything debatable — Copilot, Recall, Xbox Game Bar, OneDrive, Teams, Phone Link,
-search indexing, SMB 1.0 — is listed unchecked with a ⚠ warning. Apps that hold offline
+XPS…). Xbox Game Bar and the PowerToys modules are checked too, except the File Explorer and
+context-menu add-ons (File Explorer, File Locksmith, Image Resizer, Peek, PowerRename,
+Registry Preview); a new unknown module is checked as well. Everything debatable — Copilot,
+Recall, OneDrive, Teams, Phone Link, search indexing, SMB 1.0 — is listed unchecked with a ⚠
+warning. Apps that hold offline
 content (Spotify, Netflix, Prime Video, Disney+) and live working apps (Power Automate,
 OneNote for Windows 10) are unchecked as well.
 

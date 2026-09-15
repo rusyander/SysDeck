@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — правила winapp2.ini: загрузка, переменные, Detect, категории
+﻿// SysDeck — правила winapp2.ini: загрузка, переменные, Detect, категории
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -24,14 +24,14 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public partial class Engine
     {
         // Куда кладём базу правил. %APPDATA% открыт на запись любому процессу, работающему от имени
         // пользователя, а чистим мы от администратора: подложенный туда winapp2.ini означал бы
         // удаление чужих файлов нашими правами. Рабочая копия поэтому живёт в
-        // %ProgramData%\WindowsProcessCleaner с явным DACL: SYSTEM и администраторы — полный доступ,
+        // %ProgramData%\SysDeck с явным DACL: SYSTEM и администраторы — полный доступ,
         // пользователи — только чтение. Если папку создать не удалось (запуск без прав), откатываемся
         // на старое место, а сами правила всё равно проходят строгий предохранитель
         // IsRuleTargetAllowed — подмена файла не даёт ничего сверх того, что процесс мог и сам.
@@ -40,7 +40,7 @@ namespace WindowsProcessCleaner
             get
             {
                 return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                                    "WindowsProcessCleaner");
+                                    "SysDeck");
             }
         }
 
@@ -150,7 +150,7 @@ namespace WindowsProcessCleaner
                                       Action<long, long> progress, Func<bool> cancel)
         {
             HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
-            req.UserAgent = "WindowsProcessCleaner";
+            req.UserAgent = "SysDeck";
             req.Timeout = connectTimeoutMs;
             req.ReadWriteTimeout = readTimeoutMs;
             req.AllowAutoRedirect = true;

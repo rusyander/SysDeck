@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — повышение прав по требованию (asInvoker + элевированный помощник)
+﻿// SysDeck — повышение прав по требованию (asInvoker + элевированный помощник)
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 
 using System;
@@ -13,7 +13,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     // Задание для элевированного помощника. Полей намеренно мало и все они простые:
     // помощник НЕ доверяет содержимому файла и использует его только как фильтр поверх
@@ -161,6 +161,12 @@ namespace WindowsProcessCleaner
                 case "kill": return Tr.S("завершение процессов", "terminating processes");
                 case "foldersize": return Tr.S("быстрый режим «Размеров папок»", "fast mode of Folder sizes");
                 case "firewall": return Tr.S("входящие соединения торрентов", "incoming torrent connections");
+                case "hudtask": return Tr.S("оверлей с правами администратора", "the overlay with administrator rights");
+                case "afterburner": return Tr.S("профиль MSI Afterburner", "the MSI Afterburner profile");
+                case "nvlimit": return Tr.S("ограничитель кадров драйвера NVIDIA", "the NVIDIA driver frame limiter");
+                case "perflog": return Tr.S("подсчёт кадров (FPS) без прав администратора", "frame counting (FPS) without administrator rights");
+                case "rebrand": return Tr.S("перенос автозапуска на новое имя программы", "moving autostart to the new program name");
+                case "toolkit": return Tr.S("скрипт обслуживания Windows", "a Windows maintenance script");
             }
             return kind;
         }
@@ -289,7 +295,7 @@ namespace WindowsProcessCleaner
                 // службу AppInfo и переменные окружения родителя не наследует, а писать
                 // историю и лог очистки он обязан туда же, куда пишет окно.
                 if (!string.IsNullOrEmpty(job.DataDir))
-                    Environment.SetEnvironmentVariable("WPC_DATA_DIR", job.DataDir);
+                    Environment.SetEnvironmentVariable("SYSDECK_DATA_DIR", job.DataDir);
 
                 string cancelPath = Path.Combine(dir, "cancel.flag");
                 log = new StreamWriter(new FileStream(Path.Combine(dir, "progress.log"),
@@ -368,6 +374,76 @@ namespace WindowsProcessCleaner
                             r.Ok = err == null; r.Message = err;
                         }
                         else r.Ok = FolderSize.FsAutoStart.RemoveScheduledTask();
+                        return r;
+                    }
+                // Задача оверлея с правами: только Flag. Путь exe помощник берёт у себя, не из файла задания.
+                // Переезд со старого имени: задачи Планировщика и правило брандмауэра. Из задания не читается ничего —
+                // помощник сам находит старые задачи этой копии и пересоздаёт их на свой exe.
+                // Страница «Скрипты», пункты с задачами SYSTEM и HKLM. Из задания читаются id пункта каталога (только Admin) и
+                // параметры, которые нормализуются по каталогу; файлы скриптов помощник берёт из своего exe, а не с диска.
+                // Number: 0 установить/сохранить, 1 удалить, 2 включить задачи, 3 выключить.
+                case "toolkit":
+                    {
+                        // Arg — id через запятую (одно окно UAC на все отмеченные пункты с правами), Items[i] — параметры i-го.
+                        // Только пункты каталога с Admin: помощник не выполняет с правами то, что окно может само.
+                        string[] ids = (job.Arg ?? "").Split(',');
+                        Toolkit.TkEnv env = Toolkit.TkEnv.Real();
+                        List<string> tkLog = new List<string>();
+                        List<string> errs = new List<string>();
+                        for (int i = 0; i < ids.Length; i++)
+                        {
+                            Toolkit.TkItem item = Toolkit.TkCatalog.Find(ids[i]);
+                            if (item == null || !item.Admin) { errs.Add("toolkit: " + ids[i]); continue; }
+                            Dictionary<string, string> values = Toolkit.TkEngine.Unpack(job.Items != null && job.Items.Length > i ? job.Items[i] : "");
+                            tkLog.Add(item.Title);
+                            string err = job.Number == 1 ? Toolkit.TkEngine.Remove(item, env, tkLog)
+                                       : job.Number == 2 || job.Number == 3 ? Toolkit.TkEngine.SetEnabled(item, values, env, job.Number == 2, tkLog)
+                                       : Toolkit.TkEngine.Install(item, values, env, tkLog);
+                            if (err != null) errs.Add(item.Title + ": " + err);
+                        }
+                        r.Ok = errs.Count == 0; r.Message = r.Ok ? null : string.Join("; ", errs.ToArray()); r.Lines = tkLog.ToArray();
+                        return r;
+                    }
+                case "rebrand":
+                    {
+                        string err = Rebrand.MigrateElevated(e);
+                        r.Ok = err == null; r.Message = err;
+                        return r;
+                    }
+                case "hudtask":
+                    {
+                        if (job.Flag)
+                        {
+                            string err = Capture.HudLauncher.CreateTask();
+                            r.Ok = err == null; r.Message = err;
+                        }
+                        else r.Ok = Capture.HudLauncher.RemoveTask();
+                        return r;
+                    }
+                // Группа «Пользователи журналов производительности» для подсчёта кадров: из задания не читается ничего —
+                // добавляется пользователь, вошедший в этот сеанс, а не имя из файла (иначе файл добавил бы кого угодно).
+                case "perflog":
+                    {
+                        string err = Capture.HudPerfLog.AddInteractiveUser();
+                        r.Ok = err == null; r.Message = err;
+                        return r;
+                    }
+                // Профиль Afterburner: из задания берётся только номер слота 1–5; путь к Afterburner помощник находит сам
+                // в Program Files, файлы cfg — только в его папке Profiles.
+                case "afterburner":
+                    {
+                        string err = job.Number >= 1 && job.Number <= Afterburner.MaxSlot ? Afterburner.Apply(job.Number) : "slot";
+                        r.Ok = err == null; r.Message = err;
+                        return r;
+                    }
+                // Предел кадров драйвера NVIDIA: из задания — число кадров 0–1000 и имя exe без пути (пусто — общий
+                // профиль). Имя проверяет NvFrameLimit.ValidExe: путь или не-.exe отклоняются.
+                case "nvlimit":
+                    {
+                        string exe = string.IsNullOrEmpty(job.Arg) ? null : NvFrameLimit.ValidExe(job.Arg);
+                        string err = job.Number < 0 || job.Number > NvFrameLimit.MaxFps || (!string.IsNullOrEmpty(job.Arg) && exe == null)
+                            ? "bad job" : NvFrameLimit.Set(exe, job.Number);
+                        r.Ok = err == null; r.Message = err;
                         return r;
                     }
                 // Правило брандмауэра для торрентов: из задания берётся только Flag (открыть/закрыть). Путь программы

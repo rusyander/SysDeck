@@ -1,0 +1,80 @@
+{
+  "MinAgeMinutes": 10,
+  "DupThreshold": 3,
+  "KeepNewest": 1,
+  "MaxKillsPerRun": 1000,
+  "Aggressive": false,
+
+  "_comment_ProtectDescendantsOf": "The entire live subtree under these is spared - a dev server still attached to a running editor or agent is in use, not garbage.",
+  "ProtectDescendantsOf": ["code", "claude", "windowsterminal", "explorer", "docker desktop"],
+
+  "_comment_ReapWhenOrphaned": "The one exception to Blacklist + ProtectDescendantsOf. claude.exe is one agent host per VS Code window, holding its MCP servers, node children and a conhost. Closing a chat does not end it - only closing the window does. If VS Code crashes instead of exiting cleanly, that whole tree becomes immortal. Reaped ONLY when the parent is dead, after OrphanGraceMinutes.",
+  "ReapWhenOrphaned": ["claude"],
+  "OrphanGraceMinutes": 15,
+
+  "_comment_IdleAgents": "Second exception: an agent host alive under a LIVE editor window but untouched. Sessions pile up one claude.exe each and only die with the window. Two triggers, both requiring IdleAgentHours of hourly samples (%LOCALAPPDATA%\\proc-reaper\\agent-activity.json): idle = own CPU grew <= IdleAgentCpuBudgetSec across the window (measured: abandoned drift 16-35 s/hour, used sessions land above 300 s/8h); stale = older than IdleAgentMaxAgeHours with no established non-loopback TCP connection (catches busy-loopers the CPU budget spares, without killing a hung-but-connected API stream). Killed with the whole MCP/LSP subtree, dev servers included - an 8h-untouched stand restarts in one command.",
+  "IdleAgents": ["claude"],
+  "IdleAgentHours": 8,
+  "IdleAgentCpuBudgetSec": 300,
+  "IdleAgentMaxAgeHours": 24,
+
+
+  "_comment_Whitelist": "Only these names are ever considered in default (non-aggressive) mode. Name without .exe, case-insensitive.",
+  "Whitelist": [
+    "node", "npm", "npx", "pnpm", "yarn", "bun", "deno", "nodemon", "ts-node", "tsx",
+    "vite", "esbuild", "rollup", "webpack", "parcel", "turbo", "nx", "concurrently",
+    "tsc", "tsserver", "eslint", "prettier",
+    "jest", "vitest", "mocha", "karma", "cypress", "playwright",
+    "chromedriver", "geckodriver", "msedgedriver", "chrome-headless-shell", "electron",
+    "http-server", "serve", "json-server", "browser-sync", "live-server",
+    "python", "python3", "py", "pip", "pytest", "uvicorn", "gunicorn", "celery",
+    "ruby", "rails", "php", "php-cgi", "composer",
+    "java", "javaw", "gradle", "gradlew", "mvn", "maven",
+    "dotnet", "msbuild", "vbcscompiler", "iisexpress",
+    "go", "gopls", "dlv", "cargo", "rustc", "rust-analyzer",
+    "cmd", "conhost", "powershell", "pwsh", "bash", "sh", "zsh", "openconsole",
+    "git", "git-remote-https", "ssh", "rg", "ripgrep", "fd", "watchman", "head", "tail", "grep",
+    "dllhost", "werfault", "rundll32", "wmic"
+  ],
+
+  "_comment_Blacklist": "Never touched, even in aggressive mode - as a target, as a duplicate, or as a descendant of something reaped. Device stacks belong here: killing an input/RGB helper re-enumerates its HID devices and freezes the mouse for seconds. Logitech G HUB (lghub*, logi_lamparray_service) is explicitly out of every rule - it is not cleaned and not restarted by us.",
+  "Blacklist": [
+    "system", "idle", "registry", "memory compression", "secure system",
+    "smss", "csrss", "wininit", "winlogon", "services", "lsass", "lsm",
+    "svchost", "fontdrvhost", "dwm", "explorer", "sihost", "taskhostw",
+    "ctfmon", "runtimebroker", "searchhost", "searchindexer",
+    "startmenuexperiencehost", "shellexperiencehost", "textinputhost",
+    "applicationframehost", "audiodg", "spoolsv", "wmiprvse", "wudfhost",
+    "msmpeng", "nissrv", "securityhealthservice", "securityhealthsystray",
+    "trustedinstaller", "tiworker", "sppsvc", "wlanext", "dasHost",
+    "code", "claude", "figma", "chrome", "msedge", "msedgewebview2",
+    "docker desktop", "com.docker.backend", "vmmem", "vmmemwsl",
+    "wsl", "wslservice", "wslhost", "windowsterminal", "taskmgr",
+    "lghub", "lghub_agent", "lghub_system_tray", "lghub_updater",
+    "logi_lamparray_service.amd64", "logioverlay", "logivirtualbus",
+    "logioptionsplus_agent", "logitech gaming software", "lcore"
+  ],
+
+  "_comment_WindowExempt": "Processes with a visible window are normally skipped; these are console helpers and get reaped anyway when orphaned.",
+  "WindowExempt": ["conhost", "cmd"],
+
+  "_comment_DuplicateExempt": "Excluded from the duplicate rule. conhost's command line is the generic 'conhost.exe 0x4' for every instance, so grouping by it would treat unrelated live consoles as copies.",
+  "DuplicateExempt": ["conhost"],
+
+  "_comment_TransientNames": "Short-lived BY DESIGN. Reaped only when ALL hold: older than TransientMaxAgeMinutes, zero CPU across the sample, no children, no sockets, no window. NOT a general 'kill idle' rule - an idle language server is working, it is waiting.",
+  "TransientNames": ["dllhost", "git", "git-remote-https", "conhost", "cmd", "werfault", "rundll32", "wmic"],
+  "TransientMaxAgeMinutes": 60,
+  "CpuIdleDeltaSec": 0.05,
+
+  "_comment_ListenerMaxAgeHours": "A process with a LISTENING TCP socket younger than this is immune from every rule - agent-started dev servers look orphaned by design (transient Claude shells) but are in use. Older listeners are leaked garbage and get reaped as usual. 0 disables the protection.",
+  "ListenerMaxAgeHours": 12,
+
+  "_comment_Protect": "Extra names or literal PIDs that must never be reaped.",
+  "Protect": [],
+
+  "_comment_ProtectPorts": "Ports of a local service kept up ON PURPOSE (for example the API and web ports of a self-hosted tool). The listening process, its whole subtree AND the chain that spawned it are immune with no age cap. ListenerMaxAgeHours is not enough for these two reasons: it covers the listener alone, so the pnpm/cmd/node --watch above it still died and left half a stand (2026-09-01: the API lost its --watch supervisor, vite lost its parent, and the panel read as 'switched itself off'), and it expires after 12 h, which is exactly when an always-on panel is still wanted.",
+  "ProtectPorts": [],
+
+  "_comment_ProtectCommandLineMatch": "Regexes over the full command line; a match immunises that process and its subtree. For supervisors holding no port of their own - a keepalive watchdog of such a service would otherwise be an orphan like any other and get reaped exactly while the panel it guards is down.",
+  "ProtectCommandLineMatch": ["freeze-canary[\\\\/]canary\\.ps1"]
+}

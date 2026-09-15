@@ -1,4 +1,4 @@
-﻿Windows Process Cleaner - портативная версия
+﻿SysDeck - портативная версия
 ============================================
 
 Что это
@@ -6,20 +6,21 @@
   в том числе с флешки или внешнего диска.
 
 Как запустить
-  Запустите WindowsProcessCleaner.exe. Windows один раз спросит разрешение
-  администратора - без него нельзя чистить Standby Memory и системные папки.
+  Запустите SysDeck.exe. Для запуска права администратора не
+  нужны: Windows спросит разрешение только после нажатия кнопки, которой они
+  требуются (очистка системных папок, сброс памяти и т. п.).
 
 Где хранятся данные
   Рядом с программой, в папке Data: настройки, история очисток, журналы.
   За это отвечает файл portable.marker - держите его рядом с exe.
-  Уберёте метку - программа начнёт писать в %APPDATA%\WindowsProcessCleaner,
+  Уберёте метку - программа начнёт писать в %APPDATA%\SysDeck,
   как установленная.
 
 Как удалить
   Удалите эту папку целиком. В системе не остаётся ничего: ни записей в реестре,
   ни файлов в профиле. Если вы включали автозапуск с Windows, снимите его в
   настройках программы до удаления - иначе останется задача планировщика
-  "WindowsProcessCleaner", ссылающаяся в пустоту.
+  "SysDeck", ссылающаяся в пустоту.
 
 Когда лучше установщик
   Если программа нужна на своём компьютере постоянно: он добавит ярлык в меню
@@ -27,7 +28,7 @@
   где их не потеряешь вместе с папкой.
 
 
-Windows Process Cleaner - portable edition
+SysDeck - portable edition
 ==========================================
 
 What this is
@@ -35,20 +36,21 @@ What this is
   folder, a USB stick or an external drive included.
 
 How to run
-  Start WindowsProcessCleaner.exe. Windows asks for administrator rights once -
-  without them Standby Memory and system folders cannot be cleaned.
+  Start SysDeck.exe. Starting needs no administrator rights:
+  Windows asks only after you press a button that requires them (cleaning
+  system folders, resetting memory and the like).
 
 Where data is kept
   Next to the program, in the Data folder: settings, cleanup history, logs.
   The portable.marker file is what makes this happen - keep it next to the exe.
   Remove the marker and the program starts writing to
-  %APPDATA%\WindowsProcessCleaner, like an installed copy.
+  %APPDATA%\SysDeck, like an installed copy.
 
 How to remove
   Delete this folder. Nothing is left behind - no registry entries, no files in
   the user profile. If you enabled start with Windows, turn it off in the
   program's settings before deleting, or the scheduled task
-  "WindowsProcessCleaner" stays behind pointing at nothing.
+  "SysDeck" stays behind pointing at nothing.
 
 When the installer is the better choice
   When you need the program on your own computer permanently: it adds a Start

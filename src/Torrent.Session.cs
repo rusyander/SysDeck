@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: сессия — порт, реактор, диск, торренты; точка входа для движка.
+﻿// SysDeck — «Загрузки», торренты: сессия — порт, реактор, диск, торренты; точка входа для движка.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Один порт на TCP и UDP. Слушатель TCP открывается только при InboundOpen: без правила брандмауэра Windows покажет
@@ -11,7 +11,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal enum BtTorrentState { FetchingMetadata, Checking, Downloading, Seeding, Paused, Finished, Error }
 

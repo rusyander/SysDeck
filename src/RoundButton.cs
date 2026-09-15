@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — кнопка со сглаженными скруглёнными углами.
+﻿// SysDeck — кнопка со сглаженными скруглёнными углами.
 // Штатная Button скруглялась через Region: углы выходили ступенчатыми, а плоская рамка
 // обрывалась на срезах («съеденный» радиус). Эта кнопка рисует себя сама: углы — цветом
 // родителя, тело и рамка — со сглаживанием, Region не используется. Цвета состояний
@@ -10,7 +10,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace WindowsProcessCleaner
+namespace SysDeck
 {
     public class RoundButton : Button
     {

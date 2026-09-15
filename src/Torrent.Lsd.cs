@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: поиск пиров в локальной сети (BEP 14, Local Service Discovery).
+﻿// SysDeck — «Загрузки», торренты: поиск пиров в локальной сети (BEP 14, Local Service Discovery).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
 // Свой UDP-сокет на 6771 (SO_REUSEADDR: порт делят с другими клиентами на этой машине), группа 239.192.152.143, только
@@ -15,7 +15,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     internal sealed class BtLsd : IBtLsd
     {

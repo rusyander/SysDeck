@@ -1,4 +1,4 @@
-﻿// Windows Process Cleaner — «Загрузки», торренты: куски ↔ файлы на диске, битовое поле, быстрое возобновление, очередь
+﻿// SysDeck — «Загрузки», торренты: куски ↔ файлы на диске, битовое поле, быстрое возобновление, очередь
 // дисковых операций.
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 //
@@ -18,7 +18,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
-namespace WindowsProcessCleaner.Downloads
+namespace SysDeck.Downloads
 {
     // ------------------------------------------------------------------ //
     //  Битовое поле кусков (BEP 3: старший бит первого байта — кусок 0)
