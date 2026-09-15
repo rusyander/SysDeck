@@ -66,7 +66,16 @@ namespace SysDeck.Capture
         public const string Cpu = "cpu", Cores = "cores", Gpu = "gpu", Memory = "mem", Temps = "temps", Disk = "disk",
                             Net = "net", Fps = "fps", App = "app", System = "sys", Other = "other", Afterburner = "ab", HwinfoPrefix = "hw:";
 
-        public static readonly string[] Order = { Fps, App, Cpu, Cores, Gpu, Memory, Temps, Disk, Net, System, Other, Afterburner };
+        // Порядок блоков и в столбике, и в списке страницы «Оверлей»: процессор, видеокарта, кадры, память, остальное.
+        public static readonly string[] Order = { Cpu, Cores, Gpu, Fps, Memory, App, Temps, Disk, Net, System, Other, Afterburner };
+
+        public static int Rank(string group)
+        {
+            int i = Array.IndexOf(Order, group);
+            if (i >= 0) return i * 2;
+            // Группы HWiNFO (по датчикам) и неизвестное — перед Afterburner.
+            return Array.IndexOf(Order, Afterburner) * 2 - 1;
+        }
 
         public static string Title(string group)
         {
@@ -360,11 +369,37 @@ namespace SysDeck.Capture
             return HudFormat.Valid(v) ? v.ToString("0.###", CultureInfo.InvariantCulture) : "";
         }
 
-        // Основной набор: кадры, процессор и видеокарта (загрузка, температура, мощность), память системы и игры. Всё
-        // остальное человек включает сам на странице «Оверлей»; кнопка «Основной набор» возвращает этот.
-        // Основной набор: загрузка и температуры, память, кадры с графиком времени кадра, мощность ГП.
-        public const string Default = "cpu.load:1:0:0;cpu.temp:1:0:0;ram:1:0:0;gpu.load:1:0:0;gpu.temp:1:0:0;vram:1:0:0;fps:1:0:0;"
-                                    + "fps.frametime:3:250:0;fps.low1:1:0:0;fps.app:1:0:0;fps.low01:1:0:0;gpu.power:1:0:0;gpu.voltage:1:0:0;ram.load:1:0:0";
+        // Строки блоками: процессор, видеокарта, кадры, память, остальное (HudGroups.Order). Порядок, в котором строки
+        // отмечали, и кнопки «Выше» / «Ниже» действуют внутри блока. Сортировка устойчивая.
+        public static List<HudItem> Grouped(IEnumerable<HudItem> items)
+        {
+            List<HudItem> list = new List<HudItem>();
+            List<int> ranks = new List<int>();
+            foreach (HudItem it in items)
+            {
+                if (it == null) continue;
+                int rank = BlockRank(it.Id);
+                int at = list.Count;
+                while (at > 0 && ranks[at - 1] > rank) at--;
+                list.Insert(at, it);
+                ranks.Insert(at, rank);
+            }
+            return list;
+        }
+
+        public static int BlockRank(string id)
+        {
+            HudDef def = HudCatalog.Find(id);
+            return HudGroups.Rank(def == null ? null : def.Group);
+        }
+
+        // Основной набор: процессор (загрузка, температура, частота, мощность, напряжение), видеокарта с датчиками,
+        // кадры с графиком времени кадра, память. Кнопка «Основной набор» на странице «Оверлей» возвращает этот.
+        public const string Default = "cpu.load:1:0:0;cpu.temp:1:0:0;cpu.mhz:1:0:0;cpu.power:1:0:0;cpu.voltage:1:0:0;"
+                                    + "gpu.load:1:0:0;gpu.temp:1:0:0;gpu.power:1:0:0;gpu.voltage:1:0:0;gpu.clock:1:0:0;gpu.memtemp:1:0:0;"
+                                    + "gpu.hotspot:1:0:0;gpu.fanrpm:1:0:0;gpu.memclock:1:0:0;"
+                                    + "fps:1:0:0;fps.frametime:3:250:0;fps.low1:1:0:0;fps.app:1:0:0;fps.low01:1:0:0;"
+                                    + "ram:1:0:0;vram:1:0:0;ram.load:1:0:0";
     }
 
     // Кадр: последнее значение каждого показателя от всех источников.
@@ -517,6 +552,8 @@ namespace SysDeck.Capture
             row.Kind = kind;
             row.Graph = item.Graph && kind != HudKind.Text;
             row.TextShown = item.Text || !row.Graph;
+            // Полоса графика под строкой без подписи непонятна — подпись говорит, что это график.
+            if (row.Graph) row.Label = label + Tr.S(" (график)", " (graph)");
             row.Color = item.Color;
             row.LabelColor = item.LabelColor;
             row.Group = def != null ? def.Group : null;

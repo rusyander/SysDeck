@@ -94,13 +94,25 @@ namespace SysDeck
                     continue;
                 }
                 HudValue v = f == null ? null : f.Get(kv.Key);
-                string value = "  ·  " + (v == null ? Tr.S("нет данных", "no data") : HudFormat.Row(new HudItem(kv.Key), v).Value);
+                string value = OvGraphMark(kv.Key, v) + "  ·  " + (v == null ? Tr.S("нет данных", "no data") : HudFormat.Row(new HudItem(kv.Key), v).Value);
                 string old;
                 if (_ovValues.TryGetValue(kv.Key, out old) && old == value) continue;
                 _ovValues[kv.Key] = value;
                 if (kv.Value.IsVisible) repaint = true;
             }
             if (repaint) _tvOv.Invalidate();
+        }
+
+        // Пометка в дереве: строка в столбике выводится графиком, числом без графика или графика у неё быть не может (текст).
+        // Не отмеченная числовая строка — без пометки: в столбике её нет.
+        private string OvGraphMark(string id, HudValue v)
+        {
+            HudDef def = HudCatalog.Find(id) ?? HudCatalog.Dynamic(id, v);
+            HudKind kind = v != null ? v.Kind : def != null ? def.Kind : HudKind.Number;
+            if (kind == HudKind.Text) return Tr.S("  (текст, без графика)", "  (text, no graph)");
+            HudItem it = OvFind(id);
+            if (it == null) return "";
+            return it.Graph ? Tr.S("  (график)", "  (graph)") : Tr.S("  (число, без графика)", "  (number, no graph)");
         }
 
         private void OvDrawNode(object sender, DrawTreeNodeEventArgs e)
@@ -277,8 +289,8 @@ namespace SysDeck
             TreeNode n = _tvOv.SelectedNode;
             string tag = n == null ? null : n.Tag as string;
             string text;
-            if (tag == null) text = Tr.S("Галочка — строка в столбике. Порядок строк — порядок, в котором их отмечали; меняется кнопками «Выше» и «Ниже».",
-                                         "A tick puts the row into the column. Rows follow the order they were ticked in; change it with “Up” and “Down”.");
+            if (tag == null) text = Tr.S("Галочка — строка в столбике. Строки идут блоками: процессор, видеокарта, кадры, память, остальное; внутри блока — в порядке, в котором их отмечали, меняется кнопками «Выше» и «Ниже».",
+                                         "A tick puts the row into the column. Rows come in blocks: CPU, GPU, frames, memory, the rest; within a block they follow the order they were ticked in, changed with “Up” and “Down”.");
             else if (tag.StartsWith(OvGroupTag, StringComparison.Ordinal))
                 text = Tr.S("Галочка у группы отмечает или снимает все её строки. Справа внизу — как выглядит группа целиком.",
                             "The group tick checks or unchecks all its rows. Bottom right shows the whole group.");
@@ -322,6 +334,8 @@ namespace SysDeck
             if (it == null) return;
             int at = _ovItems.IndexOf(it), to = at + delta;
             if (at < 0 || to < 0 || to >= _ovItems.Count) return;
+            // Строки ходят только внутри своего блока: столбик всё равно выводит их блоками.
+            if (HudItem.BlockRank(_ovItems[to].Id) != HudItem.BlockRank(it.Id)) return;
             _ovItems.RemoveAt(at);
             _ovItems.Insert(to, it);
             OvItemsChanged();
@@ -329,6 +343,7 @@ namespace SysDeck
 
         private void OvItemsChanged()
         {
+            _ovItems = HudItem.Grouped(_ovItems);   // новая галочка встаёт в конец своего блока, а не всего столбика
             _ovDirty = true;
             _ovSaveTimer.Stop();
             _ovSaveTimer.Start();
@@ -357,7 +372,7 @@ namespace SysDeck
             if (MessageBox.Show(this, Tr.S("Заменить строки набора ", "Replace the rows of set ") + (_ovScene + 1).ToString(CultureInfo.InvariantCulture)
                                       + Tr.S(" готовым набором «", " with the preset “") + title + Tr.S("»? Положение, размер и вид останутся.", "”? Position, size and look stay."),
                                 Tr.S("Оверлей", "Overlay"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            _ovItems = HudItem.ParseList(items);
+            _ovItems = HudItem.Grouped(HudItem.ParseList(items));
             _ovSuppress = true;
             try
             {

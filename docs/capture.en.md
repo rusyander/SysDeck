@@ -34,6 +34,7 @@ By default — the same keys as VK Play GameCenter, so there is nothing to relea
 | Overlay: reset min / avg / max | `Ctrl+Alt+R` |
 | Overlay: next row set | `Ctrl+Alt+N` |
 | Lag recording: start / stop | `Ctrl+Alt+L` |
+| Active game: borderless full screen / undo | `Ctrl+Alt+B` |
 | Active window screenshot, screen video, pause recording, gallery | not assigned |
 
 - Click a field and press the shortcut. `Backspace` clears it, `Esc` keeps the old one. While a field has focus,
@@ -131,7 +132,8 @@ selection, with no separate window. The shot itself is not changed: annotations 
 
 ## Video
 Recording goes to MP4 (H.264, HEVC or AV1) on the graphics card when its encoder passes a test encode, otherwise on
-the Windows software encoder — the notification then says so.
+the Windows software encoder — the notification then says so. With an NVIDIA card the “Auto” encoder tries its
+NVENC first, even when the monitor is connected to the integrated graphics; without NVIDIA it uses the monitor's card.
 
 - **Starting.** `F7` opens the same selection as a screenshot: drag a region, click a window or double-click a
   monitor, then `Enter` or the “Start recording” button. “Screen video” (no shortcut by default) records the monitor

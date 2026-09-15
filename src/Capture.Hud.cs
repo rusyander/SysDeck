@@ -547,7 +547,8 @@ namespace SysDeck.Capture
             List<HudRow> rows = new List<HudRow>();
             if (statsSeconds <= 0) statsSeconds = graphSeconds;
             long statsFrom = Math.Max(_statsFrom, _now.Ticks - TimeSpan.TicksPerSecond * statsSeconds);
-            foreach (HudItem it in items)
+            // Блоками даже для списков, сохранённых до группировки.
+            foreach (HudItem it in HudItem.Grouped(items))
             {
                 HudValue v;
                 _shown.TryGetValue(it.Id, out v);
@@ -656,9 +657,11 @@ namespace SysDeck.Capture
         }
 
         // Короткая надпись над строками на полторы секунды («Набор 2», «сброшено»).
-        public void Flash(string text)
+        public void Flash(string text) { Flash(text, 1500); }
+
+        public void Flash(string text, int ms)
         {
-            lock (_gate) { _flash = text; _flashUntil = DateTime.Now.AddMilliseconds(1500); }
+            lock (_gate) { _flash = text; _flashUntil = DateTime.Now.AddMilliseconds(ms); }
         }
 
         public void BeginMove()

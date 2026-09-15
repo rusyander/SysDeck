@@ -752,12 +752,10 @@ namespace SysDeck
             return HudGroups.Title(group);
         }
 
+        // Группы HWiNFO (по датчикам) — перед Afterburner, в порядке появления.
         private static int OvGroupRank(string group)
         {
-            int i = Array.IndexOf(HudGroups.Order, group);
-            if (i >= 0) return i * 2;
-            // Группы HWiNFO (по датчикам) — перед Afterburner, в порядке появления.
-            return Array.IndexOf(HudGroups.Order, HudGroups.Afterburner) * 2 - 1;
+            return HudGroups.Rank(group);
         }
 
         private TreeNode OvGroupNode(string group)

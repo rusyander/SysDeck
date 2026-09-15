@@ -425,6 +425,11 @@ namespace SysDeck.Capture
                 if (iy < 0) iy = 9;
                 return ix != iy ? ix.CompareTo(iy) : x.Index.CompareTo(y.Index);
             });
+            // «Авто» при видеокарте NVIDIA — сначала её NVENC: монитор на встроенной AMD или Intel иначе писался бы
+            // кодировщиком встроенной, заметно слабее. Без NVIDIA «авто» остаётся прежним (кодировщик карты монитора).
+            if (pref == "auto")
+                foreach (VidAdapter a in hw)
+                    if (a.Vendor == "nvidia") { pref = "nvidia"; break; }
             if (pref != "software")
             {
                 if (pref == "nvidia" || pref == "amd" || pref == "intel")

@@ -117,7 +117,8 @@ reads Windows' own counters (the same ones Task Manager shows under Performance 
 vendor tool. No administrator rights are needed. Updates once a second, the interval goes from
 0.5 to 5 seconds, and there is a pause.
 
-At the top you pick the card (when there are several) and the memory: **dedicated** — the card's
+At the top you pick the card (when there are several; by default the one with the most dedicated memory, that is the
+discrete card rather than the integrated one) and the memory: **dedicated** — the card's
 own memory (VRAM), **shared** — the part of RAM Windows lends to the card.
 
 | View | What it shows |

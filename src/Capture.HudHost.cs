@@ -124,7 +124,7 @@ namespace SysDeck.Capture
 
         // Ни одна команда не несёт пути или аргумента: повышенный процесс не берёт от обычных ничего, кроме «покажись»
         // и номера слота Afterburner в самом имени события (путь к Afterburner оверлей находит сам, в Program Files).
-        public static readonly string[] Commands = { "Show", "Hide", "Toggle", "Reload", "Shutdown", "ResetStats", "NextScene", "Move", "LagToggle",
+        public static readonly string[] Commands = { "Show", "Hide", "Toggle", "Reload", "Shutdown", "ResetStats", "NextScene", "Move", "LagToggle", "Borderless",
                                                      "Afterburner1", "Afterburner2", "Afterburner3", "Afterburner4", "Afterburner5" };
 
         // Доступ — только своему пользователю; метка целостности «средняя»: объект повышенного процесса по умолчанию
@@ -563,6 +563,43 @@ namespace SysDeck.Capture
             if (show || _settings.HudShown) ShowHud();
             _watch.Start();
             Watch();
+            if (Elevation.IsElevated) ReapplyAfterburnerLater();
+        }
+
+        // Через 2 минуты после старта агента — повтор профиля Afterburner «при запуске» (Afterburner.ReapplyStartup).
+        // Afterburner после входа в Windows может подняться позже: ждём его появления ещё до 8 минут и даём
+        // 30 секунд на то, чтобы он сам применил свои настройки. Без прав агента ничего не делается — окна UAC нет.
+        private void ReapplyAfterburnerLater()
+        {
+            if (SysDeck.Afterburner.Exe() == null) return;
+            Thread t = new Thread(delegate()
+            {
+                try
+                {
+                    Thread.Sleep(TimeSpan.FromMinutes(2));
+                    DateTime until = DateTime.UtcNow.AddMinutes(8);
+                    bool waited = false;
+                    while (Process.GetProcessesByName("MSIAfterburner").Length == 0)
+                    {
+                        if (DateTime.UtcNow > until) return;
+                        Thread.Sleep(15000);
+                        waited = true;
+                    }
+                    if (waited) Thread.Sleep(30000);
+                    if (Interlocked.CompareExchange(ref _abBusy, 1, 0) != 0) return;   // человек как раз переключает сам
+                    try
+                    {
+                        int slot;
+                        string error = SysDeck.Afterburner.ReapplyStartup(out slot);
+                        if (error != null) CapLog.Write("afterburner reapply slot " + slot.ToString(CultureInfo.InvariantCulture) + ": " + error);
+                    }
+                    finally { Interlocked.Exchange(ref _abBusy, 0); }
+                }
+                catch (Exception ex) { CapLog.Report(ex); }
+            });
+            t.IsBackground = true;
+            t.Name = "afterburner-reapply";
+            t.Start();
         }
 
         public void Command(string command)
@@ -582,6 +619,7 @@ namespace SysDeck.Capture
                 case "NextScene": NextScene(); break;
                 case "Move": if (_hud.MoveMode) _hud.EndMove(); else _hud.BeginMove(); break;
                 case "LagToggle": ToggleLag(); break;
+                case "Borderless": _hud.Flash(HudBorderless.ToggleForeground(), 4000); break;
                 default:
                     if (command.StartsWith("Afterburner", StringComparison.Ordinal))
                         ApplyAfterburner(int.Parse(command.Substring("Afterburner".Length), CultureInfo.InvariantCulture));

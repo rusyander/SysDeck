@@ -28,7 +28,7 @@ namespace SysDeck
             {
                 _ovScene = Math.Max(0, Math.Min(2, s.HudScene));
                 _cmbOvScene.SelectedIndex = _ovScene;
-                _ovItems = HudItem.ParseList(s.ActiveItems);
+                _ovItems = HudItem.Grouped(HudItem.ParseList(s.ActiveItems));
                 foreach (KeyValuePair<string, TreeNode> kv in _ovNodes)
                     if (!kv.Key.StartsWith(OvGroupTag, StringComparison.Ordinal)) kv.Value.Checked = OvFind(kv.Key) != null;
                 foreach (TreeNode g in _tvOv.Nodes) OvUpdateGroupCheck(g);

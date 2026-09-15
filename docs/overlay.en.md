@@ -14,9 +14,16 @@ window or Capture's background process is running, and comes back if it was on.
 - **On top of everything, in nobody's way.** The window is always on top, the mouse passes through it and it never
   takes focus. It is visible over ordinary windows and over games in windowed or borderless mode. It is not visible
   in exclusive fullscreen DirectX: that would take injecting into the game process, which the program does not do.
+- **Borderless full screen game — `Ctrl+Alt+B`.** When the column is not visible (for example in Dark Souls III set to
+  “Fullscreen”), switch the game to windowed mode at the monitor resolution and press `Ctrl+Alt+B` in the game: the
+  window loses its frame and title and stretches over its monitor, and the column shows on top. Pressing again
+  restores the window. Nothing is injected into the game — only the window style and size change. A game running as
+  administrator can only be changed by the elevated overlay; the column says so when Windows refuses.
 - **What to show — the “Overlay” page.** On the left is a tree of groups: frames, game, CPU, CPU cores, GPU, memory,
   temperatures, disk, network, system information, other, plus HWiNFO and MSI Afterburner sensors when those
-  programs provide data. Every row shows its current value. A tick puts the row into the column, a group tick —
+  programs provide data. Every row shows its current value and a mark: “(graph)” — the row is drawn as a graph in the column,
+  “(number, no graph)” — as a number only, “(text, no graph)” — such a row never has a graph. An unticked numeric row
+  has no mark. A graph is turned on with the “Graph” tick of the selected row. A tick puts the row into the column, a group tick —
   all its rows. Cores have “first N”: load and/or frequency of the first 1–16 cores or of all of them.
   On the right, under the name of the selected row or group, an explanation says what the number is, why to watch
   it and at which value it points to a problem (hitches, a CPU bottleneck, running out of VRAM, throttling).
@@ -32,9 +39,12 @@ window or Capture's background process is running, and comes back if it was on.
   set), private bytes, video memory and shared GPU memory, CPU and GPU share, read and write per second, threads,
   handles, running time. Switch to another window and the numbers follow it. No administrator rights needed.
 - **Every row is set up on its own:** value, graph or both (the graph is a strip under the row, full column
-  width); “Min/avg/max” — three numbers to the right of the value; its own refresh interval (0.25 s to a minute —
+  width, and the label of such a row gets “(graph)”); “Min/avg/max” — three numbers to the right of the value; its own refresh interval (0.25 s to a minute —
   say, memory every 2 s, frequencies every second); value and label colour — by level (by group), from the palette
   or custom; its place in the column — the “Up” and “Down” buttons.
+- **Rows come in blocks:** CPU (with cores), GPU, frames, memory, then the rest — game, temperatures, disk, network,
+  system information, HWiNFO and Afterburner. Within a block rows keep the order they were ticked in; “Up” and
+  “Down” move a row only inside its block. The groups on the page list follow the same order.
 - **Highlight thresholds.** Every numeric row has “Yellow at” and “red at” fields; empty means the default, shown
   next to them (say, load 70 / 90 %, CPU temperature 85 / 95 °C). For FPS and 1 % lows lower is bad. “No
   highlighting” turns colour by level off for the row. A row in the red gets a red mark on the left; FPS draws its

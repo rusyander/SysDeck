@@ -313,6 +313,21 @@ namespace SysDeck
             return null;
         }
 
+        // Повтор слота «при запуске» (секция [Startup]) после старта SysDeck: сам Afterburner при входе в Windows его
+        // применяет не всегда, и профиль приходилось выбирать второй раз. Только уже запущенному Afterburner:
+        // «-ProfileN» без него запустил бы его из процесса с правами. [Startup] и резервные копии не трогаются.
+        // slot — применённый слот (0 — применять нечего); возвращает null или текст ошибки.
+        public static string ReapplyStartup(out int slot)
+        {
+            slot = 0;
+            if (Process.GetProcessesByName("MSIAfterburner").Length == 0) return null;
+            AbState st = Load();
+            if (st.Exe == null || st.Error != null) return st.Error;
+            if (st.StartupSlot < 1) return null;
+            slot = st.StartupSlot;
+            return RunProfileSwitch(st.Exe, slot);
+        }
+
         private static string RunProfileSwitch(string exe, int slot)
         {
             try

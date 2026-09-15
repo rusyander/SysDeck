@@ -31,6 +31,12 @@ otherwise a click shows one UAC window. Before every write the program copies th
 `Profiles\WPC_Backups` (the last 30 copies are kept). Other Afterburner settings, monitoring included, are not
 touched.
 
+Afterburner does not always apply the sign-in slot by itself after Windows starts. So the overlay, when it runs
+with administrator rights, applies that slot once more 2 minutes after its own start (after the PC boots or the
+program is started again) — if Afterburner is already running; otherwise it waits up to 8 minutes for it. The
+settings files are not changed by this. Without rights the overlay does not repeat the slot: no UAC window appears
+on its own.
+
 ## Tools
 Built-in Windows tools behind one button each, with an output log at the bottom of the
 page and a "Stop" button for long operations.

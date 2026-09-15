@@ -1,4 +1,4 @@
-# Disk: cleanup, space map and Docker
+﻿# Disk: cleanup, space map and Docker
 
 The Disk cleanup, Disk and Docker pages: what counts as junk, how the preview and the deletion work, where the space went and how to get it back.
 
@@ -16,7 +16,7 @@ duplicates live on the neighbouring "Disk" tab. Categories:
 - **Dev: downloaded toolchains** — old Playwright browser builds (the current one stays; a
   project pinned to an older version needs `npx playwright install` afterwards),
   Puppeteer/Cypress browsers, electron-builder, dotslash, Expo Go, the Maven repository, NuGet
-  packages (`~/.nuget/packages`). They re-download, but slowly — unchecked by default.
+  packages (`~/.nuget/packages`). They re-download, but slowly — the quiet `/auto` skips them.
 - **System junk** — `%TEMP%`, `Windows\Temp`, service-profile temp, Recycle Bin, Windows
   Update cache, crash dumps, error reports, Delivery Optimization. `Prefetch` is deliberately
   left alone: it is the program-launch cache, weighs megabytes, and everything starts slower
@@ -25,7 +25,7 @@ duplicates live on the neighbouring "Disk" tab. Categories:
   Windows rebuilds them itself.
 - **GPU shader caches** — DirectX (`D3DSCache`), NVIDIA/AMD/Intel and Steam `shadercache`.
   After cleaning, games and Chrome/Electron recompile their shaders and stutter for the first
-  minutes, while the space gained is small — unchecked by default.
+  minutes, while the space gained is small — the quiet `/auto` skips them.
 - **Microsoft Store app caches** — `INetCache` / `Temp` / `TempState` of every UWP package and
   the WebView cache of the new Teams. `LocalState` and app settings are untouched.
 - **Browser caches** — Chrome / Edge / Brave / Yandex / Opera / Vivaldi / Firefox, cache only
@@ -62,10 +62,10 @@ duplicates live on the neighbouring "Disk" tab. Categories:
 - **Windows component store (WinSxS)** — superseded component versions left by updates.
   The size comes from `DISM /AnalyzeComponentStore`, cleanup is `DISM /StartComponentCleanup`
   (the only supported way). Superseded updates cannot be rolled back afterwards, so the
-  category is unchecked by default.
+  quiet `/auto` skips the category.
 
-Checks in the window on the first analysis: “Old logs” and “Windows update and driver
-leftovers” are checked, “Windows caches” and “NVIDIA: caches and old versions” are not. The
+Checks in the window on the first analysis: “Old logs”, “Windows update and driver
+leftovers”, “GPU shader caches”, “Dev: downloaded toolchains” and “Windows component store (WinSxS)” are checked, “Windows caches” and “NVIDIA: caches and old versions” are not. The
 window remembers checks set by hand. The quiet `/auto` cleanup uses the remembered checks, and
 for categories never touched in the window its own set: it cleans the Windows and NVIDIA caches
 but not the logs or update leftovers.

@@ -278,7 +278,7 @@ namespace SysDeck
         // Ширины колонок живут в памяти окна в пикселях макета: при другом DPI SetupOwnerDraw умножит их сам.
         private int[] DlColumnWidths()
         {
-            int[] w = { 250, 140, 120, 80, 70, 120, 80, 140, 90 };   // имя тянется на остаток
+            int[] w = { 156, 140, 120, 80, 70, 120, 80, 140, 90 };   // имя тянется на остаток
             string saved = MemGet(DlScope, "columns", true);
             if (string.IsNullOrEmpty(saved)) return w;
             string[] parts = saved.Split(',');
@@ -315,17 +315,17 @@ namespace SysDeck
             DlPoll();
         }
 
+        private const int DlCardHeightDefault = 264;   // пиксели макета, как и сохранённое значение
+
         // Высота карточки — после первого показа: до раскладки у SplitContainer ещё макетный размер.
         private void DlRestoreSplit()
         {
             if (_dlSplitRestored || _dlSplit.Height <= 0) return;
             int saved;
-            if (int.TryParse(MemGet(DlScope, "card-height", true), out saved) && saved > 0)
-            {
-                int distance = _dlSplit.Height - Px(saved) - _dlSplit.SplitterWidth;
-                if (distance >= _dlSplit.Panel1MinSize && _dlSplit.Height - distance - _dlSplit.SplitterWidth >= _dlSplit.Panel2MinSize)
-                    _dlSplit.SplitterDistance = distance;
-            }
+            if (!int.TryParse(MemGet(DlScope, "card-height", true), out saved) || saved <= 0) saved = DlCardHeightDefault;
+            int distance = _dlSplit.Height - Px(saved) - _dlSplit.SplitterWidth;
+            if (distance >= _dlSplit.Panel1MinSize && _dlSplit.Height - distance - _dlSplit.SplitterWidth >= _dlSplit.Panel2MinSize)
+                _dlSplit.SplitterDistance = distance;
             _dlSplitRestored = true;
         }
 

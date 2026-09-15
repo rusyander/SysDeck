@@ -117,7 +117,7 @@ namespace SysDeck.Capture
     // ------------------------------------------------------------------ //
     //  Действия, на которые можно назначить сочетание клавиш
     // ------------------------------------------------------------------ //
-    internal enum CapAction { ShotRegion, ShotScreen, ShotWindow, RecRegion, RecScreen, RecPause, Gallery, Hud, HudReset, HudScene, LagRecord }
+    internal enum CapAction { ShotRegion, ShotScreen, ShotWindow, RecRegion, RecScreen, RecPause, Gallery, Hud, HudReset, HudScene, LagRecord, Borderless }
 
     internal enum ShotAfter { Save, SaveAndCopy, CopyOnly, OpenEditor }
 
@@ -129,7 +129,7 @@ namespace SysDeck.Capture
         {
             CapAction.ShotRegion, CapAction.ShotScreen, CapAction.ShotWindow,
             CapAction.RecRegion, CapAction.RecScreen, CapAction.RecPause, CapAction.Gallery, CapAction.Hud,
-            CapAction.HudReset, CapAction.HudScene, CapAction.LagRecord
+            CapAction.HudReset, CapAction.HudScene, CapAction.LagRecord, CapAction.Borderless
         };
 
         public static string Title(CapAction a)
@@ -146,6 +146,7 @@ namespace SysDeck.Capture
                 case CapAction.HudReset: return Tr.S("Оверлей: сбросить мин. / сред. / макс.", "Overlay: reset min / avg / max");
                 case CapAction.HudScene: return Tr.S("Оверлей: следующий набор строк", "Overlay: next row set");
                 case CapAction.LagRecord: return Tr.S("Запись лагов: начать / остановить", "Lag recording: start / stop");
+                case CapAction.Borderless: return Tr.S("Активная игра: без рамки на весь экран / вернуть (оверлей виден поверх)", "Active game: borderless full screen / undo (overlay stays visible)");
                 default: return Tr.S("Открыть галерею", "Open the gallery");
             }
         }
@@ -166,6 +167,8 @@ namespace SysDeck.Capture
                 // Ctrl+Alt+S занят панелью «Размеры папок» этой же программы — N от «next».
                 case CapAction.HudScene: return "Ctrl+Alt+N";
                 case CapAction.LagRecord: return "Ctrl+Alt+L";
+                // B от «borderless»: игру в эксклюзивном полноэкранном режиме столбик не перекрывает, без рамки — перекрывает.
+                case CapAction.Borderless: return "Ctrl+Alt+B";
                 default: return "";
             }
         }

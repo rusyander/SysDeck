@@ -392,7 +392,10 @@ namespace SysDeck
                 if (!string.Equals(luids[i], _gpuAdapterLuids[i], StringComparison.OrdinalIgnoreCase)) same = false;
 
             if (_gpuLuid == null || _gpuSnap.Find(_gpuLuid) == null)
-                _gpuLuid = luids.Count > 0 ? luids[0] : null;
+            {
+                GpuAdapter main = _gpuSnap.Main();
+                _gpuLuid = main == null ? null : main.Luid;
+            }
 
             _gpuFillingAdapters = true;
             try

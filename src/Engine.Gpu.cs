@@ -112,6 +112,16 @@ namespace SysDeck
                 if (string.Equals(a.Luid, luid, StringComparison.OrdinalIgnoreCase)) return a;
             return null;
         }
+
+        // Карта по умолчанию — с наибольшей выделенной памятью, то есть дискретная (RTX 4090 рядом со встроенной
+        // AMD), а не первая в списке DXGI. При равенстве — первая.
+        public GpuAdapter Main()
+        {
+            GpuAdapter best = null;
+            foreach (GpuAdapter a in Adapters)
+                if (best == null || a.DedicatedTotal > best.DedicatedTotal) best = a;
+            return best;
+        }
     }
 
     public class GpuAction

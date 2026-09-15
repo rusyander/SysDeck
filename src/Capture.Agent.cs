@@ -624,6 +624,7 @@ namespace SysDeck.Capture
             if (action == CapAction.HudReset) { HudLauncher.CommandAsync("ResetStats", false); return; }
             if (action == CapAction.HudScene) { HudLauncher.CommandAsync("NextScene", true); return; }
             if (action == CapAction.LagRecord) { HudLauncher.CommandAsync("LagToggle", true); return; }
+            if (action == CapAction.Borderless) { HudLauncher.CommandAsync("Borderless", true); return; }
             // Повторное нажатие «области» при открытом выделении закрывает его — нажатие не пропадает молча.
             if (_overlay != null)
             {

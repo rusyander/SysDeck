@@ -55,7 +55,87 @@ namespace SysDeck.Tests
             FrameLiveSession();
             GameMetrics();
             HelpTexts();
+            Blocks();
+            BorderlessWindow();
             HudEtalonTests.Run();
+        }
+
+        // «Без рамки на весь экран» — настоящее окно этого процесса через тот же HudBorderless.Toggle, что зовёт оверлей по
+        // Ctrl+Alt+B: стиль без заголовка и рамки, размер монитора; повторный вызов возвращает стиль и место.
+        private static void BorderlessWindow()
+        {
+            T.Check("borderless: caption, frame and system buttons are removed, other bits kept",
+                    HudBorderless.BorderlessStyle(0x10CF0000) == 0x10000000);
+            T.Eq("borderless: Ctrl+Alt+B by default", "Ctrl+Alt+B", CapActions.DefaultHotkey(CapAction.Borderless));
+            T.Check("borderless: the overlay process accepts the command", Array.IndexOf(HudIpc.Commands, "Borderless") >= 0);
+            using (Form f = new Form())
+            {
+                f.StartPosition = FormStartPosition.Manual;
+                f.Bounds = new Rectangle(Screen.PrimaryScreen.Bounds.X + 100, Screen.PrimaryScreen.Bounds.Y + 100, 420, 300);
+                f.ShowInTaskbar = false;
+                f.Show();
+                Application.DoEvents();
+                Rectangle before = f.Bounds;
+                int styleBefore = GetWindowLong(f.Handle, -16);
+                string on = HudBorderless.Toggle(f.Handle);
+                Application.DoEvents();
+                int styleOn = GetWindowLong(f.Handle, -16);
+                Rectangle mon = Screen.FromHandle(f.Handle).Bounds;
+                T.Check("borderless: window covers its monitor without caption", (styleOn & 0xC00000) == 0 && f.Bounds == mon, on + " " + f.Bounds + " vs " + mon);
+                T.Check("borderless: remembered as changed by us", HudBorderless.IsBorderlessByUs(f.Handle));
+                string off = HudBorderless.Toggle(f.Handle);
+                Application.DoEvents();
+                T.Check("borderless: second call restores style and place", GetWindowLong(f.Handle, -16) == styleBefore && f.Bounds == before, off + " " + f.Bounds + " vs " + before);
+                f.Close();
+            }
+        }
+
+        // Столбик блоками: процессор, видеокарта, кадры, память, остальное. Проверка — через HudBoard.Rows, тот же вызов, что
+        // у окна оверлея и предпросмотра страницы; внутри блока порядок человека сохраняется.
+        private static void Blocks()
+        {
+            List<string> head = new List<string>(HudGroups.Order).GetRange(0, 5);
+            T.Eq("hud blocks: group order starts CPU, cores, GPU, FPS, memory", "cpu,cores,gpu,fps,mem", string.Join(",", head.ToArray()));
+
+            List<HudItem> items = HudItem.ParseList("ram;fps.low1;gpu.temp;cpu.load;clock;fps;cpu.core.3.load;vram;gpu.load;hw.9.9;app.cpu;cpu.temp;ab.0.0");
+            HudBoard board = new HudBoard();
+            HudFrame f = new HudFrame();
+            f.Put("cpu.load", HudKind.Percent, 10);
+            board.Advance(f, items, new DateTime(2026, 9, 15, 20, 0, 0));
+            List<string> ids = new List<string>();
+            foreach (HudRow r in board.Rows(items, 60)) ids.Add(r.Id);
+            T.Eq("hud blocks: rows come out in blocks, the person's order kept inside a block",
+                 "cpu.load,cpu.temp,cpu.core.3.load,gpu.temp,gpu.load,fps.low1,fps,ram,vram,app.cpu,clock,hw.9.9,ab.0.0", string.Join(",", ids.ToArray()));
+            T.Eq("hud blocks: the settings list itself is not reordered by drawing", "ram", items[0].Id);
+
+            List<HudItem> def = HudItem.ParseList(HudItem.Default);
+            T.Eq("hud blocks: the default set is already stored in blocks", HudItem.FormatList(def), HudItem.FormatList(HudItem.Grouped(def)));
+            T.Check("hud blocks: the default set has CPU, GPU, FPS and memory rows",
+                    HudItem.Default.Contains("cpu.power") && HudItem.Default.Contains("gpu.hotspot") && HudItem.Default.Contains("fps.low01") && HudItem.Default.Contains("ram.load"));
+
+            HudRow graph = HudFormat.Row(new HudItem("fps.frametime") { Graph = true }, new HudValue("fps.frametime", HudKind.Ms, 7));
+            HudRow plain = HudFormat.Row(new HudItem("fps.frametime"), new HudValue("fps.frametime", HudKind.Ms, 7));
+            T.Check("hud blocks: a row drawn as a graph says so in its label", graph.Label.EndsWith(Tr.S(" (график)", " (graph)")) && !plain.Label.Contains("("), graph.Label);
+
+            GpuSnapshot snap = new GpuSnapshot();
+            GpuAdapter igpu = new GpuAdapter(); igpu.Luid = "1"; igpu.VendorId = 0x1002; igpu.DedicatedTotal = 512L << 20;
+            GpuAdapter dgpu = new GpuAdapter(); dgpu.Luid = "2"; dgpu.VendorId = 0x10DE; dgpu.DedicatedTotal = 24L << 30;
+            snap.Adapters.Add(igpu); snap.Adapters.Add(dgpu);
+            T.Eq("gpu default: the card with the most dedicated memory, not the first one", "2", snap.Main() == null ? null : snap.Main().Luid);
+            T.Check("gpu default: no adapters — no card", new GpuSnapshot().Main() == null);
+
+            string wrong = "";
+            foreach (string id in new string[] { "logs", "drivers", "shaders", "devbig", "winsxs" })
+            {
+                CleanCategory c = new CleanCategory(); c.Id = id;
+                if (!MainForm.CleanCheckedByDefault(c)) wrong += id + " off; ";
+            }
+            foreach (string id in new string[] { "nvidia", "shell" })
+            {
+                CleanCategory c = new CleanCategory(); c.Id = id; c.Recommended = true;
+                if (MainForm.CleanCheckedByDefault(c)) wrong += id + " on; ";
+            }
+            T.Check("clean defaults: the window ticks logs, drivers, shaders, dev toolchains and WinSxS; not NVIDIA and shell caches", wrong.Length == 0, wrong);
         }
 
         // Группа «Игра»: процесс активного окна с потомками. Разбор и скорости — на готовых числах, сбор — живой, по

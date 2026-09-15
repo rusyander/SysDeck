@@ -290,12 +290,13 @@ namespace SysDeck
         }
 
         // Галочка окна — не то же, что Recommended: по Recommended работает /auto без окна. Отличия — выбранный
-        // набор: старые логи и остатки обновлений отмечены, кэши NVIDIA и Windows (эскизы, иконки) — нет.
+        // набор: старые логи, остатки обновлений, кэши шейдеров, скачанные тулчейны и хранилище компонентов (WinSxS) отмечены,
+        // кэши NVIDIA и Windows (эскизы, иконки) — нет.
         internal static bool CleanCheckedByDefault(CleanCategory c)
         {
             switch (c.Id)
             {
-                case "logs": case "drivers": return true;
+                case "logs": case "drivers": case "shaders": case "devbig": case "winsxs": return true;
                 case "nvidia": case "shell": return false;
                 default: return c.Recommended;
             }
