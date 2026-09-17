@@ -166,7 +166,8 @@ next to it: the current window's folders by size, with a share bar and a file co
 
 The numbers come from the active Explorer tab and only for the folder open in it: switching tabs or
 navigating elsewhere removes the previous numbers at once. While the wheel scrolls the list the numbers
-hide and return once it stops, instead of chasing the rows.
+hide and return once it stops, instead of chasing the rows. Explorer's context menu, submenus and dialogs that reach the panel's strip
+show above it; once they close, the panel is on top again.
 
 - **A separate process.** Background mode is the same exe started with `--foldersize`, with its
   own tray icon. It does not depend on the program window: close the window and the numbers in

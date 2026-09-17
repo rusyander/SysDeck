@@ -23,6 +23,7 @@ namespace SysDeck.FolderSize
         private readonly FsSettings _settings;
         private readonly SizeListView _list = new SizeListView();
         private readonly System.Windows.Forms.Timer _pulse = new System.Windows.Forms.Timer();
+        private readonly PanelYield _yield;
 
         private FsTheme _theme = FsTheme.Dark;
         private Font _titleFont;
@@ -70,6 +71,7 @@ namespace SysDeck.FolderSize
             DoubleBuffered = true;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
             KeyPreview = true;
+            _yield = new PanelYield(this);
             ApplyDpi(96);
 
             _list.SortRequested += delegate(SizeSortMode mode) { Action<SizeSortMode> h = SortRequested; if (h != null) h(mode); };
@@ -175,6 +177,7 @@ namespace SysDeck.FolderSize
         public void DockTo(ExplorerState state)
         {
             if (!state.Visible || state.Bounds.IsEmpty) return;
+            _yield.Explorer = state.Hwnd;
             // Масштаб — монитора Проводника: панель встаёт на тот же экран.
             int explorerDpi = Win32.GetDpiForWindow(state.Hwnd);
             if (explorerDpi > 0 && explorerDpi != _dpi) ApplyDpi(explorerDpi);
@@ -199,9 +202,9 @@ namespace SysDeck.FolderSize
                 // Поверх всех, и только пока Проводник впереди: HWND_TOP был бы проигнорирован — Windows не даёт
                 // фоновому процессу поставить окно выше окна АКТИВНОЙ программы. Флаг отдаётся в Hide, а панель
                 // показана только пока впереди Проводник, так что ничто наше не стоит выше другой программы.
-                // SWP_NOACTIVATE оставляет фокус там, где его оставил пользователь.
-                Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, target.X, target.Y, target.Width, target.Height,
-                    Win32.SWP_NOACTIVATE | Win32.SWP_NOOWNERZORDER);
+                // SWP_NOACTIVATE оставляет фокус там, где его оставил пользователь. Меню и диалоги самого
+                // Проводника панель не закрывает — см. PanelYield.
+                _yield.Place(target);
                 Bounds = target;
                 LayoutChildren();
             }
@@ -209,8 +212,7 @@ namespace SysDeck.FolderSize
             {
                 // Проводник поднимает себя на каждый щелчок; без этого панель уезжала бы под него и возвращалась
                 // только при следующей смене геометрии.
-                Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
-                    Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE | Win32.SWP_NOOWNERZORDER);
+                _yield.Place(Rectangle.Empty);
             }
         }
 
@@ -605,6 +607,7 @@ namespace SysDeck.FolderSize
             if (disposing)
             {
                 _pulse.Dispose();
+                _yield.Dispose();
                 if (_titleFont != null) _titleFont.Dispose();
             }
             base.Dispose(disposing);
