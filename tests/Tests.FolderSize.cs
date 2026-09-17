@@ -80,6 +80,10 @@ namespace SysDeck.Tests
                 partial.State = RowState.Partial;
                 partial.Bytes = 2048;
                 T.Eq("a partial size is a lower bound", "≥ 2.00 KB", InlineSizeOverlay.CellText(partial, 0));
+                // Числа рисуются только над папкой, чей снимок получен: сравнение путей не должно спотыкаться о регистр и хвостовой слеш.
+                T.Check("same folder despite case and trailing slash", InlineSizeOverlay.SamePath(@"D:\Work\NIS\widget-app\", @"d:\work\nis\WIDGET-APP"));
+                T.Check("different folders are not the same", !InlineSizeOverlay.SamePath(@"D:\Work\NIS\widget-app", @"D:\Work\gorgona"));
+                T.Check("no snapshot yet is not the target folder", !InlineSizeOverlay.SamePath(null, @"D:\Games"));
 
                 Tr.En = false;
                 T.Eq("Russian units", "1,50 КБ", SizeFormat.Short(1536));

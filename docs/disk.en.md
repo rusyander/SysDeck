@@ -164,6 +164,10 @@ Explorer leaves the Size column empty for folders. This tab controls a **backgro
 writes the exact size of every folder there, on top of Explorer's window, and docks a side panel
 next to it: the current window's folders by size, with a share bar and a file count.
 
+The numbers come from the active Explorer tab and only for the folder open in it: switching tabs or
+navigating elsewhere removes the previous numbers at once. While the wheel scrolls the list the numbers
+hide and return once it stops, instead of chasing the rows.
+
 - **A separate process.** Background mode is the same exe started with `--foldersize`, with its
   own tray icon. It does not depend on the program window: close the window and the numbers in
   Explorer stay. A click on the icon shows and hides the panel, a right click opens a menu with

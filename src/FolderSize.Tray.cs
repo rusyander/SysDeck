@@ -584,7 +584,7 @@ namespace SysDeck.FolderSize
         private void OnExplorerChanged(ExplorerState state)
         {
             bool live = state.Visible && !string.IsNullOrEmpty(state.Path);
-            _overlay.SetTarget(state.Hwnd, live);
+            _overlay.SetTarget(state.Hwnd, state.Path, live);
             _badge.SetTarget(state.Hwnd, state.Bounds, live);
             if (!live || !PanelEnabled)
             {

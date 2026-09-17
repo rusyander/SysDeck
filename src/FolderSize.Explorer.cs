@@ -541,6 +541,19 @@ namespace SysDeck.FolderSize
         }
     }
 
+    internal static class ExplorerWin32
+    {
+        public delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumChildWindows(IntPtr parent, EnumChildProc callback, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsChild(IntPtr parent, IntPtr hWnd);
+    }
+
     internal sealed class ExplorerRow
     {
         public readonly string Name;
@@ -558,10 +571,13 @@ namespace SysDeck.FolderSize
         public readonly Rectangle ItemsView;
         public readonly Rectangle SizeColumn;
         public readonly IList<ExplorerRow> Rows;
+        // Окно SHELLDLL_DefView, из которого прочитан список: своё у каждой вкладки и у каждого перехода.
+        // Сменилось — это уже другой список, и прежние числа к нему не относятся.
+        public readonly IntPtr View;
 
-        public ExplorerListLayout(Rectangle itemsView, Rectangle sizeColumn, IList<ExplorerRow> rows)
+        public ExplorerListLayout(Rectangle itemsView, Rectangle sizeColumn, IList<ExplorerRow> rows, IntPtr view)
         {
-            ItemsView = itemsView; SizeColumn = sizeColumn; Rows = rows;
+            ItemsView = itemsView; SizeColumn = sizeColumn; Rows = rows; View = view;
         }
     }
 
@@ -629,7 +645,7 @@ namespace SysDeck.FolderSize
                 }
                 // Нет столбца «Размер» — пользователь не в режиме «Таблица», и числу негде стоять.
                 if (sizeColumn.IsEmpty || rows.Count == 0) return null;
-                return new ExplorerListLayout(itemsViewBounds, sizeColumn, rows);
+                return new ExplorerListLayout(itemsViewBounds, sizeColumn, rows, _itemsViewOwner);
             }
             catch (COMException)
             {
@@ -696,14 +712,49 @@ namespace SysDeck.FolderSize
             return true;
         }
 
+        // Окно Проводника с вкладками держит по списку на КАЖДУЮ вкладку, и все они видны автоматизации.
+        // Прежде список искался от окна и запоминался на окно: после смены вкладки или перехода в другую
+        // папку читался прежний, скрытый список — числа вставали не на те строки, накладывались на размеры
+        // файлов или не появлялись вовсе. Показывает сейчас ровно один видимый SHELLDLL_DefView — от него
+        // список и ищется, и запоминается на него же.
         private IUIAutomationElement ResolveItemsView(IntPtr explorerHwnd)
         {
-            if (_itemsView != null && _itemsViewOwner == explorerHwnd) return _itemsView;
+            IntPtr view = ActiveShellView(explorerHwnd);
+            if (view == IntPtr.Zero)
+            {
+                DropView();
+                return null;
+            }
+            if (_itemsView != null && _itemsViewOwner == view) return _itemsView;
             DropView();
-            IUIAutomationElement root = _automation.ElementFromHandle(explorerHwnd);
-            _itemsView = root.FindFirst(Uia.TreeScopeDescendants, _itemsViewCondition);
-            _itemsViewOwner = _itemsView == null ? IntPtr.Zero : explorerHwnd;
+            IUIAutomationElement root = _automation.ElementFromHandle(view);
+            _itemsView = root == null ? null : root.FindFirst(Uia.TreeScopeDescendants, _itemsViewCondition);
+            _itemsViewOwner = _itemsView == null ? IntPtr.Zero : view;
+            Release(root);
             return _itemsView;
+        }
+
+        // Видимый вид папки внутри окна Проводника. Скрытые вкладки и прошлые переходы — невидимы
+        // (IsWindowVisible учитывает и родителей). Если видимых вдруг несколько — тот, что под центром окна.
+        internal static IntPtr ActiveShellView(IntPtr explorerHwnd)
+        {
+            List<IntPtr> visible = new List<IntPtr>(2);
+            ExplorerWin32.EnumChildProc walk = delegate(IntPtr child, IntPtr unused)
+            {
+                if (Win32.GetClassNameOf(child) == "SHELLDLL_DefView" && Win32.IsWindowVisible(child)) visible.Add(child);
+                return true;
+            };
+            ExplorerWin32.EnumChildWindows(explorerHwnd, walk, IntPtr.Zero);
+            GC.KeepAlive(walk);
+            if (visible.Count <= 1) return visible.Count == 1 ? visible[0] : IntPtr.Zero;
+            foreach (IntPtr view in visible)
+            {
+                Rectangle r = Win32.GetVisualBounds(view);
+                if (r.Width <= 0 || r.Height <= 0) continue;
+                IntPtr hit = Win32.WindowFromPoint(new POINT(r.Left + r.Width / 2, r.Top + r.Height / 2));
+                if (hit == view || ExplorerWin32.IsChild(view, hit)) return view;
+            }
+            return IntPtr.Zero;
         }
 
         private void DropView()

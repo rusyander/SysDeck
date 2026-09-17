@@ -301,6 +301,20 @@ namespace SysDeck.FolderSize
         }
     }
 
+    internal static class OverlayWin32
+    {
+        public delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
+
+        public const int WH_MOUSE_LL = 14;
+        public const int WM_MOUSEWHEEL = 0x020A;
+        public const int WM_MOUSEHWHEEL = 0x020E;
+
+        [DllImport("user32.dll", SetLastError = true)] public static extern IntPtr SetWindowsHookEx(int idHook, HookProc proc, IntPtr module, uint threadId);
+        [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);
+        [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll")] public static extern IntPtr GetModuleHandle(string name);
+    }
+
     // ------------------------------------------------------------------ //
     //  Размеры папок — прямо в собственную колонку «Размер» Проводника.
     //  У папок Проводник эту ячейку оставляет пустой: закрывать нечего, и числа просто появляются там, где их
@@ -312,6 +326,9 @@ namespace SysDeck.FolderSize
         private const int IdlePollMs = 150;          // как часто перечитывать список, когда ничего не движется
         private const int MovingPollMs = 15;         // а когда движется — так быстро, как позволяет чтение: числа едут со строками
         private const int MissesBeforeHide = 4;      // пустых чтений до того, как числа снимаются с экрана
+        private const int WheelQuietMs = 250;        // после щелчка колеса список ещё едет (плавная прокрутка) — чисел нет
+        private const int PathLeadMs = 400;          // смена папки у трекера, пришедшая чуть раньше смены списка, — та же смена
+        private const int ViewConfirmMs = 900;       // новый список без смены папки (вкладка той же папки) подтверждается выдержкой
 
         private readonly FsSettings _settings;
         private readonly ExplorerListReader _reader = new ExplorerListReader();
@@ -330,6 +347,14 @@ namespace SysDeck.FolderSize
         private int _lastSignature;
         private int _geometry;
         private int _misses;
+        private string _targetPath;
+        private long _targetPathAt;
+        private IntPtr _view;
+        private long _viewSince;
+        private Rectangle _viewBounds;
+        private long _wheelAt = long.MinValue / 2;
+        private IntPtr _mouseHook;
+        private readonly OverlayWin32.HookProc _mouseProc;   // поле: делегат обязан пережить хук
         private volatile bool _disposed;
 
         public InlineSizeOverlay(FsSettings settings)
@@ -337,6 +362,7 @@ namespace SysDeck.FolderSize
             _settings = settings;
             _ui = SynchronizationContext.Current ?? new SynchronizationContext();
             _timer = new System.Threading.Timer(delegate { Poll(); }, null, Timeout.Infinite, Timeout.Infinite);
+            _mouseProc = OnMouse;
         }
 
         public void SetTheme(FsTheme theme)
@@ -367,12 +393,24 @@ namespace SysDeck.FolderSize
             }
         }
 
-        public void SetTarget(IntPtr explorerHwnd, bool visible)
+        public void SetTarget(IntPtr explorerHwnd, string path, bool visible)
         {
             if (explorerHwnd != _target) HideWindow();
+            if (!SamePath(path, _targetPath))
+            {
+                _targetPath = path;
+                _targetPathAt = FsMath.NowMs;
+                HideWindow();
+            }
             _target = explorerHwnd;
             _targetVisible = visible;
             Reschedule();
+        }
+
+        internal static bool SamePath(string a, string b)
+        {
+            if (a == null || b == null) return a == b;
+            return string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
         }
 
         public void SetEnabled(bool enabled)
@@ -386,12 +424,54 @@ namespace SysDeck.FolderSize
         private void Reschedule()
         {
             if (_disposed) return;
-            if (Active) Arm(0);
+            if (Active)
+            {
+                HookMouse(true);
+                Arm(0);
+            }
             else
             {
+                HookMouse(false);
                 _timer.Change(Timeout.Infinite, Timeout.Infinite);
                 HideWindow();
             }
+        }
+
+        // Колесо над списком: снять числа ДО того, как строки поедут. Иначе слой, перерисованный только
+        // после следующего чтения, догоняет список — числа прыгают вверх-вниз мимо своих строк.
+        // Хук низкоуровневый, без внедрения в чужие процессы, стоит только пока слой активен.
+        private void HookMouse(bool on)
+        {
+            if (on == (_mouseHook != IntPtr.Zero)) return;
+            if (on)
+            {
+                _mouseHook = OverlayWin32.SetWindowsHookEx(OverlayWin32.WH_MOUSE_LL, _mouseProc, OverlayWin32.GetModuleHandle(null), 0);
+                if (_mouseHook == IntPtr.Zero) FsLog.Trace("overlay: mouse hook failed, code " + Marshal.GetLastWin32Error());
+            }
+            else
+            {
+                OverlayWin32.UnhookWindowsHookEx(_mouseHook);
+                _mouseHook = IntPtr.Zero;
+            }
+        }
+
+        private IntPtr OnMouse(int code, IntPtr wParam, IntPtr lParam)
+        {
+            if (code >= 0 && !_disposed)
+            {
+                int message = wParam.ToInt32();
+                if (message == OverlayWin32.WM_MOUSEWHEEL || message == OverlayWin32.WM_MOUSEHWHEEL)
+                {
+                    POINT at = (POINT)Marshal.PtrToStructure(lParam, typeof(POINT));   // MSLLHOOKSTRUCT начинается с pt
+                    if (_viewBounds.Contains(at.X, at.Y))
+                    {
+                        _wheelAt = FsMath.NowMs;
+                        HideWindow();
+                        Arm(MovingPollMs);
+                    }
+                }
+            }
+            return OverlayWin32.CallNextHookEx(_mouseHook, code, wParam, lParam);
         }
 
         // По одному выстрелу, перезаряжается после каждого чтения. Постоянный период либо отставал бы от
@@ -423,7 +503,7 @@ namespace SysDeck.FolderSize
                 int geometry = GeometryOf(layout);
                 bool moving = layout != null && geometry != _geometry;
                 _geometry = geometry;
-                next = moving ? MovingPollMs : IdlePollMs;
+                next = moving || FsMath.NowMs - _wheelAt < WheelQuietMs ? MovingPollMs : IdlePollMs;
                 if (FsLog.TraceEnabled)
                 {
                     FsLog.Trace(layout == null
@@ -431,7 +511,7 @@ namespace SysDeck.FolderSize
                         : "overlay: rows=" + layout.Rows.Count + " sizeCol=" + layout.SizeColumn + " view=" + layout.ItemsView
                           + " moving=" + moving + " read=" + clock.ElapsedMilliseconds + " ms");
                 }
-                _ui.Post(delegate { FsLog.Swallow(delegate { Render(layout); }); }, null);
+                _ui.Post(delegate { FsLog.Swallow(delegate { Render(layout, moving); }); }, null);
             }
             catch (Exception ex)
             {
@@ -467,7 +547,7 @@ namespace SysDeck.FolderSize
             return hash == 0 ? 1 : hash;
         }
 
-        private void Render(ExplorerListLayout layout)
+        private void Render(ExplorerListLayout layout, bool moving)
         {
             if (_disposed) return;
             if (!_settings.InlineOverlay || !_targetVisible)
@@ -478,6 +558,20 @@ namespace SysDeck.FolderSize
             if (layout == null)
             {
                 Miss("no layout");
+                return;
+            }
+            _viewBounds = layout.ItemsView;
+            long now = FsMath.NowMs;
+            if (layout.View != _view)
+            {
+                // Другая вкладка или другой переход: прежний кадр относится к чужим строкам.
+                _view = layout.View;
+                _viewSince = now;
+                HideWindow();
+            }
+            if (!Settled(layout, moving, now))
+            {
+                if (_window.Visible) HideWindow();
                 return;
             }
             List<Painted> painted = Collect(layout);
@@ -533,6 +627,19 @@ namespace SysDeck.FolderSize
                 _window.KeepOnTop();
                 if (FsLog.TraceEnabled) DumpFrame(bitmap, accepted);
             }
+        }
+
+        // Можно ли рисовать этот кадр. Числа берутся по ИМЕНИ строки, поэтому одинаковые имена в разных папках
+        // (.git, node_modules, docs) получали бы размеры чужой папки — рисуем, только когда снимок той же
+        // папки, что показывает трекер, и новый список уже сопоставлен с ней: смена папки пришла вместе со
+        // сменой списка или список простоял достаточно, чтобы трекер успел её заметить. И никогда — пока
+        // строки едут: догоняющий слой и есть «числа прыгают вверх-вниз» при прокрутке.
+        private bool Settled(ExplorerListLayout layout, bool moving, long now)
+        {
+            if (!SamePath(_snapshotPath, _targetPath)) return false;
+            if (_targetPathAt < _viewSince - PathLeadMs && now - _viewSince < ViewConfirmMs) return false;
+            if (moving || now - _wheelAt < WheelQuietMs) return false;
+            return layout.View != IntPtr.Zero;
         }
 
         // Чтение, вернувшееся ни с чем, — обычно список, движущийся под нами (Проводник перестраивает дерево
@@ -728,6 +835,7 @@ namespace SysDeck.FolderSize
         public void Dispose()
         {
             _disposed = true;
+            HookMouse(false);
             _timer.Dispose();
             ReleaseReaderOnce();
             if (_font != null) _font.Dispose();
