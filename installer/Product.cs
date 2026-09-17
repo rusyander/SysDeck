@@ -26,7 +26,7 @@ namespace WpcSetup
         public const string TaskName = "SysDeck";
         public const string DataFolderName = "SysDeck";
         public const string Publisher = "rusyander";
-        public const string About = "https://github.com/rusyander/cleaner";
+        public const string About = "https://github.com/rusyander/SysDeck";
         public const string RegKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\SysDeck";
 
         // Прежнее имя программы (до 15.09.2026): установка поверх убирает его ярлыки, запись и файлы (Work.RemoveLegacy).

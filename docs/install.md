@@ -75,7 +75,7 @@
 
 **Релиз на GitHub.** После каждого push в `main` GitHub Actions (`.github/workflows/release.yml`) собирает то же
 на машине с Windows и заменяет релиз `latest`: архив портативной версии и установщик. Постоянная ссылка на
-архив — `https://github.com/rusyander/process-cleaner/releases/latest/download/SysDeck-portable.zip`.
+архив — `https://github.com/rusyander/SysDeck/releases/latest/download/SysDeck-portable.zip`.
 
 Исходников в сборке нет, только готовый `.exe`. Но программы на .NET можно разобрать декомпилятором (ILSpy,
 dnSpy) и увидеть код, близкий к исходному, — полностью закрыть его без обфускатора нельзя, а обфускатора в

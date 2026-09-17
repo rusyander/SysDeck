@@ -73,7 +73,7 @@ line in the output and the log `dist\last-build.log`. Skip the build once: `SYSD
 
 **GitHub release.** After every push to `main`, GitHub Actions (`.github/workflows/release.yml`) builds the same on
 a Windows machine and replaces the `latest` release: the portable archive and the installer. Permanent link to
-the archive — `https://github.com/rusyander/process-cleaner/releases/latest/download/SysDeck-portable.zip`.
+the archive — `https://github.com/rusyander/SysDeck/releases/latest/download/SysDeck-portable.zip`.
 
 The builds carry no sources, only the finished `.exe`. .NET programs can still be taken apart with a decompiler
 (ILSpy, dnSpy) that shows code close to the original — without an obfuscator that cannot be fully closed, and
