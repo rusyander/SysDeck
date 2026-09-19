@@ -17,6 +17,7 @@ the [README](../README.en.md) at the repository root. [🇷🇺 Русский](
 | [Extension privacy](extension-privacy.en.md) | what the downloads browser extension reads, where it sends it and why it needs its permissions |
 | [Tools and settings](tools-and-settings.en.md) | Tools, long operations, remembered selections, themes, tray, settings, history |
 | [Scripts](scripts.en.md) | built-in maintenance scripts: installation, parameters, Task Scheduler tasks, rights |
+| [Displays](displays.en.md) | the list of displays and a switch for each: what turning a TV off buys, what the page refuses |
 | [Data and administrator rights](data-and-rights.en.md) | where settings and logs are kept, which operations need rights and how they are requested |
 | [Technical notes](internals.en.md) | WinAPI, parsing winget output, command-line switches, what lives in the repository |
 | [Tests](tests.md) | how to run the suite and what it covers (in Russian) |

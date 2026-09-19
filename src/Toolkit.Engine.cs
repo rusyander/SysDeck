@@ -15,7 +15,7 @@ namespace SysDeck.Toolkit
 {
     internal sealed class TkEnv
     {
-        public string UserProfile, ProgramData, LocalAppData, SystemDir, Desktop, Documents, ProgramFiles;
+        public string UserProfile, ProgramData, LocalAppData, SystemDir, Desktop, Documents, ProgramFiles, Startup;
         public ITkScheduler Scheduler;
         public RegistryKey MpoHive;             // HKLM; тесты — свой раздел HKCU
         public string MpoKey = @"SOFTWARE\Microsoft\Windows\Dwm";
@@ -31,6 +31,7 @@ namespace SysDeck.Toolkit
             e.Desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             e.Documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             e.ProgramFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            e.Startup = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
             e.Scheduler = new TkComScheduler();
             e.MpoHive = Registry.LocalMachine;
             return e;
@@ -222,6 +223,17 @@ namespace SysDeck.Toolkit
                         list.Add(t);
                     }
                     break;
+                case "win-key-watch":
+                    if (v["autostart"] == "true")
+                    {
+                        // Сторож живёт всё время сеанса: ограничения по времени нет, а перезапуск возвращает его,
+                        // если хук сняли вместе с упавшим процессом.
+                        TkTaskSpec t = Hidden("WinKeyWatch", env, vbs, Path.Combine(dir, "win-key-watch.ps1"), null);
+                        t.Description = @"Clears phantom-latched modifier keys. Log: %USERPROFILE%\Tools\win-key-watch\winkey.log";
+                        t.AtLogon = true; t.TimeLimit = "PT0S"; t.RestartCount = 3;
+                        list.Add(t);
+                    }
+                    break;
                 case "docker-maint":
                     if (v["auto"] == "true")
                     {
@@ -341,6 +353,9 @@ namespace SysDeck.Toolkit
                 case "audio-fix":
                     ReadAudio(env, s, v);
                     break;
+                case "win-key-watch":
+                    ReadKeyWatch(env, s, v);
+                    break;
                 case "wslconfig":
                     ReadWsl(env, s, v);
                     break;
@@ -438,6 +453,42 @@ namespace SysDeck.Toolkit
                 v["shortcut"] = File.Exists(Path.Combine(env.Desktop, TkParamSafeName(v["shortcutName"]) + ".lnk")) ? "true" : "false";
             // Задачи SYSTEM старой установки существуют — их достаточно, чтобы пункт не выглядел «не установленным».
             if (legacyInstall) s.AnyPresent = true;
+        }
+
+        // Состояние сторожа клавиш: автозапуск — это существование задачи, ярлык — файл на рабочем столе.
+        // Старый запуск из папки «Автозагрузка» (файл, вызывающий win-key-watch.ps1) считается установкой:
+        // иначе работающий сторож выглядел бы в списке ненастроенным.
+        private static void ReadKeyWatch(TkEnv env, TkStatus s, Dictionary<string, string> v)
+        {
+            TkTaskState task = s.Task("WinKeyWatch");
+            bool legacy = StartupLauncher(env) != null;
+            if (task != null && (task.Exists || s.AnyPresent || legacy)) v["autostart"] = task.Exists || legacy ? "true" : "false";
+            if (s.AnyPresent || legacy)
+                v["shortcut"] = File.Exists(Path.Combine(env.Desktop, TkParamSafeName(v["shortcutName"]) + ".lnk")) ? "true" : "false";
+            if (legacy)
+            {
+                s.AnyPresent = true;
+                s.Note = Tr.S("Сторож запускается из папки «Автозагрузка». «Установить» переведёт его на задачу Планировщика и уберёт старый запуск — двух сторожей сразу быть не должно.",
+                              "The watcher starts from the Startup folder. “Install” moves it to a Task Scheduler task and removes the old launcher — two watchers at once make no sense.");
+            }
+        }
+
+        // Файл в папке «Автозагрузка», запускающий сторож (узнаётся по содержимому, а не по имени).
+        internal static string StartupLauncher(TkEnv env)
+        {
+            if (env.Startup == null || !Directory.Exists(env.Startup)) return null;
+            foreach (string f in Directory.GetFiles(env.Startup))
+            {
+                string ext = Path.GetExtension(f);
+                if (!".vbs".Equals(ext, StringComparison.OrdinalIgnoreCase) && !".cmd".Equals(ext, StringComparison.OrdinalIgnoreCase)
+                    && !".bat".Equals(ext, StringComparison.OrdinalIgnoreCase)) continue;
+                string text;
+                try { text = File.ReadAllText(f); }
+                catch (IOException) { continue; }
+                catch (UnauthorizedAccessException) { continue; }
+                if (text.IndexOf("win-key-watch.ps1", StringComparison.OrdinalIgnoreCase) >= 0) return f;
+            }
+            return null;
         }
 
         internal static string TkParamSafeName(string name)

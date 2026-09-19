@@ -343,6 +343,7 @@ namespace SysDeck.Tests
                 Area("elevation", ElevationTests.Run);
                 Area("ram", RamTests.Run);
                 Area("gpu", GpuTests.Run);
+                Area("displays", DisplayTests.Run);
                 Area("foldersize", FolderSizeTests.Run);
                 Area("capture", CaptureTests.Run);
                 Area("hud", HudTests.Run);

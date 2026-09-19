@@ -47,10 +47,12 @@ States in the list:
 | WSL2 memory limits | writes the memory limit, swap, memory reclaim and disk shrinking to `%USERPROFILE%\.wslconfig` | when WSL starts | memory, swap, reclaim mode, disk shrinking |
 | Claude Code hook | runs the process reaper when a Claude Code session ends; needs the reaper and Node.js | session end | — |
 | HDMI TV switch | detaches and re-attaches an HDMI TV in software, so a switched-off TV stops shaking the desktop | by hand | TV name, hardware id |
+| Stuck key watcher | clears a latched modifier (LWIN, SHIFT, ALT, CTRL) and records which rule fired; “Unstick keys” shortcut | all the time after sign-in | autostart, shortcut |
 
 Some scripts have buttons of their own: "What it would reap now" (a dry run of the reaper, ends nothing),
 "Fix sound now" and "Check the device", "Docker report", "Restart WSL", "TV off", "TV on", "TV status",
-"Install module" (DisplayConfig for the TV switch, from the PowerShell Gallery).
+"Install module" (DisplayConfig for the TV switch, from the PowerShell Gallery), "Unstick keys now" and "What is held now".
+The audio repair and the key release are on the "Home" page too, as separate buttons.
 
 ## Rights and safety
 
@@ -60,6 +62,9 @@ Some scripts have buttons of their own: "What it would reap now" (a dry run of t
 - Scripts that SYSTEM runs are installed into `%ProgramData%\SysDeck\toolkit`. Only administrators and SYSTEM can
   write there; otherwise any user program could swap a script that runs with the highest rights. If the path has been
   replaced with a junction beforehand, installation refuses.
+- The key watcher installs a low-level keyboard hook under your own account. If it used to start from the Startup
+  folder, installing removes that launcher and moves the watcher to a Task Scheduler task: two watchers at once
+  would only double the injections and confuse the log.
 - The page recognises an old audio repair install in `%USERPROFILE%\.claude\tools\audio-fix` and offers to move it.
   The tasks and the shortcut then point at the protected copy; the old folder stays where it is.
 - Tasks start through `wscript` and `run-hidden.vbs`: no console window flashes or steals focus from a game.
@@ -75,7 +80,8 @@ Some scripts have buttons of their own: "What it would reap now" (a dry run of t
 | reaper, VS Code watchers, agent priority, freeze recorder, port trap, Docker | `%USERPROFILE%\.claude\tools\<name>` |
 | audio repair, MPO | `%ProgramData%\SysDeck\toolkit\<name>` |
 | Claude Code hook | `%USERPROFILE%\.claude\hooks` |
-| TV switch | `%USERPROFILE%\Tools\tv-switch` |
+| TV switch, key watcher | `%USERPROFILE%\Tools\<name>` |
 
 Logs: `%LOCALAPPDATA%\proc-reaper\reap.log`, `%LOCALAPPDATA%\vscode-watcher-reaper\watcher-reap.log`,
-`%LOCALAPPDATA%\freeze-canary\stalls.log`, `%LOCALAPPDATA%\port-watch\4231.log`, `%ProgramData%\audio-fix\audio-fix.log`.
+`%LOCALAPPDATA%\freeze-canary\stalls.log`, `%LOCALAPPDATA%\port-watch\4231.log`, `%ProgramData%\audio-fix\audio-fix.log`,
+`%USERPROFILE%\Tools\win-key-watch\winkey.log`.

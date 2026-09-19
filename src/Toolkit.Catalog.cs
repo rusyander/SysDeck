@@ -330,6 +330,29 @@ namespace SysDeck.Toolkit
                 + "Needs the process reaper and Node.js.");
             list.Add(hook);
 
+            TkItem keys = Item("win-key-watch", "win-key-watch", TkPlace.UserHome,
+                "Сторож залипших клавиш", "Stuck key watcher",
+                "Система иногда считает клавишу зажатой, хотя её отпустили: с залипшим LWIN любая буква срабатывает как "
+                + "горячая клавиша (Win+D сворачивает всё, Win+E открывает проводник), с залипшим SHIFT колесо мыши "
+                + "прокручивает вбок, с LSHIFT+LALT сама переключается раскладка. Сторож держит низкоуровневый хук "
+                + "клавиатуры, сравнивает свою модель состояния с системной и снимает залипание сам, записывая в журнал, "
+                + "по какому правилу сработал, — это и есть ответ, кто виноват. Ярлык «Починить клавиши» и кнопка на "
+                + "«Главной» снимают всё зажатое вручную.",
+                "Windows sometimes believes a key is held after it was released: with LWIN latched every letter acts as a "
+                + "hotkey (Win+D minimises everything, Win+E opens Explorer), with SHIFT latched the mouse wheel scrolls "
+                + "sideways, with LSHIFT+LALT the keyboard layout switches on its own. The watcher keeps a low-level "
+                + "keyboard hook, compares its own key-state model with the system's and clears the latch itself, logging "
+                + "which rule fired — which is the answer to what caused it. The “Unstick keys” shortcut and the button on "
+                + "the “Home” page release everything held, by hand.");
+            keys.Tasks = new[] { "WinKeyWatch" };
+            keys.LogPath = @"%USERPROFILE%\Tools\win-key-watch\winkey.log";
+            keys.Params.Add(Hint(Bool("autostart", true, "Запускать сторож при входе в Windows", "Start the watcher at sign-in"),
+                "Без него залипание снимается только кнопкой и только после того, как оно уже мешает.",
+                "Without it a latch is cleared only by the button, and only once it is already in the way."));
+            keys.Params.Add(Bool("shortcut", true, "Ярлык на рабочем столе", "Desktop shortcut"));
+            keys.Params.Add(Text("shortcutName", "Починить клавиши", true, "Имя ярлыка", "Shortcut name"));
+            list.Add(keys);
+
             TkItem tv = Item("tv-switch", "tv-switch", TkPlace.UserHome,
                 "Выключатель телевизора на HDMI", "HDMI TV switch",
                 "Выключенный телевизор на HDMI может переподключаться каждые несколько секунд, и каждый раз Windows перестраивает "

@@ -56,6 +56,12 @@ namespace SysDeck
                     ToolkitButton(f, Tr.S("Проверить устройство", "Check the device"), false,
                         delegate { ToolkitConsole(ToolkitScript(it, "audio-fix.ps1"), "-Audit", false); });
                     break;
+                case "win-key-watch":
+                    ToolkitButton(f, Tr.S("Снять залипшие клавиши", "Unstick keys now"), false,
+                        delegate { ToolkitConsole(ToolkitScript(it, "unstick-modifiers.ps1"), "", false); });
+                    ToolkitButton(f, Tr.S("Что зажато сейчас", "What is held now"), false,
+                        delegate { ToolkitConsole(ToolkitScript(it, "unstick-modifiers.ps1"), "-WhatIf", false); });
+                    break;
                 case "docker-maint":
                     ToolkitButton(f, Tr.S("Отчёт Docker", "Docker report"), false,
                         delegate { ToolkitConsole(ToolkitScript(it, "docker-maint.ps1"), "", false); });
@@ -90,6 +96,19 @@ namespace SysDeck
             Button b = MkFlowButton(text, 100, primary);
             b.Click += click;
             f.Controls.Add(b);
+        }
+
+        // Кнопки «Главной»: то же, что ярлыки на рабочем столе, но из установленной копии скрипта —
+        // своей копии окно не заводит, иначе после «Сохранить» на странице «Скрипты» они разъехались бы.
+        private void HomeFixAudio()
+        {
+            ToolkitConsole(ToolkitScript(TkCatalog.Find("audio-fix"), "audio-fix.ps1"), "", true);
+        }
+
+        // Права скрипт поднимает себе сам и только если инъекции KEYUP не хватило: обычно окна UAC нет.
+        private void HomeUnstickKeys()
+        {
+            ToolkitConsole(ToolkitScript(TkCatalog.Find("win-key-watch"), "unstick-modifiers.ps1"), "", false);
         }
 
         private void ToolkitInstallChecked()
@@ -272,7 +291,8 @@ namespace SysDeck
         {
             if (!File.Exists(script))
             {
-                MsgInfo(Tr.S("Скрипт ещё не установлен: ", "The script is not installed yet: ") + script, Tr.S("Скрипты", "Scripts"));
+                MsgInfo(Tr.S("Скрипт ещё не установлен — поставьте его пункт на странице «Скрипты»: ",
+                             "The script is not installed yet — install its item on the “Scripts” page: ") + script, Tr.S("Скрипты", "Scripts"));
                 return;
             }
             try

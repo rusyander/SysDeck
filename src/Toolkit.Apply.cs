@@ -38,6 +38,7 @@ namespace SysDeck.Toolkit
                 switch (item.Id)
                 {
                     case "audio-fix": AudioExtras(env, dir, v, log, errors); break;
+                    case "win-key-watch": KeyWatchExtras(env, dir, v, log, errors); break;
                     case "mpo-fix": SetMpo(env, true); log.Add("OverlayTestMode = 5"); break;
                     case "wslconfig": WriteWsl(env, v, log); break;
                     case "claude-hook": RegisterHook(env, true, log); break;
@@ -87,7 +88,8 @@ namespace SysDeck.Toolkit
             {
                 switch (item.Id)
                 {
-                    case "audio-fix": if (env.Live) RemoveAudioShortcuts(env, null, log); break;
+                    case "audio-fix": if (env.Live) RemoveShortcuts(env, "audio-fix.ps1", null, log); break;
+                    case "win-key-watch": if (env.Live) RemoveShortcuts(env, "unstick-modifiers.ps1", null, log); break;
                     case "mpo-fix": SetMpo(env, false); log.Add(Tr.S("MPO возвращён как было", "MPO restored")); break;
                     case "wslconfig": WriteWsl(env, null, log); break;
                     case "claude-hook": RegisterHook(env, false, log); break;
@@ -243,8 +245,14 @@ namespace SysDeck.Toolkit
             string keep = v["shortcut"] == "true" ? Path.Combine(env.Desktop, TkParamSafeName(v["shortcutName"]) + ".lnk") : null;
             try
             {
-                RemoveAudioShortcuts(env, keep, log);
-                if (keep != null) { AudioShortcut(env, Path.Combine(dir, "audio-fix.ps1"), dir, keep); log.Add(Tr.S("ярлык: ", "shortcut: ") + keep); }
+                RemoveShortcuts(env, "audio-fix.ps1", keep, log);
+                // Байт 0x15, флаг 0x20 — «запуск от имени администратора»: скрипту не нужно перезапускать себя, окно с отчётом остаётся.
+                if (keep != null)
+                {
+                    Shortcut(env, Path.Combine(dir, "audio-fix.ps1"), dir, keep, Path.Combine(env.SystemDir, "mmres.dll") + ",0",
+                             Tr.S("Починить молчащий звук", "Repair silent audio"), true);
+                    log.Add(Tr.S("ярлык: ", "shortcut: ") + keep);
+                }
             }
             catch (Exception ex) { errors.Add(Tr.S("ярлык: ", "shortcut: ") + ex.Message); }
             if (File.Exists(Path.Combine(LegacyAudioDir(env), "audio-fix.ps1")))
@@ -257,22 +265,26 @@ namespace SysDeck.Toolkit
             catch (TargetInvocationException ex) { throw ex.InnerException ?? ex; }
         }
 
-        private static void AudioShortcut(TkEnv env, string script, string dir, string lnk)
+        // Ярлык на рабочем столе, запускающий скрипт в окне PowerShell. runas — взвести флаг «от имени
+        // администратора» в самом ярлыке (байт 0x15, флаг 0x20): тогда скрипту не нужно перезапускать себя,
+        // и окно с отчётом остаётся тем же.
+        private static void Shortcut(TkEnv env, string script, string dir, string lnk, string icon, string description, bool runas)
         {
             object shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
             object sc = Com(shell, "CreateShortcut", BindingFlags.InvokeMethod, lnk);
             Com(sc, "TargetPath", BindingFlags.SetProperty, Path.Combine(env.SystemDir, @"WindowsPowerShell\v1.0\powershell.exe"));
             Com(sc, "Arguments", BindingFlags.SetProperty, "-NoProfile -ExecutionPolicy Bypass -NoExit -File \"" + script + "\"");
-            Com(sc, "IconLocation", BindingFlags.SetProperty, Path.Combine(env.SystemDir, "mmres.dll") + ",0");
+            Com(sc, "IconLocation", BindingFlags.SetProperty, icon);
             Com(sc, "WorkingDirectory", BindingFlags.SetProperty, dir);
+            Com(sc, "Description", BindingFlags.SetProperty, description);
             Com(sc, "Save", BindingFlags.InvokeMethod);
-            // Байт 0x15, флаг 0x20 — «запуск от имени администратора»: скрипту не нужно перезапускать себя, окно с отчётом остаётся.
+            if (!runas) return;
             byte[] b = File.ReadAllBytes(lnk);
             if (b.Length > 0x15) { b[0x15] = (byte)(b[0x15] | 0x20); File.WriteAllBytes(lnk, b); }
         }
 
-        // Ярлыки на рабочем столе, запускающие audio-fix.ps1 (любой копии), кроме keep. Узнаются по цели, а не по имени.
-        private static void RemoveAudioShortcuts(TkEnv env, string keep, List<string> log)
+        // Ярлыки на рабочем столе, запускающие этот скрипт (любой его копии), кроме keep. Узнаются по цели, а не по имени.
+        private static void RemoveShortcuts(TkEnv env, string scriptName, string keep, List<string> log)
         {
             if (!Directory.Exists(env.Desktop)) return;
             object shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
@@ -282,12 +294,45 @@ namespace SysDeck.Toolkit
                 string args;
                 try { args = Com(Com(shell, "CreateShortcut", BindingFlags.InvokeMethod, lnk), "Arguments", BindingFlags.GetProperty) as string; }
                 catch (Exception) { continue; }
-                if (args != null && args.IndexOf("audio-fix.ps1", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (args != null && args.IndexOf(scriptName, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     File.Delete(lnk);
                     log.Add(Tr.S("старый ярлык удалён: ", "old shortcut removed: ") + Path.GetFileName(lnk));
                 }
             }
+        }
+
+        // ---------- клавиши ----------
+
+        private static void KeyWatchExtras(TkEnv env, string dir, Dictionary<string, string> v, List<string> log, List<string> errors)
+        {
+            // Старый запуск сторожа из папки «Автозагрузка» уступает место задаче: два хука на одни и те же
+            // клавиши только удваивают инъекции KEYUP и путают журнал.
+            try
+            {
+                string legacy = StartupLauncher(env);
+                if (legacy != null)
+                {
+                    File.Delete(legacy);
+                    log.Add(Tr.S("убран старый запуск из автозагрузки: ", "old Startup launcher removed: ") + Path.GetFileName(legacy));
+                }
+            }
+            catch (Exception ex) { errors.Add(Tr.S("автозагрузка: ", "Startup folder: ") + ex.Message); }
+
+            if (!env.Live) return;
+            string keep = v["shortcut"] == "true" ? Path.Combine(env.Desktop, TkParamSafeName(v["shortcutName"]) + ".lnk") : null;
+            try
+            {
+                RemoveShortcuts(env, "unstick-modifiers.ps1", keep, log);
+                if (keep != null)
+                {
+                    // main.cpl,5 — значок клавиатуры из панели управления.
+                    Shortcut(env, Path.Combine(dir, "unstick-modifiers.ps1"), dir, keep, Path.Combine(env.SystemDir, "main.cpl") + ",5",
+                             Tr.S("Снять зависшие клавиши", "Release stuck keys"), false);
+                    log.Add(Tr.S("ярлык: ", "shortcut: ") + keep);
+                }
+            }
+            catch (Exception ex) { errors.Add(Tr.S("ярлык: ", "shortcut: ") + ex.Message); }
         }
 
         // ---------- MPO ----------

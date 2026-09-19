@@ -186,12 +186,22 @@ namespace SysDeck
             // Загрузки — тоже отдельным окном: за ними следят, пока работают в другом месте.
             Button downloads = MkFlowButton(Tr.S("Загрузки", "Downloads"), 130, false);
             downloads.Click += delegate { OpenDownloadsWindow(); };
+            // Три кнопки разовых починок: за ними ходили ярлыками на рабочем столе, а место им — здесь.
+            Button displays = MkFlowButton(Tr.S("Активные экраны", "Active displays"), 170, false);
+            displays.Click += delegate { ShowPage(PageDisplays); };
+            Button audio = MkFlowButton(Tr.S("Починить звук", "Fix sound"), 160, false);
+            audio.Click += delegate { HomeFixAudio(); };
+            Button keys = MkFlowButton(Tr.S("Сбросить залипшие клавиши", "Unstick keys"), 230, false);
+            keys.Click += delegate { HomeUnstickKeys(); };
             Label hint = MkFlowLabel(Tr.S("двойной щелчок по строке — выполнить её действие", "double-click a row to run its action"), true);
             top.Controls.Add(_btnHealthRun);
             top.Controls.Add(_btnHealthAct);
             top.Controls.Add(_btnHomeStop);
             top.Controls.Add(gallery);
             top.Controls.Add(downloads);
+            top.Controls.Add(displays);
+            top.Controls.Add(audio);
+            top.Controls.Add(keys);
             top.Controls.Add(hint);
 
             _lblHealthInfo = MkNote(Tr.S("Проверка состояния запустится при открытии окна", "The health check runs when the window opens"), false);

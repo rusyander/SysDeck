@@ -156,8 +156,8 @@ namespace SysDeck
         // навигации не разъезжались с массивом при вставке новой вкладки.
         private const int PageHome = 0, PageScan = 1, PageRam = 2, PageGpu = 3, PageDev = 4, PageClean = 5, PageDisk = 6,
                           PageFolderSize = 7, PageBrowsers = 8, PageDocker = 9, PageApps = 10, PageUpdates = 11,
-                          PageStartup = 12, PageDebloat = 13, PageTools = 14, PageToolkit = 15, PageCapture = 16, PageOverlay = 17,
-                          PageDownloads = 18, PageSettings = 19, PageHistory = 20;
+                          PageStartup = 12, PageDebloat = 13, PageTools = 14, PageToolkit = 15, PageDisplays = 16,
+                          PageCapture = 17, PageOverlay = 18, PageDownloads = 19, PageSettings = 20, PageHistory = 21;
 
         private ListView VisibleList(int index)
         {
@@ -175,6 +175,7 @@ namespace SysDeck
                 case PageUpdates: return _lvUpdates;
                 case PageStartup: return _lvStartup;
                 case PageToolkit: return _lvTk;
+                case PageDisplays: return _lvDsp;
                 case PageDownloads: return _dlSetView != null && _dlSetView.Visible ? _lvDlRules : _lvDl;
                 case PageHistory: return _lvHistory;
                 default: return null;
@@ -202,6 +203,7 @@ namespace SysDeck
                     case PageDebloat: RefreshDebloat(false); break;
                     case PageTools: RefreshToolsState(); break;
                     case PageToolkit: ToolkitEnter(); break;
+                    case PageDisplays: DisplaysEnter(); break;
                     case PageHistory: RefreshHistory(); break;
                     case PageBrowsers: RefreshBrowsers(false); break;
                 }
@@ -231,6 +233,7 @@ namespace SysDeck
             AutoFillLastColumnDeferred(_lvDl);
             AutoFillLastColumnDeferred(_lvDlCard);
             AutoFillLastColumnDeferred(_lvTk);
+            AutoFillLastColumnDeferred(_lvDsp);
         }
 
         // Цвет подложки активного пункта и наведения — чуть светлее/темнее фона окна.
@@ -282,8 +285,8 @@ namespace SysDeck
             // содержимому остаётся ширина окна минус NavWidth. Минимум 1200 даёт страницам ~1000 px —
             // столько им хватало и раньше. Высота 700 — чтобы все 17 пунктов навигации и подпись прав
             // помещались столбиком без наложения; подгонка под рабочую область экрана — ClampToScreen() после DPI.
-            // С «Захватом», «Оверлеем» и «Загрузками» пунктов 21 (со «Скриптами») — каждый новый пункт добавляет к минимуму высоту кнопки с зазором.
-            MinimumSize = new Size(1200, 886);
+            // С «Захватом», «Оверлеем» и «Загрузками» пунктов 22 (со «Скриптами» и «Экранами») — каждый новый пункт добавляет к минимуму высоту кнопки с зазором.
+            MinimumSize = new Size(1200, 922);
             Icon = _iconWindow;
             ShowIcon = true;
 
@@ -296,8 +299,8 @@ namespace SysDeck
             _content = new Panel();
             _content.Dock = DockStyle.Fill;
 
-            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildGpuTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildFolderSizeTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildToolkitTab(), BuildCaptureTab(), BuildOverlayTab(), BuildDownloadsTab(), BuildSettingsTab(), BuildHistoryTab() };
-            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), Tr.S("Видеопамять", "Video memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Размеры папок", "Folder sizes"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Скрипты", "Scripts"), Tr.S("Захват", "Capture"), Tr.S("Оверлей", "Overlay"), Tr.S("Загрузки", "Downloads"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
+            _pages = new Control[] { BuildHomeTab(), BuildScanTab(), BuildRamTab(), BuildGpuTab(), BuildDevTab(), BuildCleanTab(), BuildDiskTab(), BuildFolderSizeTab(), BuildBrowserTab(), BuildDockerTab(), BuildAppsTab(), BuildUpdatesTab(), BuildStartupTab(), BuildDebloatTab(), BuildToolsTab(), BuildToolkitTab(), BuildDisplaysTab(), BuildCaptureTab(), BuildOverlayTab(), BuildDownloadsTab(), BuildSettingsTab(), BuildHistoryTab() };
+            string[] titles = { Tr.S("Главная", "Home"), Tr.S("Сканирование", "Scan"), Tr.S("Память", "Memory"), Tr.S("Видеопамять", "Video memory"), "Dev Cleanup", Tr.S("Очистка диска", "Disk Cleanup"), Tr.S("Диск", "Disk"), Tr.S("Размеры папок", "Folder sizes"), Tr.S("Браузеры", "Browsers"), "Docker", Tr.S("Программы", "Programs"), Tr.S("Обновления", "Updates"), Tr.S("Автозапуск", "Startup"), Tr.S("Windows: лишнее", "Windows bloat"), Tr.S("Инструменты", "Tools"), Tr.S("Скрипты", "Scripts"), Tr.S("Экраны", "Displays"), Tr.S("Захват", "Capture"), Tr.S("Оверлей", "Overlay"), Tr.S("Загрузки", "Downloads"), Tr.S("Настройки", "Settings"), Tr.S("История", "History") };
             // Разрывы между группами: главная | обслуживание | программы | система | служебное.
             int[] groupStart = { PageScan, PageApps, PageDebloat, PageSettings };
 

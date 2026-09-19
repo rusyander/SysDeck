@@ -44,6 +44,7 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 | **Startup** | what launches with Windows, enable and disable |
 | **Windows bloat** | telemetry, ads, Copilot, surplus Store apps, services and features: disable, remove, restore |
 | **Tools** | Windows quick fixes (DNS, network, SFC, DISM, hibernation…), protection, shortcuts to built-in tools |
+| **Displays** | every display Windows knows about, with a switch for each: a switched-off TV stops occupying the GPU with a desktop nobody sees |
 | **Scripts** | built-in maintenance scripts in one click: stuck process reaper, audio repair after sleep, MPO off, WSL2 limits, Docker cleanup; parameters are edited in the window and the Task Scheduler tasks re-register themselves |
 | **Capture** | region, screen and window screenshots by hotkeys (F3/F4 by default, as in VK Play GameCenter), a notification with a thumbnail, per-program folders |
 | **Overlay** | a metrics column over games and windows: any rows (cores, frequencies, temperatures, HWiNFO and Afterburner sensors) with graphs and their own intervals, live preview, system information |
@@ -65,6 +66,7 @@ This page is the overview. Every section of the window is described in detail in
 - [Downloads](docs/downloads.en.md) — the queue, resume, limits, start conditions, downloads from the browser, the card and settings
 - [Tools and settings](docs/tools-and-settings.en.md) — CPU power in the window header, long operations, remembered selections, themes, tray, history
 - [Scripts](docs/scripts.en.md) — what is included, parameters, where it installs and which rights it needs
+- [Displays](docs/displays.en.md) — the list of displays, a switch for each and the two refusals
 - [Data and administrator rights](docs/data-and-rights.en.md) — where things are kept and when rights are asked for
 - [Technical notes](docs/internals.en.md) and [tests](docs/tests.md) — for those who edit the code
 

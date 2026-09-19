@@ -57,6 +57,6 @@ purge the Recycle Bin and never reset the machine's memory.
 Human documentation, RU/EN in parallel (`.md` = RU, `.en.md` = EN): `README.md` = landing page only
 (pitch, tab table, safety boundaries, short install); the manual is split per tab group across
 `docs/` — `install`, `processes-and-memory`, `disk`, `programs`, `capture`, `overlay`, `downloads`,
-`torrents`, `extension-install`, `extension-privacy`, `tools-and-settings`, `scripts`, `data-and-rights`, `internals`,
+`torrents`, `extension-install`, `extension-privacy`, `tools-and-settings`, `scripts`, `displays`, `data-and-rights`, `internals`,
 plus `docs/tests.md` (RU only). Source files >1000 lines are split into partial files at task close. Touching a feature ⇒ update its
 `docs/` page in BOTH languages, and the README only if the pitch or a boundary changed.

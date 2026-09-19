@@ -93,6 +93,7 @@ namespace SysDeck.Tests
             env.LocalAppData = Fx.MakeDir(root, "local");
             env.SystemDir = @"C:\Windows\System32";
             env.Desktop = Fx.MakeDir(root, "desktop");
+            env.Startup = Fx.MakeDir(root, "startup");
             env.Documents = Fx.MakeDir(root, "documents");
             env.ProgramFiles = Fx.MakeDir(root, "programfiles");
             sch = new FakeScheduler();
@@ -325,6 +326,7 @@ namespace SysDeck.Tests
         {
             ReaperFixture(hive);
             AudioFixture(hive);
+            KeyWatchFixture(hive);
             OtherFixtures(hive);
         }
 
@@ -423,6 +425,45 @@ namespace SysDeck.Tests
                 T.Eq("toolkit: fixture — no task is registered after the refusal", 0, sch2.Tasks.Count);
             }
             else T.Skip("toolkit: fixture — a junction in the protected path is refused", "junction could not be created");
+        }
+
+        // Сторож клавиш: старый запуск из «Автозагрузки» и задача Планировщика не должны сосуществовать —
+        // два хука на одни и те же клавиши удваивают инъекции KEYUP.
+        private static void KeyWatchFixture(RegistryKey hive)
+        {
+            List<string> log = new List<string>();
+            FakeScheduler sch;
+            TkEnv env = Fixture("keys", hive, out sch);
+            TkItem it = TkCatalog.Find("win-key-watch");
+            string startup = Path.Combine(env.Startup, "win-key-watch.vbs");
+            File.WriteAllText(startup, "sh.Run \"powershell.exe -File \"\"C:\\Tools\\win-key-watch\\win-key-watch.ps1\"\"\", 0, False");
+            File.WriteAllText(Path.Combine(env.Startup, "other.vbs"), "sh.Run \"notepad.exe\", 0, False");
+
+            TkStatus before = TkEngine.Probe(it, env);
+            T.Check("toolkit: fixture — a watcher started from the Startup folder counts as installed and is explained",
+                    before.State != TkState.NotInstalled && before.Note != null, before.State.ToString());
+            T.Eq("toolkit: fixture — that launcher reads back as autostart on", "true", before.Values["autostart"]);
+
+            T.Eq("toolkit: fixture — key watcher install succeeds", null, TkEngine.Install(it, it.Defaults(), env, log));
+            string dir = TkEngine.DeployDir(it, env);
+            T.Check("toolkit: fixture — the watcher lands in the user's Tools folder",
+                    dir == Path.Combine(env.UserProfile, @"Tools\win-key-watch") && File.Exists(Path.Combine(dir, "win-key-watch.ps1"))
+                    && File.Exists(Path.Combine(dir, "unstick-modifiers.ps1")));
+            T.Check("toolkit: fixture — the old Startup launcher is gone, other startup files are untouched",
+                    !File.Exists(startup) && File.Exists(Path.Combine(env.Startup, "other.vbs")));
+            T.Check("toolkit: fixture — the watcher runs hidden at sign-in with no time limit",
+                    sch.Tasks.Count == 1 && sch.Tasks["WinKeyWatch"].AtLogon && sch.Tasks["WinKeyWatch"].TimeLimit == "PT0S"
+                    && sch.Tasks["WinKeyWatch"].Arguments.Contains(Path.Combine(dir, "win-key-watch.ps1")));
+            T.Check("toolkit: fixture — the watcher never asks for administrator rights", !sch.Tasks["WinKeyWatch"].System);
+            TkStatus after = TkEngine.Probe(it, env);
+            T.Check("toolkit: fixture — after the move the warning is gone", after.Note == null && after.State == TkState.Ok, after.State + " " + after.Note);
+
+            TkEngine.Install(it, With(it, "autostart", "false"), env, log);
+            T.Check("toolkit: fixture — autostart off deletes the task", sch.Tasks.Count == 0);
+            T.Eq("toolkit: fixture — autostart reads back as off", "false", TkEngine.Probe(it, env).Values["autostart"]);
+
+            T.Eq("toolkit: fixture — key watcher remove succeeds", null, TkEngine.Remove(it, env, log));
+            T.Eq("toolkit: fixture — after remove the item is not installed", TkState.NotInstalled, TkEngine.Probe(it, env).State);
         }
 
         private static void OtherFixtures(RegistryKey hive)
