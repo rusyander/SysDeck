@@ -112,7 +112,7 @@ namespace SysDeck
         private FastListView _lvOvInfo;
         private Label _lblOvStatus, _lblOvInfo, _lblOvTitle, _lblOvSource, _lblOvHelp;
         private CheckBox _chkOvText, _chkOvGraph, _chkOvInCaptures, _chkOvHwinfo, _chkOvElevated, _chkOvCoreLoad, _chkOvCoreMhz;
-        private RoundComboBox _cmbOvInterval, _cmbOvCorner, _cmbOvMonitor, _cmbOvOpacity, _cmbOvScale, _cmbOvGraphSec, _cmbOvCoreCount;
+        private RoundComboBox _cmbOvInterval, _cmbOvCorner, _cmbOvMonitor, _cmbOvOpacity, _cmbOvScale, _cmbOvGraphSec, _cmbOvGraphWidth, _cmbOvCoreCount;
         private Button _btnOvFps, _btnOvViewSet, _btnOvViewInfo, _btnOvUp, _btnOvDown, _btnOvInfoRefresh;
         private FlowLayoutPanel _ovItemRow1, _ovItemRow2, _ovGroupRow, _ovCoresRow, _ovItemRow3, _ovNvRow;
         private RoundComboBox _cmbOvScene, _cmbOvStatsSec, _cmbOvFont, _cmbOvFontSize, _cmbOvValueColor, _cmbOvLabelColor, _cmbOvNvFps;
@@ -144,6 +144,7 @@ namespace SysDeck
         private static readonly int[] OvOpacities = { 20, 40, 60, 75, 90, 100 };
         private static readonly int[] OvScales = { 75, 100, 125, 150, 200 };
         private static readonly int[] OvGraphSeconds = { 30, 60, 120, 300, 600 };
+        private static readonly int[] OvGraphWidths = { 100, 150, 200, 300, 400 };
         private static readonly int[] OvCoreCounts = { 1, 2, 4, 6, 8, 12, 16, 0 };   // 0 — все
         private static readonly int[] OvStatsSeconds = { 0, 30, 60, 120, 300, 600 };  // 0 — как окно графиков
         private static readonly int[] OvFontSizes = { 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32 };
@@ -191,6 +192,7 @@ namespace SysDeck
             _cmbOvScale = OvCombo(opts, Tr.S("Размер:", "Size:"), 80, "75 %", "100 %", "125 %", "150 %", "200 %");
             _cmbOvGraphSec = OvCombo(opts, Tr.S("Окно графиков:", "Graph window:"), 90, "30 " + Tr.S("с", "s"), "1 " + Tr.S("мин", "min"),
                                      "2 " + Tr.S("мин", "min"), "5 " + Tr.S("мин", "min"), "10 " + Tr.S("мин", "min"));
+            _cmbOvGraphWidth = OvCombo(opts, Tr.S("Ширина графиков:", "Graph width:"), 110, "100 %", "150 %", "200 %", "300 %", "400 %");
             _cmbOvStatsSec = OvCombo(opts, Tr.S("Мин./сред./макс. за:", "Min/avg/max over:"), 120, Tr.S("как графики", "graph window"), "30 " + Tr.S("с", "s"),
                                      "1 " + Tr.S("мин", "min"), "2 " + Tr.S("мин", "min"), "5 " + Tr.S("мин", "min"), "10 " + Tr.S("мин", "min"));
             _cmbOvScene = OvCombo(opts, Tr.S("Набор строк:", "Row set:"), 90, "1", "2", "3");
@@ -675,6 +677,7 @@ namespace SysDeck
             st.GroupColors = _chkOvGroupColors.Checked;
             st.Shadow = _chkOvShadow.Checked;
             st.RowLayout = _chkOvRowLayout.Checked;
+            st.GraphWidth = OvPick(OvGraphWidths, _cmbOvGraphWidth, 100);
             return st;
         }
 

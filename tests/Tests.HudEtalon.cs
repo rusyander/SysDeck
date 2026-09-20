@@ -4,6 +4,7 @@
 // NVIDIA (только чтение — настройки драйвера тест не меняет).
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using SysDeck.Capture;
@@ -22,6 +23,7 @@ namespace SysDeck.Tests
             StyledRendering();
             Derived();
             PresentRows();
+            ScreenFrames();
             LagRecorder();
             FrameLimiter();
             CpuLoadCapped();
@@ -212,6 +214,33 @@ namespace SysDeck.Tests
             using (Bitmap col = HudRender.Draw(rows, 1f, new HudStyle()))
             using (Bitmap row = HudRender.Draw(rows, 1f, line))
                 T.Check("hud style: row layout is wider than tall", row.Width > row.Height * 3 && row.Height < col.Height, col.Size + " / " + row.Size);
+            // Ширина графиков: полоса идёт во всю ширину столбика, поэтому проценты должны двигать саму ширину
+            // столбика, а высоту — нет; строка без графика от настройки не зависит.
+            HudRow graphed = HudFormat.Row(new HudItem("fps") { Graph = true }, new HudValue("fps", HudKind.Fps, 120));
+            graphed.Graph = true;
+            List<HudRow> graphRows = new List<HudRow> { graphed };
+            int base100 = 0, high200 = 0, high400 = 0, baseH = 0;
+            using (Bitmap w100 = HudRender.Draw(graphRows, 1f, new HudStyle())) { base100 = w100.Width; baseH = w100.Height; }
+            using (Bitmap w200 = HudRender.Draw(graphRows, 1f, new HudStyle { GraphWidth = 200 }))
+            {
+                high200 = w200.Width;
+                T.Check("hud style: 200 % graph width roughly doubles the column, height untouched",
+                        high200 > base100 * 1.7 && high200 < base100 * 2.3 && w200.Height == baseH,
+                        base100 + "x" + baseH + " → " + w200.Size);
+            }
+            using (Bitmap w400 = HudRender.Draw(graphRows, 1f, new HudStyle { GraphWidth = 400 }))
+            {
+                high400 = w400.Width;
+                T.Check("hud style: 400 % goes wider still", high400 > high200 * 1.7, high200 + " → " + high400);
+            }
+            using (Bitmap t100 = HudRender.Draw(new List<HudRow> { crit }, 1f, new HudStyle()))
+            using (Bitmap t400 = HudRender.Draw(new List<HudRow> { crit }, 1f, new HudStyle { GraphWidth = 400 }))
+                T.Check("hud style: a row without a graph ignores the graph width", t400.Size == t100.Size, t100.Size + " / " + t400.Size);
+            using (Bitmap lo = HudRender.Draw(graphRows, 1f, new HudStyle { GraphWidth = 10 }))
+            using (Bitmap hi = HudRender.Draw(graphRows, 1f, new HudStyle { GraphWidth = 5000 }))
+                T.Check("hud style: out-of-range graph widths are clamped, never narrower than normal or endless",
+                        lo.Width == base100 && hi.Width == high400, lo.Width + " / " + hi.Width + " / " + high400);
+
             HudStyle headed = new HudStyle { Header = "● REC 00:10" };
             using (Bitmap plain = HudRender.Draw(rows, 1f, new HudStyle()))
             using (Bitmap withHeader = HudRender.Draw(rows, 1f, headed))
@@ -267,8 +296,18 @@ namespace SysDeck.Tests
             HudFrame f = new HudFrame();
             HudFpsSource.PutPresent(f, tr.Info(10), 5500, freq);
             T.Eq("hud present: DXGI api", "DXGI (Direct3D 10–12)", f.Get("fps.api").Text);
-            T.Eq("hud present: sync 0 with the tearing flag", Tr.S("выкл, с разрывами", "off, tearing allowed"), f.Get("fps.vsync").Text);
+            // Кадр собирает DWM — разрешённые игрой разрывы на экран не попадают, и строка не должна их обещать.
+            T.Eq("hud present: the tearing flag on a composed frame does not promise tearing",
+                 Tr.S("выкл, но кадр собирает DWM — разрывов нет", "off, but DWM composes — no tearing"), f.Get("fps.vsync").Text);
             T.Eq("hud present: flip model through DWM", Tr.S("через DWM, обмен", "via DWM, flip"), f.Get("fps.presentmode").Text);
+
+            // Та же игра, но кадр идёт на экран напрямую: вот тут разрывы настоящие.
+            HudPresentTracker direct = new HudPresentTracker();
+            direct.NoteApi(10, HudPresentInfo.ApiDxgi, 0, true, 5000);
+            direct.NoteModel(99, 9, 5000);                // ядро сообщает модели, но не для этой игры
+            HudFrame d = new HudFrame();
+            HudFpsSource.PutPresent(d, direct.Info(10), 5500, freq);
+            T.Eq("hud present: sync 0 with the tearing flag and a direct frame", Tr.S("выкл, с разрывами", "off, tearing"), d.Get("fps.vsync").Text);
 
             tr.NoteModel(99, 3, 9000);                    // ядро сообщает модели, но не для этой игры
             tr.NoteApi(10, HudPresentInfo.ApiDxgi, 1, false, 9000);
@@ -287,8 +326,267 @@ namespace SysDeck.Tests
             T.Eq("hud present: frames without DXGI/D3D9 events", Tr.S("OpenGL / Vulkan / другое", "OpenGL / Vulkan / other"), k.Get("fps.api").Text);
         }
 
+        // Кадры на экране: очередь вывода -> вертикальное гашение. Номер отправки в FlipFenceId лежит в одной из
+        // половин, какой именно — Windows не обещает, поэтому обе проверяются на живых событиях.
+        // TRACE_EVENT_INFO, как его отдаёт TDH: шапка, за ней массив EVENT_PROPERTY_INFO по 24 байта, имена — в хвосте.
+        // Смещения полей SysDeck считает сам, и ошибка здесь означала бы чтение чужих байтов под видом номера кадра.
+        private static IntPtr TraceEventInfo(string[] names, int[] inTypes, int[] counts)
+        {
+            const int header = 112, propSize = 24;
+            int names0 = header + names.Length * propSize;
+            int size = names0;
+            foreach (string n in names) size += (n.Length + 1) * 2;
+            IntPtr buf = System.Runtime.InteropServices.Marshal.AllocHGlobal(size);
+            for (int i = 0; i < size; i++) System.Runtime.InteropServices.Marshal.WriteByte(buf, i, 0);
+            System.Runtime.InteropServices.Marshal.WriteInt32(buf, 100, names.Length);       // PropertyCount
+            int nameAt = names0;
+            for (int i = 0; i < names.Length; i++)
+            {
+                int at = header + i * propSize;
+                System.Runtime.InteropServices.Marshal.WriteInt32(buf, at, 0);               // Flags
+                System.Runtime.InteropServices.Marshal.WriteInt32(buf, at + 4, nameAt);      // NameOffset
+                System.Runtime.InteropServices.Marshal.WriteInt16(buf, at + 8, (short)inTypes[i]);
+                System.Runtime.InteropServices.Marshal.WriteInt16(buf, at + 16, (short)counts[i]);
+                foreach (char ch in names[i]) { System.Runtime.InteropServices.Marshal.WriteInt16(buf, nameAt, (short)ch); nameAt += 2; }
+                System.Runtime.InteropServices.Marshal.WriteInt16(buf, nameAt, 0);
+                nameAt += 2;
+            }
+            return buf;
+        }
+
+        private static void EventFieldOffsets()
+        {
+            const int ptr = 16, u32 = 8, u64 = 10, i32 = 7, i64 = 9, str = 1;
+            // Настоящий шаблон MMIOFlip (116) с этой машины: pDxgAdapter, VidPnSourceId, FlipSubmitSequence, …
+            IntPtr mmio = TraceEventInfo(new[] { "pDxgAdapter", "VidPnSourceId", "FlipSubmitSequence", "FlipToDriverAllocation" },
+                                         new[] { ptr, u32, u32, ptr }, new[] { 1, 1, 1, 1 });
+            try
+            {
+                HudEventFields.Layout l = HudEventFields.Walk(mmio, 4096, false);
+                T.Check("hud fields: MMIOFlip field offsets match the provider template",
+                        l.Ok && l.Fields["VidPnSourceId"].Offset == 8 && l.Fields["FlipSubmitSequence"].Offset == 12
+                        && l.Fields["FlipSubmitSequence"].Size == 4,
+                        l.Ok ? l.Fields["VidPnSourceId"].Offset + "/" + l.Fields["FlipSubmitSequence"].Offset : "not read");
+            }
+            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(mmio); }
+
+            // Настоящий шаблон VSyncDPC (17): FlipFenceId стоит девятым, за полями разной ширины.
+            IntPtr vsync = TraceEventInfo(
+                new[] { "pDxgAdapter", "VidPnTargetId", "ScannedPhysicalAddress", "VidPnSourceId", "FrameNumber", "FrameQPCTime", "hFlipDevice", "FlipType", "FlipFenceId" },
+                new[] { ptr, u32, u64, u32, u32, i64, ptr, u32, u64 }, new[] { 1, 1, 1, 1, 1, 1, 1, 1, 1 });
+            try
+            {
+                HudEventFields.Layout l = HudEventFields.Walk(vsync, 4096, false);
+                T.Check("hud fields: VSyncDPC FlipFenceId is found at 48, VidPnSourceId at 20",
+                        l.Ok && l.Fields["FlipFenceId"].Offset == 48 && l.Fields["FlipFenceId"].Size == 8 && l.Fields["VidPnSourceId"].Offset == 20,
+                        l.Ok ? l.Fields["FlipFenceId"].Offset + "/" + l.Fields["VidPnSourceId"].Offset : "not read");
+                ulong v;
+                T.Check("hud fields: a field past the end of the record is refused, not read as garbage",
+                        !HudEventFields.Value(l, "FlipFenceId", vsync, 20, out v));
+                T.Check("hud fields: a field the template does not have is refused",
+                        !HudEventFields.Value(l, "FlipSubmitSequence", vsync, 4096, out v));
+            }
+            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(vsync); }
+
+            // Настоящий шаблон PresentHistoryDetailed (215): Token — второй, сразу за hAdapter, и дальше по записи
+            // идут массивы переменной длины. Токен обязан читаться до того, как разбор на них оборвётся.
+            IntPtr history = TraceEventInfo(
+                new[] { "hAdapter", "Token", "Model", "TokenSize", "TokenData", "Flags", "CustomDuration" },
+                new[] { ptr, ptr, u32, u32, u64, u32, u32 }, new[] { 1, 1, 1, 1, 1, 1, 1 });
+            try
+            {
+                HudEventFields.Layout l = HudEventFields.Walk(history, 4096, false);
+                ulong v;
+                T.Check("hud fields: PresentHistory Token sits right after hAdapter",
+                        l.Ok && l.Fields["Token"].Offset == 8 && l.Fields["Token"].Size == 8
+                        && HudEventFields.Value(l, "Token", history, 4096, out v),
+                        l.Ok && l.Fields.ContainsKey("Token") ? l.Fields["Token"].Offset.ToString() : "not read");
+                T.Check("hud fields: a 32-bit process makes the token four bytes wide",
+                        HudEventFields.Walk(history, 4096, true).Fields["Token"].Size == 4);
+            }
+            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(history); }
+
+            // Массив и поле переменной длины: до массива смещения считаются, после строки разбор обязан оборваться.
+            IntPtr mixed = TraceEventInfo(new[] { "Planes", "Tag", "Name", "AfterName" },
+                                          new[] { i32, u32, str, u32 }, new[] { 4, 1, 1, 1 });
+            try
+            {
+                HudEventFields.Layout l = HudEventFields.Walk(mixed, 4096, false);
+                T.Check("hud fields: an array counts as its whole length and a string stops the walk",
+                        l.Ok && l.Fields["Tag"].Offset == 16 && !l.Fields.ContainsKey("AfterName"),
+                        l.Ok ? l.Fields["Tag"].Offset + ", fields " + l.Fields.Count : "not read");
+            }
+            finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(mixed); }
+        }
+
+        // Кадры, собранные DWM: чей кадр, говорит только токен PresentHistory. Событие Flip в этом режиме выдаёт
+        // dwm.exe, и без токена все кадры всех программ достались бы ему одному.
+        private static void ComposedFrames()
+        {
+            HudFlipTracker t = new HudFlipTracker();
+            for (int i = 1; i <= 30; i++)
+            {
+                t.Queue(0x1000UL, 700);                 // тот же токен по кругу — так их и выдаёт Windows
+                t.Retire(0x1000UL, i * 1000L);
+            }
+            long[] shown = t.Pick(700);
+            T.Check("hud screen: a retired present-history token is a frame on the display", shown != null && shown.Length == 30,
+                    shown == null ? "none" : shown.Length.ToString());
+            T.Eq("hud screen: a process that queued nothing gets no frames", null, t.Pick(701));
+
+            // Один и тот же адрес токена достаётся разным программам по очереди — кадры не должны перепутаться.
+            HudFlipTracker share = new HudFlipTracker();
+            for (int i = 1; i <= 10; i++)
+            {
+                share.Queue(0x2000UL, 800); share.Retire(0x2000UL, i * 2000L);
+                share.Queue(0x2000UL, 801); share.Retire(0x2000UL, i * 2000L + 1000L);
+            }
+            T.Check("hud screen: a recycled token follows whoever queued it last",
+                    share.Pick(800) != null && share.Pick(800).Length == 10 && share.Pick(801) != null && share.Pick(801).Length == 10,
+                    (share.Pick(800) == null ? "0" : share.Pick(800).Length.ToString()) + "/" +
+                    (share.Pick(801) == null ? "0" : share.Pick(801).Length.ToString()));
+
+            // Токен отрабатывает один раз: повторное событие не должно добавить кадр из ниоткуда.
+            HudFlipTracker once = new HudFlipTracker();
+            once.Queue(0x3000UL, 900); once.Retire(0x3000UL, 1000L);
+            once.Retire(0x3000UL, 2000L);
+            once.Queue(0x3000UL, 900); once.Retire(0x3000UL, 3000L);
+            long[] twice = once.Pick(900);
+            T.Check("hud screen: a token retired twice counts one frame", twice != null && twice.Length == 2,
+                    twice == null ? "none" : twice.Length.ToString());
+
+            T.Eq("hud screen: a token nobody queued is not attributed to anyone", null, Orphan());
+
+            // Две цепочки у одного процесса не складываются: кадр посчитался бы дважды.
+            HudFlipTracker both = new HudFlipTracker();
+            both.Owner(0, 950);
+            for (int i = 1; i <= 20; i++)
+            {
+                both.Submit(0, (ulong)i, i * 1000L);
+                both.Displayed((ulong)i << 32, i * 1000L);
+                both.Queue(0x4000UL, 950);
+                both.Retire(0x4000UL, i * 1000L + 500L);
+            }
+            long[] mixed = both.Pick(950);
+            T.Check("hud screen: the two chains are not summed into one stream", mixed != null && mixed.Length == 20,
+                    mixed == null ? "none" : mixed.Length.ToString());
+        }
+
+        private static long[] Orphan()
+        {
+            HudFlipTracker t = new HudFlipTracker();
+            t.Retire(0x5000UL, 1000L);
+            t.Retire(0x5000UL, 2000L);
+            return t.Pick(1000);
+        }
+
+        private static void ScreenFrames()
+        {
+            EventFieldOffsets();
+            ComposedFrames();
+            // Цепочка: Flip говорит, чей это вывод, MMIOFlip даёт номер отправки, VSyncDPC — что номер отработал.
+            HudFlipTracker high = new HudFlipTracker();
+            high.Owner(0, 500);
+            for (int i = 1; i <= 40; i++)
+            {
+                high.Submit(0, (ulong)i, i * 60000L);
+                high.Displayed((ulong)i << 32, i * 60000L + 10000L);      // номер в старшей половине FlipFenceId
+            }
+            long[] shown = high.Pick(500);
+            T.Check("hud screen: a flip matched at the vsync becomes a frame on screen", shown != null && shown.Length == 40,
+                    shown == null ? "none" : shown.Length.ToString());
+            T.Eq("hud screen: frames of a process nobody flipped are not invented", null, high.Pick(501));
+
+            // Без события Flip владелец вывода неизвестен — приписывать кадры наугад нельзя.
+            HudFlipTracker orphan = new HudFlipTracker();
+            orphan.Submit(0, 1, 1000);
+            orphan.Displayed(1UL << 32, 2000);
+            T.Eq("hud screen: flips on a display nobody claimed are not attributed", null, orphan.Pick(500));
+
+            HudFlipTracker low = new HudFlipTracker();
+            low.Owner(1, 600);
+            for (int i = 1; i <= 40; i++)
+            {
+                low.Submit(1, (ulong)i, i * 60000L);
+                low.Displayed((ulong)i, i * 60000L + 10000L);             // тот же номер, но в младшей половине
+            }
+            T.Check("hud screen: either half of FlipFenceId matches", low.Pick(600) != null && low.Pick(600).Length == 40);
+
+            HudFlipTracker stray = new HudFlipTracker();
+            stray.Owner(0, 700);
+            stray.Submit(0, 5, 1000);
+            stray.Displayed(0x1234567800000000UL | 0x99UL, 2000);         // ни одна половина не совпадает
+            T.Eq("hud screen: a vsync for a flip nobody submitted adds nothing", null, stray.Pick(700));
+
+            // Два разных экрана у двух программ: кадры не должны перемешаться.
+            HudFlipTracker two = new HudFlipTracker();
+            two.Owner(0, 900); two.Owner(1, 901);
+            for (int i = 1; i <= 20; i++)
+            {
+                two.Submit(0, (ulong)(i * 2), i * 1000L);
+                two.Displayed((ulong)(i * 2) << 32, i * 1000L);
+                two.Submit(1, (ulong)(i * 2 + 1), i * 1000L);
+                two.Displayed((ulong)(i * 2 + 1) << 32, i * 1000L);
+            }
+            T.Check("hud screen: two displays keep their own frames",
+                    two.Pick(900) != null && two.Pick(900).Length == 20 && two.Pick(901) != null && two.Pick(901).Length == 20);
+
+            // Метка вывода не может идти назад: иначе интервал между кадрами получился бы отрицательным.
+            HudFlipTracker back = new HudFlipTracker();
+            back.Owner(0, 800);
+            back.Submit(0, 1, 1000); back.Displayed(1UL << 32, 5000);
+            back.Submit(0, 2, 2000); back.Displayed(2UL << 32, 3000);
+            back.Submit(0, 3, 3000); back.Displayed(3UL << 32, 9000);
+            long[] order = back.Pick(800);
+            T.Check("hud screen: screen times never go backwards", order != null && order.Length == 2 && order[0] == 5000 && order[1] == 9000,
+                    order == null ? "none" : string.Join(",", Array.ConvertAll(order, delegate(long v) { return v.ToString(); })));
+
+            // Строка появляется только когда есть что показать: без событий вывода её в кадре нет.
+            HudFrame empty = new HudFrame();
+            HudFpsSource.PutDisplayed(empty, new HudFlipTracker(), 500, 100000, 10000);
+            T.Check("hud screen: no flip events means no row at all", empty.Get("fps.screen") == null && empty.Get("fps.screenms") == null);
+
+            HudFrame full = new HudFrame();
+            HudFlipTracker even = new HudFlipTracker();
+            even.Owner(0, 500);
+            for (int i = 1; i <= 100; i++) { even.Submit(0, (ulong)i, i * 1000L); even.Displayed((ulong)i << 32, i * 1000L); }
+            HudFpsSource.PutDisplayed(full, even, 500, 100000, 10000);    // 10 000 тактов в секунду, кадр раз в 1000
+            T.Check("hud screen: an even 10 fps stream reads as 10 fps and 100 ms",
+                    full.Get("fps.screen") != null && Math.Abs(full.Get("fps.screen").Value - 10) < 0.5
+                    && Math.Abs(full.Get("fps.screenms").Value - 100) < 1,
+                    full.Get("fps.screen") == null ? "none" : full.Get("fps.screen").Value + " / " + full.Get("fps.screenms").Value);
+        }
+
+        // Две сессии реального времени на одних поставщиках глушат друг друга: живая остаётся «ok», но событий
+        // не получает. Поэтому имя несёт номер процесса, и сессию мёртвого хозяина надо узнавать по имени.
+        private static void TraceSessionNames()
+        {
+            string mine = HudEtwSession.DefaultName();
+            int self = System.Diagnostics.Process.GetCurrentProcess().Id;
+            T.Check("hud etw: the session name carries this process id", HudEtwSession.OwnerPid(mine) == self,
+                    mine + " -> " + HudEtwSession.OwnerPid(mine));
+            T.Check("hud etw: two runs of the same role do not share a session name",
+                    mine.IndexOf(' ' + self.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal) > 0, mine);
+            T.Eq("hud etw: somebody else's session is left alone", 0, HudEtwSession.OwnerPid("Circular Kernel Context Logger"));
+            T.Eq("hud etw: an old name without a process id is not claimed", 0, HudEtwSession.OwnerPid("SysDeck Frames (HUD)"));
+            T.Check("hud etw: a session of a dead process is abandoned", !HudEtwSession.OwnerAlive(0x7FFFFFF0));
+            T.Check("hud etw: our own live session is kept", HudEtwSession.OwnerAlive(self) == IsSysDeckProcess(self));
+        }
+
+        private static bool IsSysDeckProcess(int pid)
+        {
+            try { return string.Equals(System.Diagnostics.Process.GetProcessById(pid).ProcessName, "SysDeck", StringComparison.OrdinalIgnoreCase); }
+            catch { return false; }
+        }
+
         private static void LagRecorder()
         {
+            TraceSessionNames();
+            // Метка события у сессии реального времени должна остаться QPC: без «сырой» метки ETW отдаёт FILETIME,
+            // и запись лагов писала в отчёт время, отсчитанное от 1601 года, вместо секунд от начала записи.
+            T.Check("hud lag: the real-time trace keeps raw QPC timestamps", (HudEtwSession.LogfileMode(true) & 0x1000) != 0,
+                    "0x" + HudEtwSession.LogfileMode(true).ToString("x"));
+
             List<float> ms = new List<float>();
             List<double> t = new List<double>();
             double at = 0;
@@ -298,9 +596,29 @@ namespace SysDeck.Tests
                 at += v / 1000.0;
                 ms.Add(v); t.Add(at);
             }
-            HudLagReport.Summary s = HudLagReport.Analyze(ms, t);
+            List<int> pids = new List<int>();
+            for (int i = 0; i < ms.Count; i++) pids.Add(7);
+            HudLagReport.Summary s = HudLagReport.Analyze(ms, t, pids, 7);
             T.Eq("hud lag: six 120 ms frames among 8 ms ones are six hitches", 6, s.Hitches.Count);
             T.Check("hud lag: average FPS and 1 % low", s.AvgFps > 100 && s.Low1 < s.AvgFps, s.AvgFps + " / " + s.Low1);
+            // Шесть длинных кадров из шести тысяч тянут «худший 1 %» вдвое вниз, а кадр на месте 99 % остаётся
+            // ровным: в отчёте должны стоять оба числа, иначе сводка читается как просадка на каждой сотне кадров.
+            T.Eq("hud lag: the 1 % low averages 60 frames out of 6000", 60, s.Low1Frames);
+            T.Eq("hud lag: the 0.1 % low averages 6 frames", 6, s.Low01Frames);
+            T.Check("hud lag: six long frames halve the 1 % low but not the 99th percentile",
+                    s.Low1 < 60 && s.P99Fps > 110 && s.P999Fps > 110, s.Low1 + " / " + s.P99Fps + " / " + s.P999Fps);
+
+            // Чужой процесс в тех же данных: свёрнутая программа с кадром раз в секунду. Её кадры не должны трогать
+            // ни средний FPS, ни «худший 1 %», ни список фризов — иначе отчёт об игре описывает не игру.
+            List<float> mixed = new List<float>(ms);
+            List<double> mixedT = new List<double>(t);
+            List<int> mixedPid = new List<int>(pids);
+            for (int i = 0; i < 60; i++) { mixed.Add(1000f); mixedT.Add(i); mixedPid.Add(9); }
+            HudLagReport.Summary only = HudLagReport.Analyze(mixed, mixedT, mixedPid, 7);
+            T.Eq("hud lag: frames of another process stay out of the summary", s.Frames, only.Frames);
+            T.Check("hud lag: another process cannot drag the average and the 1 % low down",
+                    Math.Abs(only.AvgFps - s.AvgFps) < 0.01 && Math.Abs(only.Low1 - s.Low1) < 0.01 && only.Hitches.Count == s.Hitches.Count,
+                    only.AvgFps + " / " + only.Low1 + " / " + only.Hitches.Count);
             T.Eq("hud lag: folder name keeps only safe characters", "My_Game_1", HudLagRecorder.SafeName("My Game?1"));
             T.Eq("hud lag: empty game name", "desktop", HudLagRecorder.SafeName(".."));
 
@@ -314,13 +632,33 @@ namespace SysDeck.Tests
             try
             {
                 T.Check("hud lag: the report folder is under Documents", rec.Folder.StartsWith(Path.Combine(docs, "SysDeck"), StringComparison.OrdinalIgnoreCase), rec.Folder);
-                long f = 1000000;
+                // Метки — по тем же часам, что и у записи: источник кадров отдаёт кольцо в QPC.
+                long f = Stopwatch.Frequency;
+                long[] old = new long[300];
+                old[0] = rec.StartQpc - f * 120;                      // кольцо источника: две минуты до нажатия кнопки
+                for (int i = 1; i < old.Length; i++) old[i] = old[i - 1] + f / 120;
+                rec.AddFrames(old, 42, f);
+                T.Eq("hud lag: frames presented before the recording started are not recorded", 0, rec.FrameMs.Count);
+
                 long[] frames = new long[200];
-                frames[0] = 10000000;
-                for (int i = 1; i < frames.Length; i++) frames[i] = frames[i - 1] + (i == 150 ? 120000 : 8333);   // 8,3 мс и один фриз 120 мс
+                frames[0] = rec.StartQpc + f / 100;
+                for (int i = 1; i < frames.Length; i++) frames[i] = frames[i - 1] + (i == 150 ? f * 120 / 1000 : f * 8333 / 1000000);
                 rec.AddFrames(frames, 42, f);
                 rec.AddFrames(frames, 42, f);                         // тот же буфер ещё раз — дубли не пишутся
                 T.Eq("hud lag: frames already recorded are not added twice", frames.Length - 1, rec.FrameMs.Count);
+                // Кадры другого процесса между замерами не должны сбрасывать курсор первого: иначе его кольцо
+                // перезапишется целиком и в отчёте будет вдвое больше кадров, чем игра показала.
+                long[] other = new long[10];
+                other[0] = rec.StartQpc + f / 100;
+                for (int i = 1; i < other.Length; i++) other[i] = other[i - 1] + f;
+                rec.AddFrames(other, 77, f);
+                int before = rec.FrameMs.Count;
+                rec.AddFrames(frames, 42, f);
+                T.Eq("hud lag: a switch to another process does not re-record the first one", before, rec.FrameMs.Count);
+                T.Check("hud lag: t_s is counted from the start of the recording",
+                        rec.FrameT.Count > 0 && rec.FrameT[0] >= 0 && rec.FrameT[rec.FrameT.Count - 1] < 300,
+                        rec.FrameT.Count > 0 ? rec.FrameT[0] + ".." + rec.FrameT[rec.FrameT.Count - 1] : "none");
+                rec.TargetPid = 42;
                 HudFrame frame = new HudFrame();
                 frame.Put("cpu.load", HudKind.Percent, 55);
                 frame.Put("cpu.perflimit", HudKind.Percent, 60);
@@ -335,6 +673,9 @@ namespace SysDeck.Tests
                 T.Check("hud lag: system.csv has a header and a row", sys.StartsWith("t_s,fps,") && sys.Split('\n').Length >= 3);
                 T.Check("hud lag: a second report into the same folder is refused, not overwritten", RefusesOverwrite(rec.Folder));
                 T.Check("hud lag: the worst hitch is listed", md.Contains("| 120 |"), md);
+                T.Check("hud lag: the report says the lows are tail averages and gives the percentiles",
+                        md.Contains("tail averages, not percentiles") && md.Contains("99th percentile frame") && md.Contains("99.9th percentile"),
+                        md.Length.ToString());
             }
             finally
             {

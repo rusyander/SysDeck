@@ -119,6 +119,8 @@ namespace SysDeck.Capture
             List<HudDef> d = new List<HudDef>();
             d.Add(new HudDef("fps", HudGroups.Fps, Tr.S("Кадров в секунду", "Frames per second"), "FPS", HudKind.Fps, 500, etw));
             d.Add(new HudDef("fps.frametime", HudGroups.Fps, Tr.S("Время кадра", "Frame time"), Tr.S("Кадр", "Frame"), HudKind.Ms, 250, etw));
+            d.Add(new HudDef("fps.screen", HudGroups.Fps, Tr.S("Кадров ушло на вывод в секунду", "Frames going out to the display per second"), Tr.S("На экране", "On screen"), HudKind.Fps, 500, etw));
+            d.Add(new HudDef("fps.screenms", HudGroups.Fps, Tr.S("Время между кадрами на выводе", "Time between frames going out"), Tr.S("Экран", "Screen"), HudKind.Ms, 250, etw));
             d.Add(new HudDef("fps.low1", HudGroups.Fps, Tr.S("1 % худших кадров", "1% low"), "1% low", HudKind.Fps, 1000, etw));
             d.Add(new HudDef("fps.low01", HudGroups.Fps, Tr.S("0,1 % худших кадров", "0.1% low"), "0.1% low", HudKind.Fps, 1000, etw));
             d.Add(new HudDef("fps.stutter", HudGroups.Fps, Tr.S("Фризы за минуту", "Stutters per minute"), Tr.S("Фризы", "Stutters"), HudKind.Number, 1000, etw));

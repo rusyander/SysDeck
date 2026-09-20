@@ -70,6 +70,7 @@ namespace SysDeck.Capture
         public string HudItems = HudItem.Default;          // строки оверлея: «id:флаги:интервал:цвет;…» (HudItem)
         public int HudGraphSeconds = 60;                   // окно графиков, 10..600 с
         public int HudScale = 100;                         // размер столбика, 50..300 %
+        public int HudGraphWidth = 100;                    // ширина полосы графиков, 100..400 % — столбик раздаётся под неё
         public bool HudElevated;                           // оверлей с правами администратора (задача Планировщика)
         public bool HudHwinfo = true;                      // поднимать HWiNFO в фоне ради датчиков, если он не запущен
         public HudCorner HudCorner = HudCorner.TopRight;
@@ -227,6 +228,7 @@ namespace SysDeck.Capture
             else s.HudItems = HudItem.FormatList(HudItem.ParseList(Str(root, "HudItems", s.HudItems)));
             s.HudGraphSeconds = Clamp(Int(root, "HudGraphSeconds", s.HudGraphSeconds), 10, 600);
             s.HudScale = Clamp(Int(root, "HudScale", s.HudScale), 50, 300);
+            s.HudGraphWidth = Clamp(Int(root, "HudGraphWidth", s.HudGraphWidth), 100, 400);
             s.HudElevated = Bool(root, "HudElevated", s.HudElevated);
             s.HudHwinfo = Bool(root, "HudHwinfo", s.HudHwinfo);
             s.HudCorner = EnumOr(root, "HudCorner", s.HudCorner);
@@ -330,6 +332,7 @@ namespace SysDeck.Capture
             o.Set("HudItems", JVal.NewStr(HudItem.FormatList(HudItem.ParseList(HudItems))));
             o.Set("HudGraphSeconds", N(Clamp(HudGraphSeconds, 10, 600)));
             o.Set("HudScale", N(Clamp(HudScale, 50, 300)));
+            o.Set("HudGraphWidth", N(Clamp(HudGraphWidth, 100, 400)));
             o.Set("HudElevated", B(HudElevated));
             o.Set("HudHwinfo", B(HudHwinfo));
             o.Set("HudCorner", JVal.NewStr(HudCorner.ToString()));

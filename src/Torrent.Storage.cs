@@ -9,6 +9,9 @@
 // Открытие через CreateFileW с \\?\: exe собран без целевой платформы 4.6.2, у FileStream старая обработка путей и
 // предел 260 символов, а в раздачах игр пути глубже.
 // Смещения в битовом поле на диске никогда не опережают сброшенные данные: состояние пишется после FlushFileBuffers.
+// Чтение открывает файл без доступа на запись: раздача держит хендлы открытыми сколько угодно, а хендл с GENERIC_WRITE
+// не даёт Windows запустить готовый файл — CreateProcess отвечает ERROR_SHARING_VIOLATION, и скачанную игру нельзя
+// запустить, пока она раздаётся.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -213,7 +216,7 @@ namespace SysDeck.Downloads
                     }
                     try
                     {
-                        FileStream fs = Handle(fi, write);
+                        FileStream fs = Handle(fi, write, write);
                         if (fs == null)
                         {
                             if (write) return Tr.S("не удалось открыть файл: ", "could not open the file: ") + CurrentPath(fi);
@@ -243,27 +246,36 @@ namespace SysDeck.Downloads
 
         private string CurrentPath(int file) { return _done[file] ? FinalPath(file) : PartPath(file); }
 
-        private FileStream Handle(int file, bool create)
+        // write — нужен доступ на запись, create — создать файл, если его нет. Чтение открывается только на чтение:
+        // хендл с GENERIC_WRITE не даёт загрузчику Windows запустить готовый файл (CreateProcess открывает exe с
+        // FILE_SHARE_READ|FILE_SHARE_DELETE и упирается в ERROR_SHARING_VIOLATION), а раздача держит файлы открытыми
+        // сколько угодно — скачанную игру было не запустить, пока идёт сид.
+        private FileStream Handle(int file, bool write, bool create)
         {
             FileStream fs;
             if (_open.TryGetValue(file, out fs))
             {
-                _lru.Remove(file);
-                _lru.AddFirst(file);
-                return fs;
+                if (!write || fs.CanWrite)
+                {
+                    _lru.Remove(file);
+                    _lru.AddFirst(file);
+                    return fs;
+                }
+                CloseLocked(file, false);   // держали на чтение, а нужна запись — переоткрыть
             }
             string path = CurrentPath(file);
             bool exists = DlFiles.Exists(path);
             if (!exists && !create) return null;
             if (!exists) CreateDirectories(ParentOf(path));
-            SafeFileHandle h = CreateFileW(Native.LongPathOf(path), GenericRead | GenericWrite, ShareRead | ShareWrite | ShareDelete, IntPtr.Zero,
+            SafeFileHandle h = CreateFileW(Native.LongPathOf(path), write ? (GenericRead | GenericWrite) : GenericRead,
+                                           ShareRead | ShareWrite | ShareDelete, IntPtr.Zero,
                                            exists ? OpenExisting : CreateNew, FileAttributeNormal, IntPtr.Zero);
             if (h.IsInvalid)
             {
                 h.Dispose();
                 return null;
             }
-            fs = new FileStream(h, FileAccess.ReadWrite, 1);
+            fs = new FileStream(h, write ? FileAccess.ReadWrite : FileAccess.Read, 1);
             if (!exists) DlFiles.SetSparse(fs, true);
             while (_open.Count >= MaxOpenFiles && _lru.Last != null)
             {
@@ -352,11 +364,10 @@ namespace SysDeck.Downloads
             {
                 if (_done[file]) return null;
                 string part = PartPath(file), final = FinalPath(file);
-                if (!_open.ContainsKey(file))
-                {
-                    // Файл мог быть не открыт в этом запуске (весь скачан до перезапуска) — открыть, чтобы снять разреженность.
-                    Handle(file, false);
-                }
+                // Снять разреженность можно только хендлом с доступом на запись, а в кэше мог лежать открытый на чтение
+                // (файл раздавали, пока он докачивался) или не лежать ничего (весь скачан до перезапуска). Файла может и
+                // не быть — тогда null, и закрывать нечего: ошибку вернёт переименование ниже.
+                Handle(file, true, false);
                 CloseLocked(file, true);
                 if (DlFiles.Exists(final))
                     return Tr.S("имя уже занято другим файлом, данные остались в ", "the name is taken by another file, the data stays in ") + part;

@@ -351,15 +351,29 @@ namespace SysDeck.Tests
             long freq = 1000000;
             HudPresentTracker tr = new HudPresentTracker();
             foreach (long t in Frames(144, 5, freq, freq)) tr.Present(77, HudPresentTracker.UserLayer, 1, t);
+            // Буферы ETW доходят с задержкой: метки отстают от настоящего времени на 1,7 с, а доставка идёт.
+            long qpcNow = tr.Latest + freq * 17 / 10;
+            tr.Delivered(qpcNow);
             HudFrame f = new HudFrame();
             using (HudFpsSource src = new HudFpsSource())
-                src.Put(f, tr, 77, tr.Latest + freq / 2, freq);
+                src.Put(f, tr, 77, qpcNow, freq);
             T.Check("hud fps source: fps / frame time / lows / stutters / app are all put",
                     f.Has("fps") && f.Has("fps.frametime") && f.Has("fps.low1") && f.Has("fps.low01") && f.Has("fps.stutter") && f.Has("fps.app"));
             T.Check("hud fps source: fps uses the newest event as now (ETW delivers late)", Math.Abs(f.Get("fps").Value - 144) <= 2, f.Get("fps").Value.ToString());
             HudFrame none = new HudFrame();
             using (HudFpsSource src = new HudFpsSource()) src.Put(none, tr, 78, tr.Latest, freq);
             T.Check("hud fps source: foreground without presents puts nothing", !none.Has("fps"));
+
+            // Доставка замолчала — кадров действительно нет, и это ноль, а не «данные отстали».
+            HudPresentTracker st = new HudPresentTracker();
+            foreach (long t in Frames(144, 5, freq, freq)) st.Present(77, HudPresentTracker.UserLayer, 1, t);
+            st.Delivered(st.Latest);
+            HudFrame frozen = new HudFrame();
+            using (HudFpsSource src = new HudFpsSource()) src.Put(frozen, st, 77, st.Latest + freq * 3, freq);
+            T.Check("hud fps source: no events delivered for seconds means zero fps, not the old number",
+                    frozen.Has("fps") && frozen.Get("fps").Value == 0, frozen.Has("fps") ? frozen.Get("fps").Value.ToString() : "none");
+            T.Check("hud fps source: a tracker that never delivered anything is not treated as live",
+                    HudFpsSource.FrameNow(new HudPresentTracker(), 12345, freq) == 12345);
 
             // Окно браузера (pid 500) кадров не выводит, их выводит GPU-процесс 501 (потомок); чужой 900 не в счёт.
             HudPresentTracker tb = new HudPresentTracker();
@@ -621,6 +635,7 @@ namespace SysDeck.Tests
             s.HudOpacity = 5;
             s.HudGraphSeconds = 5000;
             s.HudScale = 150;
+            s.HudGraphWidth = 200;
             s.HudElevated = true;
             s.HudHwinfo = false;
             s.HudInCaptures = true;
@@ -631,6 +646,10 @@ namespace SysDeck.Tests
             T.Eq("hud: opacity is clamped to 20 %", 20, back.HudOpacity);
             T.Eq("hud: graph window is clamped to 600 s", 600, back.HudGraphSeconds);
             T.Eq("hud: scale survives", 150, back.HudScale);
+            T.Eq("hud: graph width survives", 200, back.HudGraphWidth);
+            T.Eq("hud: a graph width below 100 % is clamped", 100, CapSettings.FromJson("{\"HudGraphWidth\":40}").HudGraphWidth);
+            T.Eq("hud: a graph width above 400 % is clamped", 400, CapSettings.FromJson("{\"HudGraphWidth\":9000}").HudGraphWidth);
+            T.Eq("hud: the style takes the graph width from the settings", 200, HudStyle.From(s).GraphWidth);
             T.Check("hud: elevated / HWiNFO / in-captures / shown survive a save",
                     back.HudElevated && !back.HudHwinfo && back.HudInCaptures && back.HudShown);
             T.Eq("hud: new rows win over a stale legacy field", "ram:1:0:0",

@@ -176,6 +176,7 @@ namespace SysDeck.Tests
             MagnetCases();
             MerkleCases();
             StorageCases();
+            SeedingLaunchCase();
             ResumeAndDiskCases();
             NetBasics();
             RunTrackers();
@@ -527,6 +528,72 @@ namespace SysDeck.Tests
             }
             finally { DlFiles.Recycler = saved; }
             T.Check("storage: nothing actually deleted by the faked recycle", File.Exists(Path.Combine(Path.Combine(dir, "pack"), "two.bin")));
+        }
+
+        // Раздача держит файлы открытыми сколько угодно, и хендл с доступом на запись отбивает загрузчик Windows:
+        // CreateProcess открывает exe с FILE_SHARE_READ|FILE_SHARE_DELETE и получает ERROR_SHARING_VIOLATION (32).
+        // Скачанную игру было не запустить, пока идёт сид; донором служит настоящий системный exe, чтобы проверку
+        // выносил сам загрузчик, а не рассуждение о флагах.
+        private static void SeedingLaunchCase()
+        {
+            string err;
+            string donor = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "where.exe");
+            if (!File.Exists(donor)) { T.Skip("storage: a file held open by seeding still starts", "where.exe not found"); return; }
+
+            string dir = Fx.MakeDir(Fx.Root, "bt-seed-launch");
+            List<BtFxFile> files = new List<BtFxFile> { new BtFxFile(File.ReadAllBytes(donor), "bin", "game.exe") };
+            BtMeta meta = BtMeta.Parse(BtFx.Build("game", files, 32768, 1, false, null), out err);
+            if (meta == null) { T.Check("storage: seeding fixture parses", false, err); return; }
+
+            BtStorage st = new BtStorage(meta, dir, "game");
+            BtBitfield have = new BtBitfield(meta.PieceCount);
+            byte[] buf = new byte[meta.PieceLength];
+            string writeErr = null;
+            for (int p = 0; p < meta.PieceCount; p++)
+            {
+                byte[] piece = BtFx.PieceBytes(meta, files, p);
+                writeErr = writeErr ?? st.Write(p, 0, piece, 0, piece.Length);
+                have[p] = st.CheckPiece(p, buf);
+            }
+            List<string> renameErrors = new List<string>();
+            for (int p = 0; p < meta.PieceCount; p++) renameErrors.AddRange(st.PieceVerified(p, have));
+            string exe = st.FinalPath(0);
+            T.Check("storage: the donor exe downloads, verifies and gets its final name",
+                    writeErr == null && have.All && renameErrors.Count == 0 && File.Exists(exe),
+                    writeErr + " " + string.Join("; ", renameErrors.ToArray()));
+
+            // Отдача куска пиру — именно этот путь кладёт хендл файла в кэш хранилища.
+            byte[] served = new byte[meta.PieceSize(0)];
+            string readErr = st.Read(0, 0, served, 0, served.Length);
+            T.Check("storage: the seeded piece reads back byte-identical",
+                    readErr == null && Bencode.SameBytes(served, BtFx.PieceBytes(meta, files, 0)), readErr);
+
+            // Без этого запуск ниже мог бы позеленеть просто оттого, что файл давно никто не держит.
+            bool held = false;
+            try { using (new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.None)) { } }
+            catch (IOException) { held = true; }
+            T.Check("storage: the seeding handle is really still open (else the launch proves nothing)", held);
+
+            int launchError = 0;
+            try
+            {
+                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(exe);
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                psi.RedirectStandardOutput = true;
+                psi.RedirectStandardError = true;
+                using (System.Diagnostics.Process proc = System.Diagnostics.Process.Start(psi))
+                {
+                    proc.StandardOutput.ReadToEnd();
+                    proc.StandardError.ReadToEnd();
+                    proc.WaitForExit(20000);
+                }
+            }
+            catch (System.ComponentModel.Win32Exception ex) { launchError = ex.NativeErrorCode; }
+            T.Check("storage: a file held open by seeding still starts (no ERROR_SHARING_VIOLATION)",
+                    launchError == 0, "CreateProcess error " + launchError);
+
+            st.Dispose();
         }
 
         // ---------- возобновление, очередь диска, битовое поле ----------

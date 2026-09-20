@@ -84,13 +84,17 @@ namespace SysDeck.Capture
     {
         public const string DefaultFont = "Segoe UI";
         public const int MinFontSize = 9, MaxFontSize = 40;
+        public const int MinGraphWidth = 100, MaxGraphWidth = 400;
         public static readonly string[] Fonts = { "Segoe UI", "Bahnschrift", "Consolas", "Arial", "Verdana", "Tahoma" };
 
         public string Font = DefaultFont;
         public int FontSize = 13;
         public bool BoldLabels = true, GroupColors = true, Shadow = true, RowLayout;
         public int Opacity = 75;
-        public string Header;          // строка над строками («● Запись лагов 00:42», «Набор 2»); null — нет
+        // Ширина полосы графика в процентах от обычной. Полоса идёт во всю ширину столбика, поэтому столбик
+        // раздаётся до неё: узкого графика в широком столбике не бывает, а текст остаётся на своих местах.
+        public int GraphWidth = 100;
+        public string Header;        // строка над строками («● Запись лагов 00:42», «Набор 2»); null — нет
         public int HeaderColor;        // ARGB заголовка; 0 — белый
         public bool MoveMode;          // рамка и подсказка «перетащите мышью»
 
@@ -111,6 +115,7 @@ namespace SysDeck.Capture
             st.Shadow = s.HudShadow;
             st.RowLayout = s.HudRowLayout;
             st.Opacity = s.HudOpacity;
+            st.GraphWidth = Math.Max(MinGraphWidth, Math.Min(MaxGraphWidth, s.HudGraphWidth));
             return st;
         }
 

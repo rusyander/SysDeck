@@ -77,10 +77,20 @@ namespace SysDeck.Capture
         }
 
         // ---- столбик: «подпись — значение — мин/сред/макс», график полосой под строкой ----
+        // Во сколько раз шире обычного просит быть полоса графика. Ширина текста от этого не меняется — графику
+        // просто отдают больше места, и столбик раздаётся ровно до него.
+        internal static float GraphWidthFactor(HudStyle style)
+        {
+            int p = style == null ? HudStyle.MinGraphWidth : style.GraphWidth;
+            if (p < HudStyle.MinGraphWidth) p = HudStyle.MinGraphWidth;
+            if (p > HudStyle.MaxGraphWidth) p = HudStyle.MaxGraphWidth;
+            return p / 100f;
+        }
+
         private static Bitmap DrawColumn(List<HudRow> rows, float scale, HudStyle style, Fonts fonts, Graphics mg)
         {
             int pad = (int)(8 * scale), gap = (int)(12 * scale), rowH = (int)Math.Ceiling(fonts.Value.GetHeight() + 4 * scale);
-            int graphW = (int)(140 * scale), maxValueW = (int)(560 * scale);
+            int graphW = (int)(140 * scale * GraphWidthFactor(style)), maxValueW = (int)(560 * scale);
             int labelW = 0, valueW = 0, statsW = 0;
             bool anyGraph = false;
             foreach (HudRow r in rows)
@@ -132,7 +142,7 @@ namespace SysDeck.Capture
         private static Bitmap DrawLine(List<HudRow> rows, float scale, HudStyle style, Fonts fonts, Graphics mg)
         {
             int pad = (int)(8 * scale), gap = (int)(6 * scale), cellGap = (int)(16 * scale);
-            int rowH = (int)Math.Ceiling(fonts.Value.GetHeight() + 4 * scale), graphMin = (int)(90 * scale);
+            int rowH = (int)Math.Ceiling(fonts.Value.GetHeight() + 4 * scale), graphMin = (int)(90 * scale * GraphWidthFactor(style));
             List<int> widths = new List<int>();
             bool anyGraph = false;
             int total = 0;
@@ -557,7 +567,7 @@ namespace SysDeck.Capture
                 if (it.Stats && row.Kind != HudKind.Text && ring != null) row.Stats = Stats(ring, statsFrom, row.Kind);
                 if (HudFormat.Valid(_hz) && _hz > 0)
                 {
-                    if (it.Id == "fps.frametime") row.Target = 1000.0 / _hz;
+                    if (it.Id == "fps.frametime" || it.Id == "fps.screenms") row.Target = 1000.0 / _hz;
                     else if (it.Id == "fps") row.Target = _hz;
                 }
                 if (row.Graph)

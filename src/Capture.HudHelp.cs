@@ -55,6 +55,12 @@ namespace SysDeck.Capture
                 case "fps.frametime": return Tr.S(
                     "Сколько миллисекунд занял кадр: 16,7 мс = 60 FPS, 6,9 мс = 144 FPS. На графике рисуется каждый кадр. Ровная линия — плавно; «пила» и одиночные пики — рывки, даже если средний FPS высокий. Включите «График» — это главный показатель плавности.",
                     "How many milliseconds a frame took: 16.7 ms = 60 FPS, 6.9 ms = 144 FPS. The graph plots every frame. A flat line is smooth; a sawtooth and single spikes are hitches even with a high average FPS. Turn on “Graph” — this is the main smoothness metric.");
+                case "fps.screen": return Tr.S(
+                    "Сколько кадров за последнюю секунду реально ушло на вывод. «Кадров в секунду» считает вызовы игры, а эта строка — кадры, которые приняты на показ: если она заметно ниже, часть кадров пропадает впустую (кадров больше, чем герц, или их съедает композиция).",
+                    "How many frames actually went out to the display in the last second. “Frames per second” counts the game's calls; this row counts the frames accepted for display: noticeably lower means frames are being thrown away (more frames than hertz, or composition eats them).");
+                case "fps.screenms": return Tr.S(
+                    "Время между кадрами НА ВЫВОДЕ. Сравните с графиком «Время кадра»: там пила почти всегда — вызовы Present() гуляют сами по себе и глазом не видны. Здесь разброс обычно меньше, и пила тут — это уже настоящая неровность картинки. Ровная линия на уровне периода монитора (6,1 мс при 165 Гц) — плавно.",
+                    "Time between frames AS THEY GO OUT. Compare it with the “Frame time” graph: a sawtooth there is almost always present — Present() calls jitter on their own and the eye never sees it. Here the spread is usually smaller, and a sawtooth is real unevenness. A flat line at the monitor's period (6.1 ms at 165 Hz) is smooth.");
                 case "fps.low1": return Tr.S(
                     "Средний FPS самого медленного 1 % кадров за последние 30 с. Если он сильно ниже обычного FPS (например, 144 и 60), игра заметно подтормаживает: подгрузка ресурсов, компиляция шейдеров, нехватка памяти или упор в процессор.",
                     "Average FPS of the slowest 1% of frames over the last 30 s. If it is far below the normal FPS (say 144 vs 60), the game visibly hitches: asset streaming, shader compilation, low memory or a CPU bottleneck.");

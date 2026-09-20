@@ -264,6 +264,7 @@ namespace SysDeck.Capture
         public bool Elevated, Shown;
         public string Hwinfo = "";       // состояние HwinfoHost.State
         public string Fps = "";          // состояние сессии кадров HudEtwSession.State
+        public string Etw = "";          // «событий/процессов с кадрами/токенов/выведено» — видно, где рвётся цепочка
         public string Afterburner = "";  // «номер|слот|ok» или «номер|слот|текст ошибки» — итог последней команды AfterburnerN
         public string Lag = "";          // «rec|папка», «done|путь к report.md», «error|причина»; пусто — записи не было
         public string Note = "";
@@ -280,6 +281,7 @@ namespace SysDeck.Capture
                 sb.Append("shown=").Append(s.Shown ? "1" : "0").Append('\n');
                 sb.Append("hwinfo=").Append(s.Hwinfo).Append('\n');
                 sb.Append("fps=").Append(s.Fps).Append('\n');
+                sb.Append("etw=").Append(s.Etw ?? "").Append('\n');
                 sb.Append("afterburner=").Append((s.Afterburner ?? "").Replace('\n', ' ')).Append('\n');
                 sb.Append("lag=").Append((s.Lag ?? "").Replace('\n', ' ')).Append('\n');
                 sb.Append("note=").Append((s.Note ?? "").Replace('\n', ' ')).Append('\n');
@@ -306,6 +308,7 @@ namespace SysDeck.Capture
                     else if (k == "shown") s.Shown = v == "1";
                     else if (k == "hwinfo") s.Hwinfo = v;
                     else if (k == "fps") s.Fps = v;
+                    else if (k == "etw") s.Etw = v;
                     else if (k == "afterburner") s.Afterburner = v;
                     else if (k == "lag") s.Lag = v;
                     else if (k == "note") s.Note = v;
@@ -827,6 +830,7 @@ namespace SysDeck.Capture
             s.Shown = _hud.Visible;
             s.Hwinfo = _hwinfo.State;
             s.Fps = _hud.Visible ? HudFpsSource.LastState : HudEtwSession.StateOff;
+            s.Etw = HudFpsSource.LastCounters;
             s.Note = _hwinfo.Note;
             s.Afterburner = _abResult;
             s.Lag = _lagStatus;

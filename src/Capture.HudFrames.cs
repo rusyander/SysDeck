@@ -181,9 +181,18 @@ namespace SysDeck.Capture
 
         private readonly object _gate = new object();
         private readonly List<Series> _series = new List<Series>();
-        private long _latest;
+        private long _latest, _deliveredAt;
 
         public long Latest { get { lock (_gate) return _latest; } }
+
+        // Когда буфер с событиями дошёл до нас (настоящее время, не метка внутри события). Отличает «данные
+        // отстают» от «кадров нет»: пока доставка идёт, отставание меток — наша задержка, а не остановка вывода.
+        public long DeliveredAt { get { lock (_gate) return _deliveredAt; } }
+
+        public void Delivered(long qpcNow)
+        {
+            lock (_gate) if (qpcNow > _deliveredAt) _deliveredAt = qpcNow;
+        }
 
         public void Seen(long qpc)
         {
@@ -415,13 +424,14 @@ namespace SysDeck.Capture
 
         private const int ErrorAccessDenied = 5, ErrorAlreadyExists = 183;
         private const uint WnodeFlagTracedGuid = 0x00020000, RealTimeMode = 0x100, ControlStop = 1, EnableProvider = 1;
-        private const uint ProcessTraceRealTime = 0x100, ProcessTraceEventRecord = 0x10000000;
+        private const uint ProcessTraceRealTime = 0x100, ProcessTraceEventRecord = 0x10000000, ProcessTraceRawTimestamp = 0x1000;
         private const int PropsSize = 120, NameChars = 256, LogfileSize = 448;
         private static readonly ulong InvalidHandle = ulong.MaxValue;
 
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         private delegate void EventRecordCallback(IntPtr record);
 
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] private static extern int QueryAllTracesW(IntPtr[] props, int count, ref int found);
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] private static extern int StartTraceW(out ulong handle, string name, IntPtr props);
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode)] private static extern int ControlTraceW(ulong handle, string name, IntPtr props, uint code);
         [DllImport("advapi32.dll")] private static extern int EnableTraceEx2(ulong handle, ref Guid provider, uint code, byte level,
@@ -431,6 +441,7 @@ namespace SysDeck.Capture
         [DllImport("advapi32.dll")] private static extern int CloseTrace(ulong handle);
 
         public readonly HudPresentTracker Tracker = new HudPresentTracker();
+        public readonly HudFlipTracker Flips = new HudFlipTracker();
         public readonly string Name;
         private ulong _session, _trace = InvalidHandle;
         private IntPtr _logfile, _nameBuf;
@@ -442,15 +453,72 @@ namespace SysDeck.Capture
 
         public HudEtwSession(string name) { Name = name; }
 
+        // Имя несёт номер процесса: две сессии реального времени на одних и тех же поставщиках мешают друг другу —
+        // живая перестаёт получать события, оставаясь «ok» (поймано 20.09.2026: после нескольких убийств программы
+        // счётчик событий стоял на нуле, пока брошенные сессии не были остановлены). Номер даёт два свойства:
+        // столкнуться с чужой сессией нельзя, а брошенную видно по мёртвому процессу — её и убирают при запуске.
+        public const string NamePrefix = "SysDeck Frames ";
+
         public static string DefaultName()
         {
             string role = HudMode.IsHudProcess ? "HUD" : Process.GetCurrentProcess().ProcessName;
-            return "SysDeck Frames (" + role + ")";
+            return NamePrefix + "(" + role + ") " + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // Номер процесса из имени сессии; 0 — имя не наше или без номера.
+        internal static int OwnerPid(string name)
+        {
+            if (name == null || !name.StartsWith(NamePrefix, StringComparison.Ordinal)) return 0;
+            int space = name.LastIndexOf(' ');
+            int pid;
+            if (space < 0 || !int.TryParse(name.Substring(space + 1), NumberStyles.None, CultureInfo.InvariantCulture, out pid)) return 0;
+            return pid;
+        }
+
+        // Жив ли хозяин сессии. Номер мог достаться другой программе, поэтому проверяется и имя процесса.
+        internal static bool OwnerAlive(int pid)
+        {
+            if (pid <= 0) return false;
+            try
+            {
+                Process p = Process.GetProcessById(pid);
+                return p != null && string.Equals(p.ProcessName, "SysDeck", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        // Сессии, брошенные прежними запусками: их никто не читает, но поставщиков они держат.
+        internal static int StopAbandoned()
+        {
+            const int max = 128;
+            IntPtr[] slots = new IntPtr[max];
+            int stopped = 0;
+            try
+            {
+                for (int i = 0; i < max; i++) slots[i] = Props(null);
+                int found = 0;
+                if (QueryAllTracesW(slots, max, ref found) != 0 && found <= 0) return 0;
+                if (found > max) found = max;
+                for (int i = 0; i < found; i++)
+                {
+                    int at = Marshal.ReadInt32(slots[i], 116);              // LoggerNameOffset
+                    if (at <= 0 || at >= PropsSize + NameChars * 2) continue;
+                    string name = Marshal.PtrToStringUni(new IntPtr(slots[i].ToInt64() + at));
+                    int pid = OwnerPid(name);
+                    if (pid == 0 || OwnerAlive(pid)) continue;
+                    StopByName(name);
+                    stopped++;
+                }
+            }
+            catch (Exception ex) { CapLog.Report(ex); }
+            finally { for (int i = 0; i < max; i++) if (slots[i] != IntPtr.Zero) Marshal.FreeHGlobal(slots[i]); }
+            return stopped;
         }
 
         public bool Start()
         {
             if (IntPtr.Size != 8) { State = State32Bit; return false; }
+            StopAbandoned();
             int rc = StartSession();
             if (rc == ErrorAlreadyExists)
             {
@@ -495,13 +563,23 @@ namespace SysDeck.Capture
             return true;
         }
 
+        // RAW_TIMESTAMP обязателен для сессии реального времени: без него ETW переводит метку события в FILETIME
+        // (100 нс от 1601 года), и она перестаёт сравниваться с Stopwatch.GetTimestamp(). Частоты совпадают (обе
+        // 10 МГц), поэтому разности кадров считались верно, а всё, что сравнивало метку с «сейчас», молча ломалось:
+        // запись лагов писала в отчёт время от 1601 года, а проверка «кадры ещё идут» не срабатывала никогда.
+        // У файла .etl своя точка отсчёта, там «сырая» метка не нужна.
+        internal static uint LogfileMode(bool realTime)
+        {
+            return (realTime ? ProcessTraceRealTime | ProcessTraceRawTimestamp : 0) | ProcessTraceEventRecord;
+        }
+
         // EVENT_TRACE_LOGFILEW (x64, 448 байт): имя сессии или файла, режим, EventRecordCallback.
         private static IntPtr Logfile(IntPtr name, bool realTime, EventRecordCallback callback)
         {
             IntPtr p = Marshal.AllocHGlobal(LogfileSize);
             Zero(p, LogfileSize);
             Marshal.WriteIntPtr(p, realTime ? 8 : 0, name);                                     // LoggerName / LogFileName
-            Marshal.WriteInt32(p, 28, unchecked((int)((realTime ? ProcessTraceRealTime : 0) | ProcessTraceEventRecord)));
+            Marshal.WriteInt32(p, 28, unchecked((int)LogfileMode(realTime)));
             Marshal.WriteIntPtr(p, 424, Marshal.GetFunctionPointerForDelegate(callback));       // EventRecordCallback
             return p;
         }
@@ -571,6 +649,7 @@ namespace SysDeck.Capture
             try
             {
                 EventsSeen++;
+                Tracker.Delivered(Stopwatch.GetTimestamp());
                 int pid, layer; ulong key; long qpc;
                 if (HudPresentEvents.Decode(rec, out pid, out layer, out key, out qpc))
                 {
@@ -578,6 +657,9 @@ namespace SysDeck.Capture
                     HudPresentEvents.Details(rec, Tracker);
                 }
                 else Tracker.Seen(qpc);
+                // PresentHistoryDetailed (215) — сразу и кадр, и начало цепочки вывода, поэтому разбор вывода
+                // идёт по всем событиям, а не только по тем, что не стали кадром.
+                HudFlipEvents.Handle(rec, Flips);
             }
             catch { }
         }
@@ -623,6 +705,11 @@ namespace SysDeck.Capture
         // Последнее состояние сессии этого процесса — для строки состояния на странице «Оверлей».
         public static string LastState = HudEtwSession.StateOff;
 
+        // «событий/процессов с кадрами/токенов/выведено/отставание доставки, мс»: по первым четырём сразу видно,
+        // на каком звене обрывается цепочка — сессия молчит, кадры не разбираются или не привязываются к процессу;
+        // последнее — насколько метки событий отстают от настоящего времени (норма 1,5–2 с, см. FrameNow).
+        public static string LastCounters = "";
+
         public HudFpsSource() { PeriodMs = 250; }
 
         public override string Name { get { return "ETW"; } }
@@ -646,7 +733,31 @@ namespace SysDeck.Capture
                 _retryAt = Environment.TickCount + RetryMs;
                 if (_etw.State != HudEtwSession.StateOk) return;
             }
-            Put(f, _etw.Tracker, HudProcTree.ForegroundPid(), Stopwatch.GetTimestamp(), Stopwatch.Frequency, HudProcTree.Parents());
+            long freq = Stopwatch.Frequency;
+            long fresh = _etw.Tracker.Latest;
+            long lagMs = fresh > 0 ? (Stopwatch.GetTimestamp() - fresh) * 1000 / freq : -1;
+            LastCounters = _etw.EventsSeen.ToString(CultureInfo.InvariantCulture) + "/"
+                         + _etw.Tracker.Pids().Count.ToString(CultureInfo.InvariantCulture) + "/"
+                         + _etw.Flips.Queued.ToString(CultureInfo.InvariantCulture) + "/"
+                         + _etw.Flips.Shown.ToString(CultureInfo.InvariantCulture) + "/"
+                         + lagMs.ToString(CultureInfo.InvariantCulture);
+            Put(f, _etw.Tracker, HudProcTree.ForegroundPid(), Stopwatch.GetTimestamp(), freq, HudProcTree.Parents());
+            PutDisplayed(f, _etw.Flips, LastFramesPid, FrameNow(_etw.Tracker, freq), freq);
+        }
+
+        // Кадры, дошедшие до развёртки. Считаются той же математикой, что и вызовы Present, — разница между двумя
+        // строками и есть ответ на вопрос «пила у меня в игре или только в вызовах».
+        internal static void PutDisplayed(HudFrame f, HudFlipTracker flips, int pid, long now, long freq)
+        {
+            if (flips == null || pid <= 0) return;
+            long[] ts = flips.Pick(pid);
+            if (ts == null) return;
+            HudFpsResult r = HudFrameMath.Compute(ts, ts.Length, now, freq);
+            if (!HudFormat.Valid(r.Fps)) return;
+            f.Put("fps.screen", HudKind.Fps, r.Fps);
+            HudValue ms = new HudValue("fps.screenms", HudKind.Ms, r.FrameMs);
+            ms.Series = r.Series;
+            f.Put(ms);
         }
 
         // Отдельно от сессии — для тестов на синтетических кадрах (дерево процессов пустое).
@@ -658,10 +769,7 @@ namespace SysDeck.Capture
         internal void Put(HudFrame f, HudPresentTracker tracker, int pid, long qpcNow, long freq, IDictionary<int, int> parents)
         {
             if (pid <= 0) return;
-            // «Сейчас» — метка самого свежего события, если оно недавнее: буферы ETW приходят с задержкой, и без
-            // этого последняя секунда всегда выглядела бы полупустой.
-            long latest = tracker.Latest;
-            long now = latest > 0 && qpcNow - latest < freq * 3 / 2 ? latest : qpcNow;
+            long now = FrameNow(tracker, qpcNow, freq);
             long drop = now - (long)(HudFrameMath.StutterWindowSec * freq);
             long[] ts = tracker.Pick(pid, now, freq, drop);
             // Браузеры и Electron выводят кадры не из процесса окна, а из дочернего GPU-процесса — берём самого
@@ -693,12 +801,18 @@ namespace SysDeck.Capture
             bool api = info != null && info.Api != null && now - info.ApiAt < 2 * freq;
             if (!api) f.PutText("fps.api", Tr.S("OpenGL / Vulkan / другое", "OpenGL / Vulkan / other"));
             else f.PutText("fps.api", info.Api == HudPresentInfo.ApiDxgi ? "DXGI (Direct3D 10–12)" : "Direct3D 9");
+            bool modelKnown = info != null && info.ModelSeenAnyAt > 0 && now - info.ModelSeenAnyAt <= 10 * freq;
+            bool composed = modelKnown && info.Model >= 0 && now - info.ModelAt < 2 * freq;
             if (api && info.Api == HudPresentInfo.ApiDxgi && info.Sync >= 0)
                 f.PutText("fps.vsync", info.Sync > 0
                     ? (info.Sync == 1 ? Tr.S("вкл", "on") : Tr.S("вкл, каждый ", "on, every ") + info.Sync.ToString(CultureInfo.InvariantCulture) + Tr.S("-й", "th"))
-                    : info.Tearing ? Tr.S("выкл, с разрывами", "off, tearing allowed") : Tr.S("выкл", "off"));
-            if (info == null || info.ModelSeenAnyAt <= 0 || now - info.ModelSeenAnyAt > 10 * freq) return;
-            bool composed = info.Model >= 0 && now - info.ModelAt < 2 * freq;
+                    // Разрешить разрывы игра может всегда, но увидеть их можно только когда кадр идёт на экран
+                    // напрямую: собранный DWM кадр не рвётся, и писать «с разрывами» про него — врать.
+                    : !info.Tearing ? Tr.S("выкл", "off")
+                    : composed ? Tr.S("выкл, но кадр собирает DWM — разрывов нет", "off, but DWM composes — no tearing")
+                    : modelKnown ? Tr.S("выкл, с разрывами", "off, tearing")
+                    : Tr.S("выкл, разрывы разрешены", "off, tearing allowed"));
+            if (!modelKnown) return;
             if (!composed) f.PutText("fps.presentmode", Tr.S("напрямую, без DWM", "direct, no DWM"));
             else if (HudPresentInfo.FlipModel(info.Model)) f.PutText("fps.presentmode", Tr.S("через DWM, обмен", "via DWM, flip"));
             else if (HudPresentInfo.CopyModel(info.Model)) f.PutText("fps.presentmode", Tr.S("через DWM, копирование", "via DWM, copy"));
@@ -750,6 +864,74 @@ namespace SysDeck.Capture
                 catch { _name = pid.ToString(); }
             }
             return _name;
+        }
+
+        internal static string NameOf(int pid)
+        {
+            try { using (Process p = Process.GetProcessById(pid)) return p.ProcessName; }
+            catch { return pid.ToString(CultureInfo.InvariantCulture); }
+        }
+
+        // Доставка считается живой, пока события приходили не дольше этого назад (настоящее время, не метки).
+        internal const double DeliveryStallSec = 2;
+
+        // «Сейчас» по часам кадров. Буферы ETW доходят с задержкой — на живой машине это 1,5–2 с, — поэтому
+        // отсчитывать последнюю секунду от настоящего времени нельзя: она всегда оказывалась бы пустой, и при
+        // ровных 120 кадрах FPS падал бы в ноль. Пока события идут, «сейчас» — метка самого свежего из них:
+        // отставание меток общее для всех процессов и на разнице кадров не сказывается. Замолчала сама доставка
+        // (не выводит никто) — считаем от настоящего времени, и затихший процесс честно уходит в ноль.
+        internal static long FrameNow(HudPresentTracker tracker, long qpcNow, long freq)
+        {
+            long latest = tracker.Latest, at = tracker.DeliveredAt;
+            bool live = at > 0 && qpcNow - at < (long)(DeliveryStallSec * freq);
+            return latest > 0 && live ? latest : qpcNow;
+        }
+
+        private long FrameNow(HudPresentTracker tracker, long freq)
+        {
+            return FrameNow(tracker, Stopwatch.GetTimestamp(), freq);
+        }
+
+        private HudPresentTracker Live
+        {
+            get { return _etw != null && _etw.State == HudEtwSession.StateOk ? _etw.Tracker : null; }
+        }
+
+        // Метки кадров конкретного процесса — запись лагов держится за выбранную цель, а не за активное окно.
+        internal long[] FramesOf(int pid)
+        {
+            HudPresentTracker t = Live;
+            if (t == null || pid <= 0) return null;
+            long freq = Stopwatch.Frequency;
+            long now = FrameNow(t, freq);
+            return t.Pick(pid, now, freq, now - (long)(HudFrameMath.StutterWindowSec * freq));
+        }
+
+        // Кого мерить: активное окно, если оно (или его GPU-потомок) выводит кадры; иначе самый частый источник
+        // кадров в системе — игра на другом экране. 0 — кадров не выводит никто.
+        internal int PresentingPid(int foreground)
+        {
+            HudPresentTracker t = Live;
+            if (t == null) return 0;
+            long freq = Stopwatch.Frequency;
+            long now = FrameNow(t, freq);
+            long drop = now - (long)(HudFrameMath.StutterWindowSec * freq);
+            if (foreground > 0)
+            {
+                if (t.Pick(foreground, now, freq, drop) != null) return foreground;
+                int child;
+                if (PickDescendant(t, foreground, now, freq, drop, HudProcTree.Parents(), out child) != null) return child;
+            }
+            int best = 0, bestCount = -1;
+            foreach (int pid in t.Pids())
+            {
+                long[] ts = t.Pick(pid, now, freq, drop);
+                if (ts == null) continue;
+                int c = 0;
+                for (int i = ts.Length - 1; i >= 0 && ts[i] >= now - freq; i--) c++;
+                if (c > bestCount) { best = pid; bestCount = c; }
+            }
+            return bestCount > 0 ? best : 0;
         }
 
         public override void Dispose()

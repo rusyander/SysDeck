@@ -50,7 +50,9 @@ window or Capture's background process is running, and comes back if it was on.
   highlighting” turns colour by level off for the row. A row in the red gets a red mark on the left; FPS draws its
   target as a dotted line on the graph.
 - **Common settings:** position (four corners, middle left or right, top or bottom centre, custom; top right by
-  default), monitor, background opacity, column size, graph window (30 s to 10 min), min/avg/max window (the graph
+  default), monitor, background opacity, column size, graph window (30 s to 10 min), **graph width** (100–400 %:
+  a graph spans the whole column width, so the column grows to fit it — numbers and labels keep their size and it
+  is the graph that gets wider), min/avg/max window (the graph
   window or 30 s to 10 min; reset with `Ctrl+Alt+R`) and “Visible in own screenshots and videos” (off by default:
   Capture's own shots and recordings do not see the column).
 - **Drag with the mouse.** The button frames the column and lets it catch the mouse for the moment: drag and
@@ -79,7 +81,9 @@ window or Capture's background process is running, and comes back if it was on.
   Electron programs present from a child GPU process — its frames are counted then, and the row keeps the window's program name. Rows: frames
   per second (over the last second), frame time (average over 0.25 s), 1 % and 0.1 % lows (average of the longest
   frames over 30 s, as FPS), stutters per minute (a frame of at least 25 ms and 2.5× the median of the previous
-  ones) and the program name. The frame-time graph is drawn per frame — the sawtooth, dips and single long frames
+  ones) and the program name. Two more rows — “On screen” and “Screen”: how many frames reached the scanout and how
+  long between them. A Present() call and the frame being shown are different events, so a sawtooth in “Frame time”
+  with a steady “Screen” is jitter of the calls and is invisible to the eye. The frame-time graph is drawn per frame — the sawtooth, dips and single long frames
   are visible. When Afterburner has RTSS on and own frames are not counted, the rows take its numbers.
 - **Rights for frame counting.** Windows allows an ETW session to administrators and the “Performance Log Users”
   group. The column with administrator rights counts frames right away. Without rights the page shows “Allow frame
@@ -99,8 +103,9 @@ the recording (it stops by itself after 2 hours); meanwhile “● Lag recording
 `Documents\SysDeck\Lag reports\<date>_<game>\`, opened by itself afterwards (“Lag reports” opens
 the parent folder):
 
-- `report.md` — an English summary meant to be handed to an AI or read yourself: average FPS, 1 % and 0.1 % lows,
-  stutter count, a table of the longest frames with what the system was doing in that second (load, temperatures,
+- `report.md` — an English summary meant to be handed to an AI or read yourself: average FPS, 1 % and 0.1 % lows
+  (with a line saying they are averages of the slowest frames, how many were taken, and the same data as
+  percentiles), stutter count, a table of the longest frames with what the system was doing in that second (load, temperatures,
   hard page faults, the culprit process) and hints about what was found;
 - `frames.csv` — every frame time, `system.csv` — per-second metrics, `processes.csv` — the busiest processes per
   second, `events.csv` — foreground window

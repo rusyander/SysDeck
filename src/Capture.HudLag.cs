@@ -25,6 +25,7 @@ namespace SysDeck.Capture
         internal static readonly string[][] SystemColumns =
         {
             new[] { "fps", "fps" }, new[] { "fps.low1", "fps_low1" }, new[] { "fps.frametime", "frametime_ms" },
+            new[] { "fps.screen", "screen_fps" }, new[] { "fps.screenms", "screen_ms" },
             new[] { "cpu.load", "cpu_load_pct" }, new[] { "cpu.coremax", "cpu_top_core_pct" }, new[] { "cpu.perflimit", "cpu_perf_limit_pct" },
             new[] { "cpu.temp", "cpu_temp_c" }, new[] { "cpu.power", "cpu_power_w" },
             new[] { "gpu.load", "gpu_load_pct" }, new[] { "gpu.temp", "gpu_temp_c" }, new[] { "gpu.hotspot", "gpu_hotspot_c" },
@@ -51,16 +52,22 @@ namespace SysDeck.Capture
         private readonly long _startQpc = Stopwatch.GetTimestamp();
         private readonly string _game;
         private StreamWriter _frames, _system, _procs, _events;
-        private long _lastQpc;
-        private int _lastPid;
+        // Последняя записанная метка по процессу. Источник отдаёт всё своё кольцо (минуты до нажатия кнопки),
+        // поэтому курсор начинается с момента старта записи: старше — не наши кадры.
+        private readonly Dictionary<int, long> _cursor = new Dictionary<int, long>();
         private double _lastSystemT = -10, _lastProcT = -10;
         internal readonly List<float> FrameMs = new List<float>();
         internal readonly List<double> FrameT = new List<double>();
+        internal readonly List<int> FramePid = new List<int>();
         internal readonly List<SysRow> Rows = new List<SysRow>();
         internal readonly List<ProcRow> Procs = new List<ProcRow>();
         internal readonly List<EventRow> Events = new List<EventRow>();
         private string _lastApp, _lastThrottle;
         private bool _limited;
+        // Цель записи — процесс, чьи кадры идут в сводку. Выбирается один раз и больше не меняется: уход в другое
+        // окно не должен обрывать запись игры. 0 — цели ещё нет (кадров никто не выводит), пишем активное окно.
+        internal int TargetPid;
+        internal string TargetName;
         private readonly HudProcSampler _sampler = new HudProcSampler();
         private HashSet<int> _knownPids;
 
@@ -143,6 +150,9 @@ namespace SysDeck.Capture
             return w;
         }
 
+        // Метка начала записи по часам кадров (тот же QPC, что и в метках событий ETW) — граница «наши кадры».
+        internal long StartQpc { get { return _startQpc; } }
+
         public TimeSpan Elapsed { get { return DateTime.Now - Started; } }
 
         public bool Expired { get { return Elapsed.TotalMinutes >= MaxMinutes; } }
@@ -179,20 +189,42 @@ namespace SysDeck.Capture
         public void Sample(HudFrame frame, HudCollector collector)
         {
             double t = Now();
-            if (collector != null && collector.Fps != null) AddFrames(collector.Fps.LastFrames, collector.Fps.LastFramesPid, collector.Fps.LastFreq);
+            HudFpsSource fps = collector != null ? collector.Fps : null;
+            if (fps != null)
+            {
+                if (TargetPid <= 0) PickTarget(fps);
+                // Цель выбрана — кадры берём у неё, а не у активного окна: свернуть игру и смотреть браузер можно,
+                // запись при этом продолжает мерить игру.
+                if (TargetPid > 0) AddFrames(fps.FramesOf(TargetPid), TargetPid, Stopwatch.Frequency);
+                else AddFrames(fps.LastFrames, fps.LastFramesPid, fps.LastFreq);
+            }
             if (t - _lastSystemT >= 1) { _lastSystemT = t; AddSystem(frame, t); }
             if (t - _lastProcT >= 2) { _lastProcT = t; AddProcesses(t); }
         }
 
+        // Кто выводит кадры: сперва активное окно (нажали кнопку прямо в игре), иначе самый частый источник кадров
+        // в системе — игра на другом экране или в свёрнутом окне. Никто не выводит — цели пока нет.
+        private void PickTarget(HudFpsSource fps)
+        {
+            int pid = fps.PresentingPid(HudProcTree.ForegroundPid());
+            if (pid <= 0) return;
+            TargetPid = pid;
+            TargetName = HudFpsSource.NameOf(pid);
+            Event("target", Tr.S("кадры считаются для ", "frames measured for ") + (TargetName ?? "pid")
+                            + " (" + pid.ToString(CultureInfo.InvariantCulture) + ")");
+        }
+
         internal void AddFrames(long[] ts, int pid, long freq)
         {
-            if (ts == null || ts.Length == 0 || freq <= 0) return;
-            if (pid != _lastPid) { _lastPid = pid; _lastQpc = 0; }
+            if (ts == null || ts.Length == 0 || freq <= 0 || pid <= 0) return;
+            long cursor;
+            if (!_cursor.TryGetValue(pid, out cursor)) cursor = _startQpc;
             for (int i = 0; i < ts.Length; i++)
             {
-                if (ts[i] <= _lastQpc) continue;
-                long prev = i > 0 && ts[i - 1] > 0 ? Math.Max(ts[i - 1], _lastQpc) : _lastQpc;
-                if (prev > 0 && FrameMs.Count < MaxFrames)
+                if (ts[i] <= cursor) continue;
+                long prev = i > 0 ? Math.Max(ts[i - 1], cursor) : cursor;
+                // Предшественник — сам момент старта, а не кадр: интервал мерить не по чему, только двигаем курсор.
+                if (prev > _startQpc && FrameMs.Count < MaxFrames)
                 {
                     double ms = (ts[i] - prev) * 1000.0 / freq;
                     double at = (ts[i] - _startQpc) / (double)freq;
@@ -200,11 +232,13 @@ namespace SysDeck.Capture
                     {
                         FrameMs.Add((float)ms);
                         FrameT.Add(at);
+                        FramePid.Add(pid);
                         if (_frames != null) _frames.WriteLine(F(at) + "," + ms.ToString("0.###", CultureInfo.InvariantCulture) + "," + pid.ToString(CultureInfo.InvariantCulture));
                     }
                 }
-                _lastQpc = ts[i];
+                cursor = ts[i];
             }
+            _cursor[pid] = cursor;
         }
 
         internal void AddSystem(HudFrame frame, double t)
@@ -400,45 +434,75 @@ namespace SysDeck.Capture
 
         internal sealed class Summary
         {
-            public int Frames;
-            public double Seconds, AvgFps, Low1, Low01, MedianMs, MaxMs;
+            public int Frames, Low1Frames, Low01Frames;
+            public double Seconds, AvgFps, Low1, Low01, MedianMs, MaxMs, P99Fps, P999Fps;
             public List<Hitch> Hitches = new List<Hitch>();
         }
 
         // Фриз — кадр дольше и 2,5 медианы, и медианы плюс 16 мс (одного пропущенного кадра на 60 Гц мало, чтобы заметить).
-        internal static Summary Analyze(IList<float> ms, IList<double> t)
+        // target — процесс, по которому считается сводка; кадры остальных в неё не идут: одна свёрнутая программа,
+        // рисующая кадр в секунду, иначе утаскивала за собой и средний FPS, и «худший 1 %», и список фризов.
+        internal static Summary Analyze(IList<float> ms, IList<double> t, IList<int> pid, int target)
         {
             Summary s = new Summary();
-            s.Frames = ms.Count;
-            if (ms.Count < 2) return s;
-            double[] sorted = new double[ms.Count];
+            List<double> keep = new List<double>();
+            List<double> at = new List<double>();
+            for (int i = 0; i < ms.Count; i++)
+            {
+                if (target > 0 && pid != null && i < pid.Count && pid[i] != target) continue;
+                keep.Add(ms[i]);
+                at.Add(t != null && i < t.Count ? t[i] : 0);
+            }
+            s.Frames = keep.Count;
+            if (keep.Count < 2) return s;
+            double[] sorted = keep.ToArray();
             double total = 0;
-            for (int i = 0; i < ms.Count; i++) { sorted[i] = ms[i]; total += ms[i]; }
+            foreach (double v in keep) total += v;
             Array.Sort(sorted);
             s.Seconds = total / 1000.0;
-            s.AvgFps = ms.Count / Math.Max(0.001, s.Seconds);
+            s.AvgFps = keep.Count / Math.Max(0.001, s.Seconds);
             s.MedianMs = sorted[sorted.Length / 2];
             s.MaxMs = sorted[sorted.Length - 1];
             s.Low1 = 1000.0 / WorstMean(sorted, 0.01);
             s.Low01 = 1000.0 / WorstMean(sorted, 0.001);
+            // Сколько кадров попало в «худший 1 %» и во сколько FPS обращается один кадр на том же месте ряда:
+            // среднее по хвосту и сам хвостовой кадр расходятся в разы, и по отчёту должно быть видно, что это разные числа.
+            s.Low1Frames = WorstCount(sorted.Length, 0.01);
+            s.Low01Frames = WorstCount(sorted.Length, 0.001);
+            s.P99Fps = 1000.0 / Percentile(sorted, 0.99);
+            s.P999Fps = 1000.0 / Percentile(sorted, 0.999);
             double limit = Math.Max(s.MedianMs * 2.5, s.MedianMs + 16);
-            for (int i = 0; i < ms.Count; i++)
-                if (ms[i] > limit)
+            for (int i = 0; i < keep.Count; i++)
+                if (keep[i] > limit)
                 {
                     Hitch h = new Hitch();
-                    h.T = t != null && i < t.Count ? t[i] : 0;
-                    h.Ms = ms[i];
+                    h.T = at[i];
+                    h.Ms = keep[i];
                     s.Hitches.Add(h);
                 }
             return s;
         }
 
+        private static int WorstCount(int length, double share)
+        {
+            return Math.Max(1, (int)Math.Round(length * share));
+        }
+
         private static double WorstMean(double[] sorted, double share)
         {
-            int k = Math.Max(1, (int)Math.Round(sorted.Length * share));
+            int k = WorstCount(sorted.Length, share);
             double sum = 0;
             for (int i = sorted.Length - k; i < sorted.Length; i++) sum += sorted[i];
             return sum / k;
+        }
+
+        // Кадр на заданном месте возрастающего ряда — percentile(0,99) это «хуже только у 1 % кадров».
+        private static double Percentile(double[] sorted, double share)
+        {
+            int i = (int)Math.Floor(share * (sorted.Length - 1));
+            if (i < 0) i = 0;
+            if (i > sorted.Length - 1) i = sorted.Length - 1;
+            return sorted[i];
         }
 
         private static string N(double v, string format)
@@ -469,11 +533,15 @@ namespace SysDeck.Capture
 
         public static string Build(HudLagRecorder rec, string game, DateTime started, double seconds)
         {
-            Summary s = Analyze(rec.FrameMs, rec.FrameT);
+            Summary s = Analyze(rec.FrameMs, rec.FrameT, rec.FramePid, rec.TargetPid);
             StringBuilder sb = new StringBuilder();
             sb.Append("# Lag report — ").Append(game).Append('\n').Append('\n');
             sb.Append("Recorded by SysDeck overlay. Start: ").Append(started.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
-              .Append(", length: ").Append(N(seconds, "0")).Append(" s.\n\n");
+              .Append(", length: ").Append(N(seconds, "0")).Append(" s.\n");
+            sb.Append(rec.TargetPid > 0
+                      ? "Frames measured for: " + (rec.TargetName ?? "pid") + " (pid " + rec.TargetPid.ToString(CultureInfo.InvariantCulture)
+                        + "). Other processes in `frames.csv` are listed but not counted in the summary.\n\n"
+                      : "No process was presenting frames, so the summary below has no frame numbers — system and process data was recorded for the whole machine.\n\n");
 
             sb.Append("## Summary\n\n");
             if (s.Frames < 2)
@@ -483,9 +551,24 @@ namespace SysDeck.Capture
                 sb.Append("- Frames: ").Append(s.Frames).Append(", average FPS: ").Append(N(s.AvgFps, "0.0"))
                   .Append(", 1% low: ").Append(N(s.Low1, "0.0")).Append(", 0.1% low: ").Append(N(s.Low01, "0.0")).Append('\n');
                 sb.Append("- Median frame time: ").Append(N(s.MedianMs, "0.00")).Append(" ms, worst: ").Append(N(s.MaxMs, "0.0")).Append(" ms\n");
+                // Что именно означают «низкие» проценты: среднее по хвосту, а не перцентиль. Без этой строки
+                // читатель сравнивает 1 % low со средним FPS и делает вывод о просадках, которых в кадрах нет.
+                sb.Append("- The lows above are tail averages, not percentiles: 1% low is the average of the ")
+                  .Append(s.Low1Frames).Append(" slowest frames out of ").Append(s.Frames)
+                  .Append(", 0.1% low the average of the slowest ").Append(s.Low01Frames)
+                  .Append(". A single long frame therefore moves them on its own. The percentile view of the same data: 99th percentile frame ")
+                  .Append(N(s.P99Fps, "0.0")).Append(" FPS, 99.9th percentile ").Append(N(s.P999Fps, "0.0")).Append(" FPS.\n");
+                sb.Append("- Frames cover ").Append(N(s.Seconds, "0")).Append(" s of the ").Append(N(seconds, "0"))
+                  .Append(" s recording (the rest is time the process presented nothing — alt-tab, loading, menus).\n");
                 sb.Append("- Hitches (frame > max(2.5 × median, median + 16 ms)): ").Append(s.Hitches.Count)
-                  .Append(s.Seconds > 0 ? " (" + N(s.Hitches.Count * 60.0 / s.Seconds, "0.0") + " per minute)" : "").Append('\n');
+                  .Append(s.Seconds > 0 ? " (" + N(s.Hitches.Count * 60.0 / s.Seconds, "0.0") + " per minute of presented frames)" : "").Append('\n');
             }
+            // Кадры на экране против вызовов Present: пила в «Время кадра» при ровном экране — джиттер вызовов,
+            // глазом он не виден. Пила здесь — настоящая неровность картинки.
+            double screen = Mean(rec.Rows, "fps.screen"), screenMs = Mean(rec.Rows, "fps.screenms");
+            if (HudFormat.Valid(screen))
+                sb.Append("- Frames that reached the screen: ").Append(N(screen, "0.0")).Append(" per second, ")
+                  .Append(N(screenMs, "0.00")).Append(" ms between them on average (`fps` above counts Present() calls, which jitter on their own; this line is what the eye sees).\n");
             sb.Append("- Average CPU load ").Append(N(Mean(rec.Rows, "cpu.load"), "0")).Append(" %, busiest core ").Append(N(Mean(rec.Rows, "cpu.coremax"), "0"))
               .Append(" %, GPU load ").Append(N(Mean(rec.Rows, "gpu.load"), "0")).Append(" %, hard faults ").Append(N(Mean(rec.Rows, "ram.hardfaults"), "0")).Append(" pages/s\n\n");
 
@@ -526,7 +609,7 @@ namespace SysDeck.Capture
             }
 
             sb.Append("## Files (for analysis by a person or an AI)\n\n");
-            sb.Append("- `frames.csv` — one row per displayed frame: `t_s` seconds from start, `frametime_ms`, `pid` of the process that presented it.\n");
+            sb.Append("- `frames.csv` — one row per presented frame: `t_s` seconds from the start of the recording, `frametime_ms` since the previous frame of the same process, `pid` of the process that presented it.\n");
             sb.Append("- `system.csv` — one row per second: CPU/GPU load and temperatures, power, memory in MB, `hard_faults_pages_s` (paging from disk), disk and network MB/s, refresh rate, detected bottleneck, present mode, V-Sync, API. Empty cell = the source gave no value.\n");
             sb.Append("- `processes.csv` — every 2 s up to 10 busiest processes: CPU % of all cores, hard faults/s, read/write MB/s, working set MB.\n");
             sb.Append("- `events.csv` — foreground window changes, processes started during recording, CPU frequency caps, GPU throttle reasons.\n\n");

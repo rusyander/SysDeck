@@ -41,6 +41,7 @@ namespace SysDeck
                 _cmbOvOpacity.SelectedIndex = Math.Max(0, CapNearest(OvOpacities, s.HudOpacity));
                 _cmbOvScale.SelectedIndex = Math.Max(0, CapNearest(OvScales, s.HudScale));
                 _cmbOvGraphSec.SelectedIndex = Math.Max(0, CapNearest(OvGraphSeconds, s.HudGraphSeconds));
+                _cmbOvGraphWidth.SelectedIndex = Math.Max(0, CapNearest(OvGraphWidths, s.HudGraphWidth));
                 _cmbOvStatsSec.SelectedIndex = Math.Max(0, CapNearest(OvStatsSeconds, s.HudStatsSeconds));
                 _cmbOvFont.SelectedIndex = Math.Max(0, Array.IndexOf(HudStyle.Fonts, HudStyle.ValidFont(s.HudFont)));
                 _cmbOvFontSize.SelectedIndex = Math.Max(0, CapNearest(OvFontSizes, s.HudFontSize));
@@ -83,6 +84,7 @@ namespace SysDeck
                 s.HudOpacity = OvPick(OvOpacities, _cmbOvOpacity, s.HudOpacity);
                 s.HudScale = OvPick(OvScales, _cmbOvScale, s.HudScale);
                 s.HudGraphSeconds = OvPick(OvGraphSeconds, _cmbOvGraphSec, s.HudGraphSeconds);
+                s.HudGraphWidth = OvPick(OvGraphWidths, _cmbOvGraphWidth, s.HudGraphWidth);
                 s.HudInCaptures = _chkOvInCaptures.Checked;
                 s.HudHwinfo = _chkOvHwinfo.Checked;
                 if (!s.Save()) { OvInfo(Tr.S("Не удалось сохранить настройки — подробности в crash.log папки данных.", "Could not save the settings — see crash.log in the data folder.")); return; }
