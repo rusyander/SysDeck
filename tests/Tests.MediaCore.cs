@@ -25,6 +25,7 @@ namespace SysDeck.Tests
             CoreWrap(dir);
             CoreDiscontinuity(dir);
             CoreFmp4(dir);
+            CoreEditList(dir);
             CoreTracks(dir);
             CoreWebm(dir);
             CoreAuto();

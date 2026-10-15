@@ -123,12 +123,7 @@ namespace SysDeck
         private void DlMdInstall()
         {
             if (_dlMdBusy) return;
-            if (MessageBox.Show(this,
-                    Tr.S("Скачать yt-dlp и Deno с их страниц выпусков на GitHub?\r\n\r\nЭто отдельные программы с открытым исходным кодом; "
-                         + "они не входят в состав этой программы. Контрольная сумма проверяется до первого запуска.",
-                         "Download yt-dlp and Deno from their GitHub release pages?\r\n\r\nThese are separate open-source programs and are not "
-                         + "part of this app. A checksum is verified before either one is ever run."),
-                    Tr.S("Загрузки", "Downloads"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (!DlMdAskInstall(this)) return;
             _dlMdBusy = true;
             _btnDlMdInstall.Enabled = false;
             DlSetInfo(Tr.S("Скачиваю yt-dlp…", "Downloading yt-dlp…"));
@@ -148,6 +143,17 @@ namespace SysDeck
                     DlMdLoadTools();
                 });
             });
+        }
+
+        // Один вопрос для кнопки в настройках и для окна «Видео по ссылке»: ставится только по согласию человека.
+        private static bool DlMdAskInstall(IWin32Window owner)
+        {
+            return MessageBox.Show(owner,
+                    Tr.S("Скачать yt-dlp и Deno с их страниц выпусков на GitHub?\r\n\r\nЭто отдельные программы с открытым исходным кодом; "
+                         + "они не входят в состав этой программы. Контрольная сумма проверяется до первого запуска.",
+                         "Download yt-dlp and Deno from their GitHub release pages?\r\n\r\nThese are separate open-source programs and are not "
+                         + "part of this app. A checksum is verified before either one is ever run."),
+                    Tr.S("Загрузки", "Downloads"), MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
         }
 
         private void DlMdCheckUpdate()

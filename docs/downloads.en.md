@@ -56,9 +56,33 @@ What it can download:
 - **video-site pages** — those need `yt-dlp` (see below).
 
 How to add one:
+- the **"Video by link…"** button — a link to a YouTube, Twitch or other site page, with a choice of quality (see
+  below);
 - in the **Add…** dialog tick **"Download as video"**. For links to `.m3u8` and `.mpd` it is ticked automatically;
 - from the browser — the extension shows the streams it found on the page in its popup, and they can be handed to
   the program from there.
+
+### Video by link
+A window for video-site pages. Paste a link: under the field you see what kind of page it is ("YouTube · a video",
+"Twitch · a clip", "Twitch · a past broadcast"), and `yt-dlp` starts reading it (usually 5–20 seconds). If `yt-dlp`
+is not installed yet, the install button is right in the window.
+
+Once the page is read, the window shows the title, the duration and the **"Quality"** list. It has one row per
+resolution and frame rate — only the variants that assemble into a file without transcoding: MP4 is H.264 or HEVC
+with AAC sound, WebM is VP9 with Opus sound. At the end of the list come **"Audio only"** as M4A and, if Windows has
+an MP3 encoder, as MP3. The **"all formats"** box shows every variant the site offers; for those that cannot be
+assembled the reason appears under the list and the "Download" button stays disabled.
+
+Also in the window: **File** (match the tracks, MP4 or WebM), **Subtitles** (saved as a separate file next to the
+video), **Folder** — as in the "Add…" dialog — and **"Add paused"**. "Download" puts the item into the normal queue.
+
+Limits:
+- **AV1 in MP4** and **YouTube's HLS streams** are not assembled yet — the short list hides them and takes regular
+  variants instead (YouTube has them for almost every resolution);
+- a YouTube **playlist** is not downloaded as a whole — link a specific video;
+- a **Twitch channel that is not live** is reported as such. A past broadcast is downloaded by its recording link
+  (`twitch.tv/videos/…`);
+- a **live broadcast** records until someone stops it: right-click the item → "Stop recording".
 
 What happens next: the program parses the playlist, picks a quality, downloads the pieces (after a break it resumes
 where it stopped instead of starting over), then glues them into one file and checks that it plays. While the

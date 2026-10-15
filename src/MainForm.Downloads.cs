@@ -73,6 +73,8 @@ namespace SysDeck
             paste.Click += delegate { DlPasteLinks(); };
             Button torrent = MkFlowButton(Tr.S("Торрент…", "Torrent…"), 110, false);
             torrent.Click += delegate { DlPickTorrentFiles(); };
+            Button video = MkFlowButton(Tr.S("Видео по ссылке…", "Video by link…"), 170, false);
+            video.Click += delegate { DlShowVideo(""); };
             _btnDlPause = MkFlowButton(Tr.S("Пауза", "Pause"), 90, false);
             _btnDlPause.Click += delegate { DlForSelected("pause", null); };
             _btnDlResume = MkFlowButton(Tr.S("Продолжить", "Resume"), 120, false);
@@ -83,7 +85,7 @@ namespace SysDeck
             pauseAll.Click += delegate { DlSend(DlClient.Command("pauseAll"), Tr.S("Ставлю всё на паузу…", "Pausing everything…"), null); };
             Button resumeAll = MkFlowButton(Tr.S("Продолжить всё", "Resume all"), 150, false);
             resumeAll.Click += delegate { DlSend(DlClient.Command("resumeAll"), Tr.S("Продолжаю всё…", "Resuming everything…"), null); };
-            bar.Controls.AddRange(new Control[] { add, paste, torrent, _btnDlPause, _btnDlResume, _btnDlRemove, pauseAll, resumeAll });
+            bar.Controls.AddRange(new Control[] { add, paste, torrent, video, _btnDlPause, _btnDlResume, _btnDlRemove, pauseAll, resumeAll });
             bar.SetFlowBreak(resumeAll, true);   // второй ряд — скорость и настройки: подпись не отрывается от своего списка
             bar.Controls.Add(MkFlowLabel(Tr.S("Скорость:", "Speed:"), false));
             _cmbDlMode = new RoundComboBox();

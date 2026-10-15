@@ -7,7 +7,7 @@
 // MP3 — единственный случай с перекодированием (декодер MF → кодировщик MP3 MF).
 // Файлы открываются через IMFByteStream с явным типом содержимого: у данных движка расширение «.data», по нему MF
 // формат не угадает. Результат пишется во «<OutPath>.tmp» и переименовывается только после успешного Finalize;
-// при любой ошибке временный файл удаляется, входы не трогаются никогда.
+// при любой ошибке временный файл удаляется, входы не трогаются никогда (обход списков правки читает копию — Media.Mp4Reader.cs).
 // Время на выходе начинается с нуля — вычитается самая ранняя отметка всех дорожек, относительные сдвиги сохраняются.
 using System;
 using System.Collections.Generic;
@@ -664,162 +664,6 @@ namespace SysDeck.Downloads
         public override void Dispose() { _reader.Dispose(); }
     }
 
-    // MP4/fMP4 через IMFSourceReader: сэмплы идут в приёмник без изменений (кроме сдвига времени к нулю).
-    internal sealed class MdReaderSource : MdStreamSource
-    {
-        private const int PrimeSamples = 2000;
-
-        private sealed class Pending { public IntPtr Sample; public int Stream; public long Dts; }
-
-        private readonly string _path;
-        private readonly bool _video, _audio;
-        private IntPtr _bs, _reader;
-        private readonly List<IntPtr> _types = new List<IntPtr>();
-        private readonly List<bool> _isVideo = new List<bool>();
-        private readonly Dictionary<uint, int> _map = new Dictionary<uint, int>();
-        private readonly Queue<Pending> _queue = new Queue<Pending>();
-        private Pending _head;
-        private bool[] _ended;
-        private int _endedCount;
-        private long _first = long.MaxValue;
-        private long _position;
-        private readonly long _length;
-
-        public MdReaderSource(string path, bool video, bool audio)
-        {
-            _path = path;
-            _video = video;
-            _audio = audio;
-            try { _length = new FileInfo(path).Length; }
-            catch (IOException) { _length = 0; }
-        }
-
-        public override bool Prime(out string error)
-        {
-            error = null;
-            _bs = MdMf.OpenRead(_path, "video/mp4");
-            int hr = MdMf.MFCreateSourceReaderFromByteStream(_bs, IntPtr.Zero, out _reader);
-            if (hr < 0) { error = Tr.S("Media Foundation не открыла MP4: ", "Media Foundation could not open the MP4: ") + Path.GetFileName(_path) + " (" + VidCom.Hex(hr) + ")"; return false; }
-            for (uint i = 0; i < 32; i++)
-            {
-                IntPtr type;
-                if (VidCom.Fn<VidCom.DUIntUIntOutPtr>(_reader, 5)(_reader, i, 0, out type) < 0) break;
-                Guid major;
-                MfA.GetGuid(type, MfA.MajorType, out major);
-                bool isVideo = major == MfA.MediaVideo, isAudio = major == MfA.MediaAudio;
-                bool want = (isVideo && _video) || (isAudio && _audio);
-                VidCom.Fn<VidCom.DUIntInt>(_reader, 4)(_reader, i, want ? 1 : 0);
-                if (!want) { VidCom.Rel(ref type); continue; }
-                _map[i] = _types.Count;
-                _types.Add(type);
-                _isVideo.Add(isVideo);
-            }
-            if (_types.Count == 0) { error = Tr.S("В файле нет дорожек нужного вида: ", "No tracks of the requested kind in: ") + Path.GetFileName(_path); return false; }
-            _ended = new bool[_types.Count];
-            bool[] seen = new bool[_types.Count];
-            int seenCount = 0;
-            while (seenCount < _types.Count && _queue.Count < PrimeSamples)
-            {
-                Pending p = Read();
-                if (p == null) break;
-                _queue.Enqueue(p);
-                if (!seen[p.Stream]) { seen[p.Stream] = true; seenCount++; }
-            }
-            if (Error.Length > 0) { error = Error; return false; }
-            foreach (Pending p in _queue) if (p.Dts < _first) _first = p.Dts;
-            if (_first == long.MaxValue) _first = 0;
-            Advance();
-            return true;
-        }
-
-        private Pending Read()
-        {
-            VidCom.DReadSample read = VidCom.Fn<VidCom.DReadSample>(_reader, 9);
-            while (_endedCount < _types.Count)
-            {
-                uint actual, flags;
-                long ts;
-                IntPtr sample;
-                int hr = read(_reader, MdMf.AnyStream, 0, out actual, out flags, out ts, out sample);
-                if (hr < 0 || (flags & 1) != 0)
-                {
-                    VidCom.Rel(ref sample);
-                    Error = Tr.S("Media Foundation не дочитала файл: ", "Media Foundation failed reading: ") + Path.GetFileName(_path) + " (" + VidCom.Hex(hr) + ")";
-                    return null;
-                }
-                int stream;
-                bool known = _map.TryGetValue(actual, out stream);
-                if (sample != IntPtr.Zero)
-                {
-                    if (!known) { VidCom.Rel(ref sample); continue; }
-                    Pending p = new Pending();
-                    p.Sample = sample;
-                    p.Stream = stream;
-                    ulong dts;
-                    long time;
-                    VidCom.Fn<VidCom.DOutLong>(sample, 35)(sample, out time);
-                    p.Dts = MfA.GetU64(sample, MdMf.DecodeTimestamp, out dts) ? Math.Min(time, (long)dts) : time;
-                    uint total;
-                    if (VidCom.Fn<VidCom.DOutUInt>(sample, 45)(sample, out total) >= 0) _position += total;
-                    if ((flags & 2) != 0 && known && !_ended[stream]) { _ended[stream] = true; _endedCount++; }
-                    return p;
-                }
-                if ((flags & 2) != 0 && known && !_ended[stream]) { _ended[stream] = true; _endedCount++; }
-            }
-            return null;
-        }
-
-        private void Advance()
-        {
-            _head = _queue.Count > 0 ? _queue.Dequeue() : Read();
-        }
-
-        public override int Count { get { return _types.Count; } }
-        public override bool IsVideo(int stream) { return _isVideo[stream]; }
-        public override long FirstTime { get { return _first; } }
-        public override bool HasHead { get { return _head != null; } }
-        public override long HeadTime { get { return _head == null ? long.MaxValue : _head.Dts; } }
-        public override int HeadStream { get { return _head == null ? -1 : _head.Stream; } }
-        public override long Position { get { return Math.Min(_position, _length); } }
-
-        public override IntPtr CreateType(int stream)
-        {
-            IntPtr t = _types[stream];
-            Marshal.AddRef(t);
-            return t;
-        }
-
-        public override IntPtr TakeHead(long base100, out long end100)
-        {
-            Pending p = _head;
-            IntPtr sample = p.Sample;
-            p.Sample = IntPtr.Zero;
-            long time, dur;
-            VidCom.Fn<VidCom.DOutLong>(sample, 35)(sample, out time);
-            if (VidCom.Fn<VidCom.DOutLong>(sample, 37)(sample, out dur) < 0) dur = 0;
-            if (base100 != 0)
-            {
-                time -= base100;
-                VidCom.Fn<VidCom.DLong>(sample, 36)(sample, time);
-                ulong dts;
-                if (MfA.GetU64(sample, MdMf.DecodeTimestamp, out dts)) MfA.U64(sample, MdMf.DecodeTimestamp, (ulong)Math.Max(0, (long)dts - base100));
-            }
-            end100 = time + Math.Max(0, dur);
-            Advance();
-            return sample;
-        }
-
-        public override void Dispose()
-        {
-            if (_head != null) VidCom.Rel(ref _head.Sample);
-            while (_queue.Count > 0) { Pending p = _queue.Dequeue(); VidCom.Rel(ref p.Sample); }
-            for (int i = 0; i < _types.Count; i++) { IntPtr t = _types[i]; VidCom.Rel(ref t); }
-            _types.Clear();
-            VidCom.Rel(ref _reader);
-            MdMf.CloseStream(ref _bs);
-        }
-    }
-
     // ------------------------------------------------------------------ //
     //  Запись MP4/M4A: источники по порядку отметок → IMFSinkWriter
     // ------------------------------------------------------------------ //
@@ -967,6 +811,15 @@ namespace SysDeck.Downloads
                 foreach (MdStreamSource s in sources)
                     if (s.Error.Length > 0) { error = s.Error; return false; }
                 if (res.VideoFrames + res.AudioFrames == 0) { error = Tr.S("Нет ни одного целого кадра", "Not a single complete frame"); return false; }
+                // Видеодорожка, из которой не пришло ни кадра, — это файл без картинки, а не успех.
+                bool wantVideo = false;
+                foreach (MdStreamSource s in sources)
+                    for (int i = 0; i < s.Count; i++) if (s.IsVideo(i)) wantVideo = true;
+                if (wantVideo && res.VideoFrames == 0)
+                {
+                    error = Tr.S("Из видеодорожки не прочитано ни одного кадра", "Not a single frame was read from the video track");
+                    return false;
+                }
                 hr = VidCom.Fn<VidCom.DHr>(writer, 11)(writer);
                 if (hr < 0) { error = Tr.S("Media Foundation не завершила файл (", "Media Foundation could not finalize the file (") + VidCom.Hex(hr) + ")"; return false; }
                 res.DurationMs = end / 10000;

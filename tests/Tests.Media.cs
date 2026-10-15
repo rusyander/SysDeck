@@ -24,12 +24,14 @@ namespace SysDeck.Tests
             RunCore();
             RunEngine();
             RunTools();
+            RunPick();
             RunIntegration();
         }
 
         static partial void RunCore();         // Tests.MediaCore.cs — MPEG-TS, склейка MP4/WebM, звук, субтитры
         static partial void RunEngine();       // Tests.MediaEngine.cs — HLS, DASH, сегменты, трансляции, продолжение
         static partial void RunTools();        // Tests.MediaTools.cs — yt-dlp и Deno: установка, извлечение, обновление
+        static partial void RunPick();         // Tests.MediaPick.cs — окно «Видео по ссылке»: ссылка, качества, звук, команда
         static partial void RunIntegration();  // Tests.MediaIntegration.cs — собранная цепочка: движок + ядро + окно
 
         // ---------- основа: запись DlItem с видео переживает сохранение, секреты не пишутся ----------

@@ -555,8 +555,17 @@ namespace SysDeck.Downloads
             md.ManifestUrl = url;
             md.Title = DlJson.Str(req, "title", "");
             if (md.Title.Length > 300) md.Title = md.Title.Substring(0, 300);
-            md.Output = s.MdOutput;
+            md.Output = DlJson.EnumOr(req, "output", s.MdOutput);
             md.Watch = DlJson.Bool(req, "watch", false);
+            // Выбор из окна «Видео по ссылке»: вариант, звук и субтитры по id манифеста yt-dlp. Пропавший при повторном
+            // извлечении вариант движок заменяет ближайшим (Downloads.Media.cs, Choose).
+            md.VariantId = IdOf(req, "variantId");
+            md.AudioId = IdOf(req, "audioId");
+            JVal subs = req.Get("subtitleIds");
+            if (subs != null && subs.Kind == JKind.Arr)
+                foreach (JVal sv in subs.V)
+                    if (sv.Kind == JKind.Str && sv.Raw.Length > 0 && sv.Raw.Length <= 200 && md.SubtitleIds.Count < 20) md.SubtitleIds.Add(sv.Raw);
+            r.AllowDuplicate = DlJson.Bool(req, "allowDuplicate", false);
             r.Media = md;
             if (md.Source == MdSource.Ytdlp && !MdYtdlp.Available)
                 return Error(Tr.S("для страниц нужен yt-dlp: поставьте его в настройках загрузок",
@@ -570,6 +579,13 @@ namespace SysDeck.Downloads
             if (newId != null && !ask && DlJson.Bool(req, "intercepted", false) && DlBridge.IsBrowserSource(r.Source)) RaiseIntercepted(newId);
             if (ask) AskFolderFor(newId, md.Title);
             return o;
+        }
+
+        // Id дорожки из окна: строка не длиннее 200 знаков, иначе пусто — движок выберет сам.
+        private static string IdOf(JVal req, string name)
+        {
+            string v = DlJson.Str(req, name, "");
+            return v.Length <= 200 ? v : "";
         }
 
         // Торрент: путь к .torrent (окно и процесс — один пользователь), содержимое в base64 или magnet-ссылка.

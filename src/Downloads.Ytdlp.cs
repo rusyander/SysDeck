@@ -284,7 +284,7 @@ namespace SysDeck.Downloads
     // ------------------------------------------------------------------ //
     //  yt-dlp: описание страницы → MdManifest
     // ------------------------------------------------------------------ //
-    internal enum MdYtdlpError { None, Login, Age, Geo, Unavailable, Unsupported, JsRuntime, Network, Timeout, TooLarge, Other }
+    internal enum MdYtdlpError { None, Login, Age, Geo, Unavailable, Offline, Unsupported, JsRuntime, Network, Timeout, TooLarge, Other }
 
     internal static class MdYtdlp
     {
@@ -423,6 +423,9 @@ namespace SysDeck.Downloads
                 return MdYtdlpError.Login;
             if (Has(s, "unsupported url"))
                 return MdYtdlpError.Unsupported;
+            // Twitch: «The channel is not currently live»; YouTube: «This live event will begin in…», «Premieres in…».
+            if (Has(s, "not currently live", "is offline", "live event will begin", "premieres in"))
+                return MdYtdlpError.Offline;
             if (Has(s, "video unavailable", "is unavailable", "has been removed", "does not exist", "http error 404", "not found", "no longer available", "was deleted"))
                 return MdYtdlpError.Unavailable;
             if (Has(s, "unable to download webpage", "timed out", "getaddrinfo", "connection", "network is unreachable", "ssl", "urlopen error"))
@@ -450,6 +453,9 @@ namespace SysDeck.Downloads
                     return Tr.S("видео недоступно в вашей стране", "the video is not available in your country");
                 case MdYtdlpError.Unavailable:
                     return Tr.S("видео недоступно: удалено, скрыто или не существует", "the video is unavailable: removed, hidden or does not exist");
+                case MdYtdlpError.Offline:
+                    return Tr.S("трансляция сейчас не идёт: канал не в эфире или эфир ещё не начался. Прошлый эфир скачивается по ссылке на запись (у Twitch — twitch.tv/videos/…)",
+                                "the stream is not on now: the channel is offline or the broadcast has not started. A past broadcast downloads by its recording link (on Twitch — twitch.tv/videos/…)");
                 case MdYtdlpError.Unsupported:
                     return Tr.S("yt-dlp не знает этот сайт — попробуйте прямую ссылку на видео", "yt-dlp does not support this site — try a direct link to the video");
                 case MdYtdlpError.JsRuntime:
@@ -597,8 +603,11 @@ namespace SysDeck.Downloads
             string protocol = Str(f, "protocol").ToLowerInvariant();
             string url = Str(f, "url");
             string vcodec = Str(f, "vcodec"), acodec = Str(f, "acodec");
-            bool noVideo = vcodec == "none" || vcodec.Length == 0 && Str(f, "video_ext") == "none";
-            bool noAudio = acodec == "none" || acodec.Length == 0 && Str(f, "audio_ext") == "none";
+            // Оба кодека неизвестны (клипы Twitch) — yt-dlp тогда пишет audio_ext «none», хотя звук в файле есть: это не
+            // «без звука», а «не знаю». Такая дорожка — muxed, склейка возьмёт из файла всё, что там лежит.
+            bool unknown = vcodec.Length == 0 && acodec.Length == 0;
+            bool noVideo = vcodec == "none" || vcodec.Length == 0 && Str(f, "video_ext") == "none" && !(unknown && Str(f, "audio_ext") == "none");
+            bool noAudio = acodec == "none" || acodec.Length == 0 && Str(f, "audio_ext") == "none" && !unknown;
             if (noVideo && noAudio) return null;          // раскадровки и картинки
 
             MdTrack t = new MdTrack();
