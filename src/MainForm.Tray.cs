@@ -70,6 +70,10 @@ namespace SysDeck
         {
             _reallyExit = true;
             _tray.Visible = false;
+            // Откреплённое окно загрузок закрывается ДО Application.Exit: тот перебирает Application.OpenForms, и окно,
+            // закрытое из FormClosing главного окна посреди перебора, роняет выход (InvalidOperationException) —
+            // процесс оставался жить без окна и без значка в трее.
+            DlAttach();
             Application.Exit();
         }
 
