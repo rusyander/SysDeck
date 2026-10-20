@@ -101,6 +101,7 @@ namespace SysDeck
             _toolsBody = body;
 
             List<ToolItem> all = Engine.ToolCatalog();
+            AddTvToolSection(body);   // «Медиа» — самой нижней секцией
             AddToolSection(body, Tr.S("Инструменты Windows", "Windows tools"), all, Engine.ToolsOpen);
             AddToolSection(body, Tr.S("Защита", "Protection"), all, Engine.ToolsProtect);
             AddToolSection(body, Tr.S("Быстрые исправления", "Quick fixes"), all, Engine.ToolsFix);

@@ -351,6 +351,7 @@ namespace SysDeck.Tests
                 Area("downloads", DownloadsTests.Run);
                 Area("torrent", TorrentTests.Run);
                 Area("media", MediaTests.Run);
+                Area("tvstream", TvStreamTests.Run);
             }
             finally
             {

@@ -49,6 +49,7 @@ Sections live in a sidebar on the left, as in Microsoft PC Manager.
 | **Capture** | region, screen and window screenshots by hotkeys (F3/F4 by default, as in VK Play GameCenter), a notification with a thumbnail, per-program folders |
 | **Overlay** | a metrics column over games and windows: any rows (cores, frequencies, temperatures, HWiNFO and Afterburner sensors) with graphs and their own intervals, live preview, system information |
 | **Downloads** | a download queue with resume, speed limits, a schedule and idle-PC mode; taking over downloads from Chrome, Edge, Yandex Browser and Firefox through an extension; a signature check before a program is run, moving what was downloaded |
+| **TV streaming** | videos from this PC on the TV over Wi-Fi (Hisense VIDAA, Media Station X, TV browser): folders, the address for the TV, who is watching now, a step-by-step guide |
 | **Settings** | all thresholds, lists and parameters |
 | **History** | what was cleaned and when |
 
@@ -66,6 +67,7 @@ This page is the overview. Every section of the window is described in detail in
 - [Downloads](docs/downloads.en.md) — the queue, resume, limits, start conditions, downloads from the browser, the card and settings
 - [Tools and settings](docs/tools-and-settings.en.md) — CPU power in the window header, long operations, remembered selections, themes, tray, history
 - [Scripts](docs/scripts.en.md) — what is included, parameters, where it installs and which rights it needs
+- [TV streaming](docs/tv-stream.en.md) — video from the computer on a Hisense TV over Wi-Fi, step-by-step setup
 - [Displays](docs/displays.en.md) — the list of displays, a switch for each and the two refusals
 - [Data and administrator rights](docs/data-and-rights.en.md) — where things are kept and when rights are asked for
 - [Technical notes](docs/internals.en.md) and [tests](docs/tests.md) — for those who edit the code

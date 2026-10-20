@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Stream</title>
+<style>
+  :root {
+    --bg: #0d0f14; --panel: #161a22; --card: #1c212b; --line: #2a303c;
+    --text: #eef1f6; --muted: #8b93a4; --accent: #ff6a3d; --accent-2: #ffb03d;
+    --focus: 0 0 0 3px #fff, 0 10px 30px rgba(0,0,0,.6);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 "Segoe UI", Roboto, Arial, sans-serif; }
+  body { min-height: 100vh; padding: 0 3vw 48px; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  button:focus { outline: none; }
+
+  /* Header */
+  .top { display: flex; align-items: center; gap: 24px; padding: 22px 0 18px; flex-wrap: wrap; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 22px; letter-spacing: .3px; margin-right: 8px; }
+  .logo i { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: grid; place-items: center; font-style: normal; font-size: 16px; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+  .tab, .pill { padding: 9px 18px; border-radius: 999px; background: var(--panel); color: var(--muted); font-weight: 600; transition: background .15s, color .15s, transform .15s; }
+  .tab.on { background: var(--text); color: var(--bg); }
+  .tab:focus, .pill:focus { box-shadow: var(--focus); color: var(--text); transform: scale(1.05); }
+  .tab.on:focus { color: var(--bg); }
+  .pill.primary { background: var(--accent); color: #fff; }
+
+  .crumbs { color: var(--muted); font-size: 15px; margin: 6px 0 18px; min-height: 22px; }
+  .crumbs b { color: var(--text); font-weight: 600; }
+
+  h2 { font-size: 20px; margin: 26px 0 14px; font-weight: 700; }
+
+  /* Grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 22px 18px; }
+  .card { text-align: left; border-radius: 14px; transition: transform .15s; }
+  .card:focus { transform: scale(1.06); }
+  .card:focus .poster { box-shadow: var(--focus); }
+  .poster { position: relative; aspect-ratio: 16/9; border-radius: 12px; overflow: hidden; background: var(--card); display: grid; place-items: center; }
+  .poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .3s; }
+  .poster img.ok { opacity: 1; }
+  .poster .ph { position: absolute; font-size: 38px; color: #3b4352; }
+  .badge { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.75); padding: 2px 8px; border-radius: 6px; font-size: 13px; font-weight: 600; }
+  .badge.fmt { left: 8px; right: auto; background: var(--accent); }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.2); }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  .name { margin-top: 9px; font-size: 15px; font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+  .folder .poster { background: linear-gradient(160deg, #222836, #171b24); }
+  .folder .ph { color: var(--accent-2); font-size: 44px; }
+  .empty { color: var(--muted); padding: 60px 0; text-align: center; font-size: 18px; }
+
+  /* Player */
+  .player { position: fixed; inset: 0; background: #000; z-index: 10; display: none; }
+  .player.on { display: block; }
+  .player video { width: 100%; height: 100%; background: #000; }
+  .hud { position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 4vw 28px; background: linear-gradient(transparent, rgba(0,0,0,.85)); transition: opacity .3s; }
+  .hud.hide { opacity: 0; }
+  .hud .title { font-size: 22px; font-weight: 700; margin-bottom: 14px; }
+  .track { height: 6px; border-radius: 999px; background: rgba(255,255,255,.25); position: relative; cursor: pointer; }
+  .track span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--accent); }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  .ctl { width: 52px; height: 52px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: 20px; display: grid; place-items: center; }
+  .ctl:focus { box-shadow: var(--focus); background: rgba(255,255,255,.25); }
+  .time { margin-left: auto; font-variant-numeric: tabular-nums; color: #cfd5e0; }
+  .spinner { position: absolute; top: 50%; left: 50%; width: 54px; height: 54px; margin: -27px; border: 4px solid rgba(255,255,255,.2); border-top-color: var(--accent); border-radius: 999px; animation: spin 1s linear infinite; display: none; }
+  .spinner.on { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Connect modal */
+  .modal { position: fixed; inset: 0; background: rgba(5,6,9,.8); display: none; place-items: center; z-index: 20; padding: 20px; }
+  .modal.on { display: grid; }
+  .sheet { background: var(--panel); border-radius: 18px; padding: 28px 30px; max-width: 620px; width: 100%; border: 1px solid var(--line); }
+  .sheet h3 { margin: 0 0 6px; font-size: 22px; }
+  .sheet p { color: var(--muted); margin: 0 0 16px; }
+  .addr { font-size: 30px; font-weight: 700; color: var(--accent-2); letter-spacing: .5px; margin: 6px 0 20px; font-variant-numeric: tabular-nums; }
+  .steps { margin: 0 0 22px; padding-left: 22px; }
+  .steps li { margin-bottom: 8px; }
+  .steps b { color: var(--text); }
+  .sheet .row { margin-top: 0; }
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="logo"><i>▶</i>PC Stream</div>
+    <nav class="tabs" id="tabs"></nav>
+    <button class="pill" id="btnConnect">📺 Подключить ТВ</button>
+    <button class="pill primary" id="btnGuide">Инструкция (PDF)</button>
+  </header>
+  <div class="crumbs" id="crumbs"></div>
+  <section id="continueWrap" hidden><h2>Продолжить просмотр</h2><div class="grid" id="continue"></div></section>
+  <section><h2 id="listTitle">Файлы</h2><div class="grid" id="grid"></div></section>
+
+  <div class="player" id="player">
+    <video id="video" playsinline></video>
+    <div class="spinner" id="spinner"></div>
+    <div class="hud" id="hud">
+      <div class="title" id="ptitle"></div>
+      <div class="track" id="track"><span id="trackFill"></span></div>
+      <div class="row">
+        <button class="ctl" id="cBack" title="Назад">✕</button>
+        <button class="ctl" id="cRew" title="-30 сек">⏪</button>
+        <button class="ctl" id="cPlay" title="Пауза">⏸</button>
+        <button class="ctl" id="cFwd" title="+30 сек">⏩</button>
+        <span class="time" id="ptime">0:00 / 0:00</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal">
+    <div class="sheet">
+      <h3>Как открыть на телевизоре</h3>
+      <p>Компьютер и телевизор должны быть в одной Wi-Fi сети.</p>
+      <div class="addr" id="addr">…</div>
+      <ol class="steps">
+        <li>На Hisense откройте <b>VIDAA Store</b> и установите <b>Media Station X</b>.</li>
+        <li>В MSX: <b>Settings → Start Parameter → Setup</b>.</li>
+        <li>Введите адрес выше (без http://) и подтвердите.</li>
+        <li>MSX перезапустится — слева появятся ваши папки.</li>
+      </ol>
+      <p>Либо просто наберите адрес с <b>http://</b> во встроенном браузере телевизора.</p>
+      <div class="row">
+        <button class="pill primary" id="mGuide">Пошаговая инструкция (PDF)</button>
+        <button class="pill" id="mClose">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { roots: [], root: 0, path: '' };
+  var STORE = 'pcstream.progress';
+
+  function loadProgress() { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch (e) { return {}; } }
+  function saveProgress(p) { try { localStorage.setItem(STORE, JSON.stringify(p)); } catch (e) {} }
+  function fmt(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+    var mm = h ? (m < 10 ? '0' + m : m) : m;
+    return (h ? h + ':' : '') + mm + ':' + (sec < 10 ? '0' + sec : sec);
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function api(url) { return fetch(url).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); }
+
+  // ---------- Library ----------
+  function renderTabs() {
+    $('tabs').innerHTML = state.roots.map(function (r) {
+      return '<button class="tab' + (r.id === state.root ? ' on' : '') + '" data-root="' + r.id + '">' + esc(r.name) + '</button>';
+    }).join('');
+  }
+
+  function fileCard(f, prog) {
+    var p = prog[f.url];
+    var pct = p && p.d ? Math.min(100, p.t / p.d * 100) : 0;
+    var ext = f.name.split('.').pop().toUpperCase();
+    return '<button class="card" data-play="' + esc(f.url) + '" data-name="' + esc(f.name) + '" data-tx="' + (f.transcode ? 1 : 0) + '" data-dur="' + (f.duration || 0) + '">' +
+      '<div class="poster"><span class="ph">🎬</span><img loading="lazy" src="' + esc(f.thumb) + '" onload="this.className=\'ok\'" alt="">' +
+      (f.transcode ? '<span class="badge fmt">' + esc(ext) + '</span>' : '') +
+      (f.duration ? '<span class="badge">' + fmt(f.duration) + '</span>' : '') +
+      (pct > 1 ? '<div class="bar"><span style="width:' + pct + '%"></span></div>' : '') +
+      '</div><div class="name">' + esc(f.name.replace(/\.[^.]+$/, '')) + '</div></button>';
+  }
+
+  function renderContinue() {
+    var prog = loadProgress();
+    var items = Object.keys(prog).map(function (k) { return prog[k]; })
+      .filter(function (p) { return p.d && p.t > 15 && p.t < p.d - 30; })
+      .sort(function (a, b) { return b.at - a.at; }).slice(0, 6);
+    $('continueWrap').hidden = !items.length;
+    $('continue').innerHTML = items.map(function (p) { return fileCard(p.f, prog); }).join('');
+  }
+
+  function open(root, rel) {
+    state.root = root; state.path = rel || '';
+    renderTabs();
+    var parts = state.path ? state.path.split(/[\\/]/) : [];
+    var rootName = (state.roots[root] || {}).name || '';
+    $('crumbs').innerHTML = parts.length ? esc(rootName) + ' / ' + parts.slice(0, -1).map(esc).join(' / ') + (parts.length > 1 ? ' / ' : '') + '<b>' + esc(parts[parts.length - 1]) + '</b>' : '';
+    $('listTitle').textContent = parts.length ? parts[parts.length - 1] : rootName || 'Файлы';
+    $('grid').innerHTML = '<div class="empty">Загрузка…</div>';
+    api('/api/list?root=' + root + '&path=' + encodeURIComponent(state.path)).then(function (d) {
+      var prog = loadProgress();
+      var html = '';
+      if (state.path) html += '<button class="card folder" data-up="1"><div class="poster"><span class="ph">↩</span></div><div class="name">Назад</div></button>';
+      html += d.dirs.map(function (n) {
+        return '<button class="card folder" data-dir="' + esc(n) + '"><div class="poster"><span class="ph">📁</span></div><div class="name">' + esc(n) + '</div></button>';
+      }).join('');
+      html += d.files.map(function (f) { return fileCard(f, prog); }).join('');
+      $('grid').innerHTML = html || '<div class="empty">Здесь нет видео. Добавьте папки в start.bat — см. инструкцию.</div>';
+      renderContinue();
+      focusFirst();
+    }).catch(function () { $('grid').innerHTML = '<div class="empty">Не удалось загрузить список. Сервер запущен?</div>'; });
+  }
+
+  function goUp() {
+    if (!state.path) return false;
+    var parts = state.path.split(/[\\/]/); parts.pop();
+    open(state.root, parts.join('/'));
+    return true;
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('button');
+    if (!el) return;
+    if (el.dataset.root != null) return open(Number(el.dataset.root), '');
+    if (el.dataset.up) return goUp();
+    if (el.dataset.dir != null) return open(state.root, state.path ? state.path + '/' + el.dataset.dir : el.dataset.dir);
+    if (el.dataset.play) return play({ url: el.dataset.play, name: el.dataset.name, transcode: el.dataset.tx === '1', duration: Number(el.dataset.dur), thumb: el.querySelector('img') && el.querySelector('img').getAttribute('src') });
+  });
+
+  // ---------- Player ----------
+  var cur = null, offset = 0, hudTimer = 0, lastSave = 0;
+  var v = $('video');
+
+  function position() { return cur && cur.transcode ? offset + v.currentTime : v.currentTime; }
+  function duration() { return cur && (cur.duration || (isFinite(v.duration) ? v.duration : 0)) || 0; }
+
+  function play(f, from) {
+    cur = f;
+    var prog = loadProgress()[f.url];
+    var start = from != null ? from : (prog && prog.t > 15 && prog.t < (prog.d || Infinity) - 30 ? prog.t : 0);
+    $('ptitle').textContent = f.name.replace(/\.[^.]+$/, '');
+    $('player').className = 'player on';
+    seekTo(start);
+    showHud();
+    $('cPlay').focus();
+  }
+
+  function seekTo(t) {
+    var d = duration();
+    t = Math.max(0, d ? Math.min(t, d - 2) : t);
+    $('spinner').className = 'spinner on';
+    if (cur.transcode) {
+      offset = t;
+      v.src = cur.url + '?t=' + Math.floor(t);
+    } else {
+      if (v.getAttribute('src') !== cur.url) { v.src = cur.url; v.addEventListener('loadedmetadata', function once() { v.removeEventListener('loadedmetadata', once); v.currentTime = t; }); }
+      else v.currentTime = t;
+    }
+    v.play().catch(function () {});
+  }
+
+  function closePlayer() {
+    persist(true);
+    v.pause(); v.removeAttribute('src'); v.load();
+    $('player').className = 'player';
+    cur = null;
+    renderContinue();
+    open(state.root, state.path);
+  }
+
+  function persist(force) {
+    if (!cur) return;
+    var now = Date.now();
+    if (!force && now - lastSave < 5000) return;
+    lastSave = now;
+    var all = loadProgress();
+    all[cur.url] = { t: position(), d: duration(), at: now, f: { url: cur.url, name: cur.name, transcode: cur.transcode, duration: cur.duration, thumb: cur.thumb || '' } };
+    saveProgress(all);
+  }
+
+  function showHud() {
+    $('hud').className = 'hud';
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(function () { if (!v.paused) $('hud').className = 'hud hide'; }, 3500);
+  }
+
+  v.addEventListener('timeupdate', function () {
+    var d = duration(), p = position();
+    $('trackFill').style.width = d ? (p / d * 100) + '%' : '0';
+    $('ptime').textContent = fmt(p) + ' / ' + fmt(d);
+    persist(false);
+  });
+  v.addEventListener('playing', function () { $('spinner').className = 'spinner'; $('cPlay').textContent = '⏸'; });
+  v.addEventListener('waiting', function () { $('spinner').className = 'spinner on'; });
+  v.addEventListener('pause', function () { $('cPlay').textContent = '▶'; showHud(); });
+  v.addEventListener('ended', function () { persist(true); closePlayer(); });
+  v.addEventListener('click', function () { togglePlay(); });
+
+  function togglePlay() { if (v.paused) v.play(); else v.pause(); showHud(); }
+  $('cPlay').onclick = togglePlay;
+  $('cRew').onclick = function () { seekTo(position() - 30); showHud(); };
+  $('cFwd').onclick = function () { seekTo(position() + 30); showHud(); };
+  $('cBack').onclick = closePlayer;
+  $('track').onclick = function (e) { var r = this.getBoundingClientRect(); seekTo((e.clientX - r.left) / r.width * duration()); };
+  $('player').addEventListener('mousemove', showHud);
+
+  // ---------- Connect modal / guide ----------
+  function openGuide() { window.open('/guide.pdf', '_blank'); }
+  $('btnGuide').onclick = openGuide;
+  $('mGuide').onclick = openGuide;
+  $('btnConnect').onclick = function () { $('modal').className = 'modal on'; $('mClose').focus(); };
+  $('mClose').onclick = function () { $('modal').className = 'modal'; $('btnConnect').focus(); };
+
+  // ---------- TV remote: spatial navigation ----------
+  function focusables() {
+    var scope = $('player').className.indexOf('on') > -1 ? $('player') : $('modal').className.indexOf('on') > -1 ? $('modal') : document.body;
+    return Array.prototype.filter.call(scope.querySelectorAll('button'), function (b) { return b.offsetParent !== null && !b.closest('.player:not(.on)') && !b.closest('.modal:not(.on)'); });
+  }
+  function focusFirst() {
+    var el = document.querySelector('#grid .card') || document.querySelector('.tab.on');
+    if (el && (!document.activeElement || document.activeElement === document.body || !document.activeElement.offsetParent)) el.focus();
+  }
+  function move(dir) {
+    var list = focusables(), a = document.activeElement;
+    if (list.indexOf(a) < 0) { if (list[0]) list[0].focus(); return; }
+    var ra = a.getBoundingClientRect(), ax = ra.left + ra.width / 2, ay = ra.top + ra.height / 2, best = null, bestScore = Infinity;
+    list.forEach(function (b) {
+      if (b === a) return;
+      var r = b.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2, dx = x - ax, dy = y - ay;
+      var ok = dir === 'left' ? dx < -5 : dir === 'right' ? dx > 5 : dir === 'up' ? dy < -5 : dy > 5;
+      if (!ok) return;
+      var main = dir === 'left' || dir === 'right' ? Math.abs(dx) : Math.abs(dy);
+      var cross = dir === 'left' || dir === 'right' ? Math.abs(dy) : Math.abs(dx);
+      var score = main + cross * 3;
+      if (score < bestScore) { bestScore = score; best = b; }
+    });
+    if (best) { best.focus(); best.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  }
+  var BACK = [8, 27, 461, 10009, 166];
+  document.addEventListener('keydown', function (e) {
+    var k = e.keyCode, inPlayer = !!cur;
+    var dirs = { 37: 'left', 38: 'up', 39: 'right', 40: 'down' };
+    if (inPlayer) {
+      showHud();
+      if (k === 37 && document.activeElement === $('cPlay')) { seekTo(position() - 30); e.preventDefault(); return; }
+      if (k === 39 && document.activeElement === $('cPlay')) { seekTo(position() + 30); e.preventDefault(); return; }
+      if (k === 32 || k === 179 || k === 415 || k === 19) { togglePlay(); e.preventDefault(); return; }
+      if (k === 412) { seekTo(position() - 30); return; }
+      if (k === 417) { seekTo(position() + 30); return; }
+    }
+    if (dirs[k]) { move(dirs[k]); e.preventDefault(); return; }
+    if (BACK.indexOf(k) > -1) {
+      e.preventDefault();
+      if (inPlayer) closePlayer();
+      else if ($('modal').className.indexOf('on') > -1) $('mClose').click();
+      else goUp();
+    }
+  });
+
+  // ---------- Boot ----------
+  api('/api/info').then(function (info) {
+    state.roots = info.roots;
+    $('addr').textContent = info.ip + ':' + info.port;
+    if (!info.roots.length) { $('grid').innerHTML = '<div class="empty">Не задано ни одной папки — см. инструкцию.</div>'; return; }
+    open(0, '');
+  });
+})();
+</script>
+</body>
+</html>

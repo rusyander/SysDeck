@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>PC Stream — инструкция</title>
+<style>
+  @page { size: A4; margin: 12mm 13mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 9.5pt/1.4 "Segoe UI", Roboto, Arial, sans-serif; color: #1b1f27; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .hero { background: #0d0f14; color: #fff; border-radius: 14px; padding: 18px 22px; display: flex; align-items: center; gap: 16px; }
+  .hero i { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #ff6a3d, #ffb03d); display: grid; place-items: center; font-style: normal; font-size: 20px; flex: none; }
+  .hero h1 { margin: 0; font-size: 20pt; }
+  .hero p { margin: 2px 0 0; color: #aab2c2; }
+  h2 { font-size: 12pt; margin: 10px 0 5px; display: flex; align-items: center; gap: 10px; break-after: avoid; }
+  h2 span { width: 26px; height: 26px; border-radius: 999px; background: #ff6a3d; color: #fff; display: inline-grid; place-items: center; font-size: 11pt; flex: none; }
+  .box { border: 1px solid #e3e6ec; border-radius: 12px; padding: 8px 14px; }
+  li, tr, .note { break-inside: avoid; }
+  ol, ul { margin: 0; padding-left: 20px; }
+  li { margin: 2px 0; }
+  code, .kbd { font-family: Consolas, monospace; background: #f1f3f7; border-radius: 5px; padding: 1px 6px; font-size: 9.5pt; }
+  .path { font-family: Consolas, monospace; color: #c2410c; }
+  .addr { display: inline-block; font: 700 16pt Consolas, monospace; color: #c2410c; background: #fff4ec; border: 1px dashed #ffb487; border-radius: 10px; padding: 4px 14px; margin: 4px 0; }
+  .addr.sm { font-size: 11pt; padding: 0 8px; margin: 0; border-radius: 8px; }
+  .note { background: #f6f8fb; border-left: 4px solid #ffb03d; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+  .menu { font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 4px 8px; border-top: 1px solid #eceef2; vertical-align: top; }
+  td:first-child { font-weight: 600; width: 34%; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .scheme { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0 2px; font-weight: 600; }
+  .scheme div { border: 1px solid #e3e6ec; border-radius: 10px; padding: 8px 14px; background: #fafbfc; text-align: center; }
+  .scheme small { display: block; font-weight: 400; color: #6b7385; }
+  .arrow { color: #ff6a3d; font-size: 16pt; }
+</style>
+</head>
+<body>
+  <div class="hero">
+    <i>▶</i>
+    <div>
+      <h1>PC Stream</h1>
+      <p>Смотрите видео с компьютера на телевизоре Hisense (VIDAA): по Wi-Fi, без проводов и флешек. Работает в SysDeck и в отдельной программе PC Stream.</p>
+    </div>
+  </div>
+
+  <div class="scheme">
+    <div>💻 Компьютер<small>SysDeck или PC Stream</small></div>
+    <span class="arrow">→</span>
+    <div>📶 Домашний Wi-Fi<small>одна сеть</small></div>
+    <span class="arrow">→</span>
+    <div>📺 Hisense<small>Media Station X или браузер</small></div>
+  </div>
+
+  <h2><span>1</span>Откройте окно «ТВ-трансляция»</h2>
+  <div class="box">
+    Одно и то же окно есть в двух программах, выберите любую:
+    <div class="two" style="margin-top:8px">
+      <div class="note" style="margin-top:0"><b>SysDeck</b><br>В меню слева страница <span class="menu">ТВ-трансляция</span> (после «Загрузок»).
+        Или правой кнопкой по значку SysDeck в трее → <span class="menu">📺 ТВ-трансляция</span></div>
+      <div class="note" style="margin-top:0"><b>PC Stream</b>, отдельная программа<br>Запустите <span class="path">PcStream.exe</span>
+        из папки <span class="path">D:\Work\NIS\tv-stream</span>. В трее появится значок-телевизор, щелчок по нему открывает окно.</div>
+    </div>
+    <div class="note"><b>Проще всего — по шагам прямо в программе:</b> кнопка <span class="menu">Как подключить ТВ — по шагам</span>
+      (или «Как подключить телевизор…» в меню значка PC Stream). Окно само проверяет каждый шаг, показывает ваш настоящий адрес
+      и нужные кнопки; при первом запуске открывается само. Ставить ничего не нужно, хватает встроенного в Windows .NET.
+      Окно можно закрыть: трансляция идёт, пока программа в трее; «Выход» в меню значка выключает всё.</div>
+  </div>
+
+  <h2><span>2</span>Добавьте папки с видео</h2>
+  <div class="box">
+    <ol>
+      <li>В карточке <b>«Папки с видео»</b> нажмите <span class="menu">+ Добавить папку…</span> и выберите папку с фильмами или сериалами.
+        Папку можно и просто перетащить в окно из Проводника.</li>
+      <li>Каждая папка станет отдельным разделом на телевизоре, вложенные папки тоже открываются.</li>
+      <li>Название раздела на ТВ меняет кнопка <span class="menu">Переименовать</span>, убрать папку можно кнопкой <span class="menu">Убрать из списка</span>.
+        Файлы на диске при этом не трогаются.</li>
+    </ol>
+  </div>
+
+  <h2><span>3</span>Включите трансляцию</h2>
+  <div class="box">
+    <ol>
+      <li>Нажмите большую кнопку <span class="menu">▶ Включить трансляцию</span>. Индикатор станет зелёным: «Трансляция включена».</li>
+      <li>Один раз нажмите <span class="menu">Разрешить в брандмауэре</span> и согласитесь в окне Windows. Правило открывает порт только
+        устройствам вашей локальной сети и работает, даже если сеть в Windows отмечена как общедоступная. Без него телевизор не увидит компьютер.</li>
+      <li>В карточке <b>«Адрес для телевизора»</b> показан адрес, например:<br><span class="addr">192.168.0.101:8090</span><br>
+        Кнопка <span class="menu">Копировать адрес</span> кладёт его в буфер обмена.</li>
+      <li>Проверка на компьютере: кнопка <span class="menu">Открыть как на ТВ</span> покажет в браузере то же, что увидит телевизор.</li>
+    </ol>
+    <div class="note">Чтобы трансляция включалась сама, отметьте в «Настройках» пункт «Включать трансляцию при запуске программы».
+      В PC Stream там же есть «Запускать PC Stream вместе с Windows (в трее)».</div>
+  </div>
+
+  <h2><span>4</span>Настройте телевизор Hisense (один раз)</h2>
+  <div class="box">
+    <ol>
+      <li>Убедитесь, что телевизор подключён к <b>той же Wi-Fi сети</b>, что и компьютер.</li>
+      <li>На пульте нажмите кнопку <b>VIDAA</b> или откройте <b>App Store</b> на главном экране.</li>
+      <li>Найдите приложение <b>Media Station X</b> и установите его.</li>
+      <li>Откройте Media Station X. В меню слева выберите <span class="menu">Settings</span> (шестерёнка).</li>
+      <li>Выберите <span class="menu">Start Parameter</span> → <span class="menu">Setup</span>.</li>
+      <li>Пультом введите адрес из окна <b>без http://</b>, например <span class="addr sm">192.168.0.101:8090</span>, и подтвердите.</li>
+      <li>MSX спросит, применить ли параметр. Подтвердите, и приложение перезапустится.</li>
+    </ol>
+    <div class="note">Готово: теперь при каждом запуске Media Station X слева будут ваши папки с компьютера.</div>
+  </div>
+
+  <h2><span>5</span>Смотрите</h2>
+  <div class="box">
+    <table>
+      <tr><td>Открыть папку / видео</td><td>Стрелками выберите плитку, нажмите <b>OK</b>.</td></tr>
+      <tr><td>Пауза / продолжить</td><td><b>OK</b> во время просмотра или кнопка ⏯ на пульте.</td></tr>
+      <tr><td>Перемотка</td><td>Стрелки <b>←</b> / <b>→</b>, либо кнопки ⏪ ⏩ на пульте.</td></tr>
+      <tr><td>Выйти из видео / назад</td><td>Кнопка <b>Back</b> (↩) на пульте.</td></tr>
+      <tr><td>Кто смотрит</td><td>Карточка <b>«Сейчас смотрят»</b> в окне на компьютере: устройство, файл и режим,
+        «напрямую» или «перекодирование».</td></tr>
+    </table>
+  </div>
+
+  <h2><span>6</span>Запасной вариант: браузер телевизора</h2>
+  <div class="box">
+    Если Media Station X не подходит, откройте на телевизоре встроенный <b>Браузер</b> и наберите адрес из окна вместе с <code>http://</code>:<br>
+    <span class="addr">http://192.168.0.101:8090</span><br>
+    Откроются те же разделы с превью и «Продолжить просмотр» с места, где остановились. Управление стрелками и OK, выход кнопкой Back.
+  </div>
+
+  <h2><span>7</span>MKV, AVI и превью: ffmpeg</h2>
+  <div class="box">
+    MP4, WebM и MOV телевизор играет напрямую. MKV, AVI и другие форматы перекодируются на лету, для этого нужен <b>ffmpeg</b>;
+    он же делает превью кадров на плитках. В «Настройках» написано, найден ли он. Если нет, нажмите <span class="menu">Скачать ffmpeg</span>:
+    программа сама скачает его (~115 МБ, официальная сборка gyan.dev), сверит контрольную сумму и положит в свою папку.
+    Прогресс виден в строке ffmpeg, отменить можно в любой момент. Права администратора не нужны.
+  </div>
+
+  <h2><span>8</span>Если что-то не работает</h2>
+  <div class="box">
+    <table>
+      <tr><td>ТВ не видит сервер</td><td>Индикатор зелёный? Обе машины в одной сети? Откройте окно «по шагам»: строка
+        «Брандмауэр» покажет, открыт ли порт, и даст кнопку, чтобы его открыть.</td></tr>
+      <tr><td>Адрес перестал работать</td><td>Роутер выдал компьютеру новый IP. Новый адрес показан в окне, введите его в MSX заново.
+        Чтобы адрес не менялся, закрепите IP за компьютером в настройках роутера.</td></tr>
+      <tr><td>Порт занят</td><td>Порт уже занят другой программой. В «Настройках» укажите другой порт, нажмите «Применить»
+        и введите новый адрес в телевизоре.</td></tr>
+      <tr><td>MKV / AVI долго стартуют</td><td>Перекодирование занимает первые секунды. MP4 открываются мгновенно.</td></tr>
+      <tr><td>Нет картинки, только звук</td><td>Редкий кодек. Попробуйте браузер телевизора (шаг 6) или сконвертируйте файл в MP4.</td></tr>
+    </table>
+  </div>
+</body>
+</html>

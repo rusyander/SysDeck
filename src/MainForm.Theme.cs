@@ -407,6 +407,7 @@ namespace SysDeck
             ForeColor = _theme.Text;
             ApplyThemeTo(this);
             RecolorRows(this);
+            TvRetheme();
             Control nav = null;
             foreach (Control c in Controls) if (c.Name == "nav") { nav = c; break; }
             if (nav != null) nav.BackColor = _theme.Bg;
@@ -438,6 +439,7 @@ namespace SysDeck
         {
             foreach (Control c in root.Controls)
             {
+                if (c is Form) continue;
                 ListView lv = c as ListView;
                 if (lv != null && lv.Items.Count > 0)
                 {
@@ -533,6 +535,7 @@ namespace SysDeck
         {
             foreach (Control c in root.Controls)
             {
+                if (c is Form) continue;   // встроенное окно (страница «ТВ-трансляция») красит себя само — TvRetheme
                 if (c is RoundButton)
                 {
                     // Все кнопки страниц и диалогов: сглаженный радиус, цвета состояний

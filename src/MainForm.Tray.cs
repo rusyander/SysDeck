@@ -45,6 +45,7 @@ namespace SysDeck
             _miAuto = new MenuItem(Tr.S("Автоочистка по таймеру", "Auto-clean timer"), delegate { ToggleAuto(); });
             menu.MenuItems.Add(_miAuto);
             menu.MenuItems.Add(CapTrayMenu());
+            menu.MenuItems.Add(TvTrayMenu());
             menu.MenuItems.Add("-");
             menu.MenuItems.Add(new MenuItem(Tr.S("Перезапустить от администратора", "Restart as administrator"), delegate { RestartAsAdmin(); }));
             menu.MenuItems.Add(new MenuItem(Tr.S("Выход", "Exit"), delegate { ExitApp(); }));
@@ -74,6 +75,7 @@ namespace SysDeck
             // закрытое из FormClosing главного окна посреди перебора, роняет выход (InvalidOperationException) —
             // процесс оставался жить без окна и без значка в трее.
             DlAttach();
+            TvShutdown();   // то же для окна «ТВ-трансляция»; заодно гасит сервер и ffmpeg
             Application.Exit();
         }
 
