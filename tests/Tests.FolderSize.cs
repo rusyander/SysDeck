@@ -20,7 +20,7 @@ using SysDeck.FolderSize;
 
 namespace SysDeck.Tests
 {
-    internal static class FolderSizeTests
+    internal static partial class FolderSizeTests
     {
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool CreateDirectoryW(string path, IntPtr security);
@@ -47,6 +47,7 @@ namespace SysDeck.Tests
                 Walker(tree);
                 EngineLive(tree);
                 CommandLine(tree);
+                MapTests(tree);
             }
             finally
             {

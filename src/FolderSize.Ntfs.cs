@@ -11,16 +11,6 @@ using Microsoft.Win32.SafeHandles;
 
 namespace SysDeck.FolderSize
 {
-    internal struct DirTotals
-    {
-        public long Bytes, Files, Directories;
-
-        public DirTotals(long bytes, long files, long directories)
-        {
-            Bytes = bytes; Files = files; Directories = directories;
-        }
-    }
-
     // ------------------------------------------------------------------ //
     //  Размеры папок одного тома NTFS, выведенные из его Master File Table.
     //  Зачем: обход диска спрашивает файловую систему о каждой папке по очереди. MFT — одна плоская таблица
@@ -32,8 +22,6 @@ namespace SysDeck.FolderSize
     // ------------------------------------------------------------------ //
     internal sealed class NtfsVolumeIndex
     {
-        private const uint RootRecord = 5;
-
         private readonly Dictionary<uint, DirNode> _dirs;
 
         public char Drive { get; private set; }
@@ -58,74 +46,10 @@ namespace SysDeck.FolderSize
             public long TotalBytes;
             public long TotalFiles;
             public long TotalDirs;
-            public Dictionary<string, uint> Lookup;
         }
 
-        public bool TryResolveDirectory(string absolutePath, out uint dirIndex)
-        {
-            dirIndex = RootRecord;
-            try
-            {
-                string full = Path.GetFullPath(absolutePath);
-                string root = Path.GetPathRoot(full);
-                if (string.IsNullOrEmpty(root)) return false;
-                if (char.ToUpperInvariant(root[0]) != char.ToUpperInvariant(Drive)) return false;
-                string rest = full.Substring(root.Length).Trim('\\');
-                if (rest.Length == 0) return _dirs.ContainsKey(RootRecord);
-                uint current = RootRecord;
-                foreach (string part in rest.Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries))
-                    if (!TryGetChildIndex(current, part, out current)) return false;
-                dirIndex = current;
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        public bool TryGetTotals(uint dirIndex, out DirTotals totals)
-        {
-            DirNode node;
-            if (_dirs.TryGetValue(dirIndex, out node))
-            {
-                totals = new DirTotals(node.TotalBytes, node.TotalFiles, node.TotalDirs);
-                return true;
-            }
-            totals = new DirTotals();
-            return false;
-        }
-
-        public bool TryGetChildTotals(uint dirIndex, string childName, out DirTotals totals)
-        {
-            uint child;
-            if (TryGetChildIndex(dirIndex, childName, out child)) return TryGetTotals(child, out totals);
-            totals = new DirTotals();
-            return false;
-        }
-
-        private bool TryGetChildIndex(uint dirIndex, string name, out uint child)
-        {
-            child = 0;
-            DirNode node;
-            if (!_dirs.TryGetValue(dirIndex, out node)) return false;
-            // Строится при первом обращении: большинство папок никогда не открывают, и таблицы поиска для
-            // всех сразу удвоили бы построение индекса впустую.
-            if (node.Lookup == null)
-            {
-                Dictionary<string, uint> lookup = new Dictionary<string, uint>(node.ChildDirs == null ? 0 : node.ChildDirs.Count, StringComparer.OrdinalIgnoreCase);
-                if (node.ChildDirs != null)
-                {
-                    foreach (uint c in node.ChildDirs)
-                    {
-                        DirNode cn;
-                        if (_dirs.TryGetValue(c, out cn)) lookup[cn.Name] = c;
-                    }
-                }
-                node.Lookup = lookup;
-            }
-            return node.Lookup.TryGetValue(name, out child);
-        }
+        // Все папки тома по номеру записи; карта тома (FolderSize.Map.cs) перекладывает их в своё дерево.
+        internal Dictionary<uint, DirNode> Dirs { get { return _dirs; } }
     }
 
     // Читает $MFT с сырого тома и сворачивает её в итоги по папкам.
@@ -169,7 +93,8 @@ namespace SysDeck.FolderSize
                 ApplyFixups(firstRecord, 0, firstRecord.Length);
 
                 long dataSize;
-                List<Extent> extents = ReadMftDataAttribute(firstRecord, geometry, out dataSize);
+                List<Extent> extents = ReadMftDataAttribute(firstRecord, geometry, out dataSize)
+                                       ?? QueryMftExtents(drive, geometry, out dataSize);
                 long recordCount = dataSize / geometry.RecordSize;
                 if (recordCount <= 0 || recordCount > MaxRecords)
                     throw new NotSupportedException(Tr.S("В $MFT тома " + drive + ": " + recordCount + " записей — вне поддерживаемого диапазона",
@@ -487,12 +412,12 @@ namespace SysDeck.FolderSize
                 uint length = U32(record, offset + 4);
                 if (length < 16 || offset + length > (uint)limit) break;
 
+                // $MFT, разнесённая по записям-расширениям (сильно фрагментированный том, у системного диска за
+                // годы — обычное дело): полный список отрезков в записи 0 не лежит, его отдаёт файловая система.
                 if (type == AttrAttributeList)
                 {
-                    // $MFT, разнесённая по записям-расширениям, бывает только на сильно фрагментированных томах.
-                    // Вместо того чтобы прочитать полтаблицы, работа отдаётся обходу.
-                    throw new NotSupportedException(Tr.S("$MFT использует ATTRIBUTE_LIST — быстрый режим недоступен",
-                                                         "$MFT uses ATTRIBUTE_LIST — fast mode is unavailable"));
+                    dataSize = 0;
+                    return null;
                 }
                 if (type == AttrData && record[offset + 0x09] == 0 && record[offset + 0x08] != 0 && length >= 0x40)
                 {
@@ -502,9 +427,7 @@ namespace SysDeck.FolderSize
                     List<Extent> extents = ParseRuns(record, offset + runOffset, offset + (int)length);
                     long covered = 0;
                     foreach (Extent e in extents) covered += e.Clusters;
-                    if (covered * geometry.ClusterSize < dataSize)
-                        throw new NotSupportedException(Tr.S("Список отрезков $MFT неполон — быстрый режим недоступен",
-                                                             "The $MFT run list is incomplete — fast mode is unavailable"));
+                    if (covered * geometry.ClusterSize < dataSize) return null;
                     return extents;
                 }
                 offset += (int)length;
@@ -512,6 +435,91 @@ namespace SysDeck.FolderSize
             throw new NotSupportedException(Tr.S("В записи $MFT не найден непрерывный атрибут $DATA",
                                                  "No non-resident $DATA attribute in the $MFT record"));
         }
+
+        private const uint FILE_READ_ATTRIBUTES = 0x80;
+        private const uint FILE_SHARE_ALL = 7;
+        private const uint OPEN_EXISTING = 3;
+        private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+        private const uint FSCTL_GET_RETRIEVAL_POINTERS = 0x00090073;
+        private const int ERROR_MORE_DATA = 234;
+        private const int ERROR_HANDLE_EOF = 38;
+
+        // Отрезки $MFT от самой NTFS: тот же список, что видит дефрагментатор, включая части из записей-расширений.
+        // Дескриптор открывается только на чтение атрибутов — содержимое таблицы через него не читается.
+        private static List<Extent> QueryMftExtents(char drive, VolumeGeometry geometry, out long dataSize)
+        {
+            string path = char.ToUpperInvariant(drive) + @":\$MFT";
+            using (SafeFileHandle file = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_ALL, IntPtr.Zero, OPEN_EXISTING,
+                                                     FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero))
+            {
+                if (file.IsInvalid)
+                    throw new NotSupportedException(Tr.S("Не удалось открыть $MFT тома " + drive + ": — быстрый режим недоступен",
+                                                         "Cannot open $MFT of volume " + drive + ": — fast mode is unavailable"),
+                        new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+                if (!GetFileSizeEx(file, out dataSize))
+                    throw new NotSupportedException(Tr.S("Размер $MFT неизвестен", "The $MFT size is unknown"),
+                        new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()));
+
+                List<Extent> extents = new List<Extent>(64);
+                byte[] output = new byte[64 * 1024];
+                long vcn = 0;
+                while (true)
+                {
+                    int returned;
+                    bool ok = DeviceIoControl(file, FSCTL_GET_RETRIEVAL_POINTERS, BitConverter.GetBytes(vcn), 8,
+                                              output, output.Length, out returned, IntPtr.Zero);
+                    int error = ok ? 0 : Marshal.GetLastWin32Error();
+                    if (!ok && error == ERROR_HANDLE_EOF) break;
+                    if (!ok && error != ERROR_MORE_DATA)
+                        throw new NotSupportedException(Tr.S("NTFS не отдала отрезки $MFT", "NTFS did not return the $MFT extents"),
+                            new System.ComponentModel.Win32Exception(error));
+                    long next = ParseRetrievalPointers(output, returned, extents);
+                    if (ok || next <= vcn) break;
+                    vcn = next;
+                }
+                long covered = 0;
+                foreach (Extent e in extents) covered += e.Clusters;
+                if (covered * geometry.ClusterSize < dataSize)
+                    throw new NotSupportedException(Tr.S("Список отрезков $MFT неполон — быстрый режим недоступен",
+                                                         "The $MFT run list is incomplete — fast mode is unavailable"));
+                return extents;
+            }
+        }
+
+        // RETRIEVAL_POINTERS_BUFFER: число отрезков, начальный VCN, затем пары (следующий VCN, LCN).
+        // Возвращает VCN, с которого продолжать, если ответ не поместился в буфер.
+        internal static long ParseRetrievalPointers(byte[] b, int length, List<Extent> into)
+        {
+            if (length < 16) throw new InvalidDataException("RETRIEVAL_POINTERS_BUFFER is too short");
+            long count = U32(b, 0);
+            long vcn = (long)U64(b, 8);
+            for (long i = 0; i < count; i++)
+            {
+                int at = 16 + (int)i * 16;
+                if (at + 16 > length) throw new InvalidDataException("RETRIEVAL_POINTERS_BUFFER is truncated");
+                long next = (long)U64(b, at);
+                long lcn = (long)U64(b, at + 8);
+                // Дыра в $MFT (LCN −1) — сжатие или разреженность, которых у таблицы не бывает: читать её такой нельзя.
+                if (lcn < 0)
+                    throw new NotSupportedException(Tr.S("В $MFT есть отрезок без места на диске", "The $MFT has an extent with no disk space"));
+                if (next > vcn) into.Add(new Extent(lcn, next - vcn));
+                vcn = next;
+            }
+            return vcn;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFileW(string lpFileName, uint dwDesiredAccess, uint dwShareMode,
+            IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetFileSizeEx(SafeFileHandle hFile, out long lpFileSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, byte[] lpInBuffer, int nInBufferSize,
+            byte[] lpOutBuffer, int nOutBufferSize, out int lpBytesReturned, IntPtr lpOverlapped);
 
         // Список отрезков NTFS: у каждого длина и смещение кластера относительно предыдущего отрезка.
         internal static List<Extent> ParseRuns(byte[] b, int start, int end)

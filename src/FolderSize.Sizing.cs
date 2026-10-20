@@ -427,6 +427,10 @@ namespace SysDeck.FolderSize
         // перегруженный механический диск становится медленнее, а не быстрее.
         public static readonly int Workers = FsMath.Clamp(Environment.ProcessorCount, 4, 16);
 
+        // Подсчёт для панели (сетевой путь, съёмный диск — там нет карты тома): два потока в фоновом режиме
+        // ввода-вывода. Медленнее, зато диск остаётся за тем, что делает человек.
+        public const int BackgroundWorkers = 2;
+
         // Страховка, а не настоящий предел: известные способы построить бесконечное дерево отсечены в
         // DirectoryWalker, это — на случай драйвера, сетевой шары или новой причуды Windows.
         private const int MaxDepth = 256;
@@ -458,8 +462,13 @@ namespace SysDeck.FolderSize
         // когда одна папка досчитана: так маленькая папка не ждёт большую рядом.
         public static void Run(IList<Job> jobs, ProgressCounters counters, Action<Job> onJobDone, CancellationToken ct)
         {
+            Run(jobs, counters, onJobDone, ct, false);
+        }
+
+        public static void Run(IList<Job> jobs, ProgressCounters counters, Action<Job> onJobDone, CancellationToken ct, bool background)
+        {
             if (jobs.Count == 0) return;
-            new Session(jobs, counters, onJobDone, ct).Execute();
+            new Session(jobs, counters, onJobDone, ct, background).Execute();
             ct.ThrowIfCancellationRequested();
         }
 
@@ -471,12 +480,16 @@ namespace SysDeck.FolderSize
             private readonly ProgressCounters _counters;
             private readonly Action<Job> _onJobDone;
             private readonly CancellationToken _ct;
+            private readonly bool _background;
+            private readonly int _workers;
             private int _outstanding;
             private int _finished;
 
-            public Session(IList<Job> jobs, ProgressCounters counters, Action<Job> onJobDone, CancellationToken ct)
+            public Session(IList<Job> jobs, ProgressCounters counters, Action<Job> onJobDone, CancellationToken ct, bool background)
             {
                 _jobs = jobs; _counters = counters; _onJobDone = onJobDone; _ct = ct;
+                _background = background;
+                _workers = background ? BackgroundWorkers : Workers;
             }
 
             public void Execute()
@@ -490,7 +503,7 @@ namespace SysDeck.FolderSize
                 using (_ct.Register(WakeEveryone))
                 {
                     _available.Release(_jobs.Count);
-                    Task[] workers = new Task[Workers];
+                    Task[] workers = new Task[_workers];
                     // Отдельные потоки, а не пул: рабочий всю жизнь ждёт на семафоре, и так припаркованные
                     // потоки пула морят голодом всё остальное в процессе.
                     for (int i = 0; i < workers.Length; i++)
@@ -503,10 +516,28 @@ namespace SysDeck.FolderSize
             private void WakeEveryone()
             {
                 if (Interlocked.Exchange(ref _finished, 1) != 0) return;
-                try { _available.Release(Workers); } catch (ObjectDisposedException) { }
+                try { _available.Release(_workers); } catch (ObjectDisposedException) { }
             }
 
             private void Worker()
+            {
+                if (_background)
+                {
+                    Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+                    BackgroundIo.Begin();
+                }
+                try { Loop(); }
+                finally
+                {
+                    if (_background)
+                    {
+                        BackgroundIo.End();
+                        Thread.CurrentThread.Priority = ThreadPriority.Normal;
+                    }
+                }
+            }
+
+            private void Loop()
             {
                 while (true)
                 {
@@ -638,6 +669,8 @@ namespace SysDeck.FolderSize
         public SizeCacheStore(string file) { _file = file ?? FsPaths.SizesFile; }
 
         public int Count { get { return _entries.Count; } }
+
+        public ICollection<string> Paths { get { return _entries.Keys; } }
 
         public bool TryGet(string path, out Entry entry)
         {

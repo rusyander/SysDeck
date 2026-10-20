@@ -31,6 +31,7 @@ namespace SysDeck.FolderSize
         public static string SettingsFile { get { return Path.Combine(DataDir, "settings.json"); } }
         public static string SizesFile { get { return Path.Combine(DataDir, "sizes.json"); } }
         public static string StatusFile { get { return Path.Combine(DataDir, "status.json"); } }
+        public static string MapsFile { get { return Path.Combine(DataDir, "maps.json"); } }
         public static string CrashLog { get { return Path.Combine(DataDir, "crash.log"); } }
         public static string TraceLog { get { return Path.Combine(DataDir, "trace.log"); } }
         public static string ExecutablePath { get { return Application.ExecutablePath; } }

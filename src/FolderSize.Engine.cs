@@ -1,13 +1,10 @@
-﻿// SysDeck — размеры папок: SizeEngine (обход, кэш, публикация) и индекс тома.
+﻿// SysDeck — размеры папок: SizeEngine (карта тома или обход, кэш, публикация).
 // Сборка: build.bat (csc.exe из .NET Framework 4.x компилирует все src\*.cs).
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,28 +12,40 @@ namespace SysDeck.FolderSize
 {
     // ------------------------------------------------------------------ //
     //  «Проводник показывает эту папку» → строки с настоящими размерами.
-    //  Порядок источников: измеренное секунды назад (мгновенно) → индекс NTFS (секунды на весь диск) →
-    //  подсчёт всех папок параллельно (работает всегда). Числа прошлого сеанса заполняют экран, пока идёт
-    //  последний. Каждый шаг отменяем: уход из папки не оставляет работу крутиться за панелью.
+    //  Локальный диск: числа берутся из карты тома (FolderSize.Map.cs) — она строится один раз в фоне и
+    //  дальше обновляется только там, где что-то изменилось, так что заход в папку не трогает диск вовсе.
+    //  Сеть и съёмные диски: подсчёт по заходу, в фоновом режиме ввода-вывода. Числа прошлого сеанса
+    //  заполняют экран, пока нет настоящих. Каждый шаг отменяем: уход из папки не оставляет работу за панелью.
     // ------------------------------------------------------------------ //
     internal sealed class SizeEngine : IDisposable
     {
         private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
         private const int PublishIntervalMs = 200;
         private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(20);
+        private static readonly TimeSpan MapSaveInterval = TimeSpan.FromMinutes(2);
 
         private readonly FsSettings _settings;
-        private readonly VolumeIndexProvider _indexes = new VolumeIndexProvider();
+        private readonly VolumeMaps _maps;
         private readonly FolderChangeWatcher _watcher = new FolderChangeWatcher();
         private readonly SizeCacheStore _store;
         private readonly ConcurrentDictionary<string, CacheEntry> _cache = new ConcurrentDictionary<string, CacheEntry>(StringComparer.OrdinalIgnoreCase);
         private readonly SynchronizationContext _ui;
+
+        // Что сейчас показано из карты — его перечитывает каждое изменение карты.
+        private readonly object _served = new object();
+        private VolumeMap _servedMap;
+        private string _servedPath;
+        private List<SizeRow> _servedRows;
+        private List<SizeRow> _servedDirs;
+        private CancellationToken _servedToken;
+        private bool _servedFinal;
 
         private CancellationTokenSource _cts;
         private string _path;
         private List<SizeRow> _rows;
         private bool _scanning;
         private bool _dirty;
+        private bool _mapsMft;
         private DateTime _savedAtUtc = DateTime.MinValue;
         private bool _disposed;
 
@@ -49,15 +58,38 @@ namespace SysDeck.FolderSize
             public DateTime AtUtc;
         }
 
-        public SizeEngine(FsSettings settings) : this(settings, null) { }
+        public SizeEngine(FsSettings settings) : this(settings, null, VolumeMaps.ForLocalDrives(settings.UseFastNtfsIndex))
+        {
+            Prewarm();
+        }
 
-        internal SizeEngine(FsSettings settings, string storeFile)
+        // Без карт: каждый заход считается обходом (тесты обхода).
+        internal SizeEngine(FsSettings settings, string storeFile) : this(settings, storeFile, null) { }
+
+        internal SizeEngine(FsSettings settings, string storeFile, VolumeMaps maps)
         {
             _settings = settings;
+            _maps = maps;
+            _mapsMft = settings.UseFastNtfsIndex;
             _ui = SynchronizationContext.Current ?? new SynchronizationContext();
             _store = new SizeCacheStore(storeFile);
             _watcher.Changed += OnFolderChanged;
+            if (_maps != null) _maps.Changed += OnMapChanged;
             _store.Load();
+        }
+
+        // Карты строятся заранее — системный диск и диски, которые уже открывали: к первому заходу числа готовы.
+        private void Prewarm()
+        {
+            HashSet<string> roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try { roots.Add(Path.GetPathRoot(Environment.SystemDirectory)); } catch { }
+            foreach (string path in _store.Paths)
+                if (path.Length >= 3 && path[1] == ':' && path[2] == '\\') roots.Add(char.ToUpperInvariant(path[0]) + @":\");
+            VolumeMaps maps = _maps;
+            Task.Factory.StartNew(delegate
+            {
+                foreach (string root in roots) FsLog.Swallow(delegate { maps.For(root); });
+            });
         }
 
         public void ShowFolder(string path, bool force)
@@ -70,17 +102,31 @@ namespace SysDeck.FolderSize
 
         public void ShowFolder(string path) { ShowFolder(path, false); }
 
+        // «Обновить»: показанная папка перепроверяется по диску. С картой — только её поддерево, в фоне;
+        // прежние числа остаются на экране приглушёнными до проверки.
         public void Refresh()
         {
             _cache.Clear();
-            _indexes.InvalidateAll();
+            VolumeMap map = _maps == null || _path == null ? null : _maps.For(_path);
+            if (map != null) map.Verify(_path);
             Restart();
         }
 
-        // Что-то изменилось в папке на экране. Перезапуск идущего подсчёта здесь делал системный диск
-        // невозможным: на C:\ что-то пишется всегда, и каждое событие выбрасывало минуты счёта. Идущий
-        // подсчёт не трогаем и повторяем один раз после, если он мерил устаревшее. Файл, лишь сменивший
-        // размер, чинится даром — неверна может быть только его строка.
+        // Настройки, влияющие на листинг (скрытые файлы) или на источник чисел (быстрый режим).
+        public void SettingsChanged()
+        {
+            if (_maps != null && _mapsMft != _settings.UseFastNtfsIndex)
+            {
+                _mapsMft = _settings.UseFastNtfsIndex;
+                _maps.Reset(_mapsMft);
+            }
+            Restart();
+        }
+
+        // Что-то изменилось в папке на экране. С картой это только новый листинг: числа она обновит сама.
+        // Без карты перезапуск идущего подсчёта делал системный диск невозможным: на C:\ что-то пишется
+        // всегда, и каждое событие выбрасывало минуты счёта. Идущий подсчёт не трогаем и повторяем один раз
+        // после, если он мерил устаревшее. Файл, лишь сменивший размер, чинится даром.
         private void OnFolderChanged(FolderChange change)
         {
             _ui.Post(delegate
@@ -97,9 +143,8 @@ namespace SysDeck.FolderSize
                     _dirty = true;
                     return;
                 }
-                FsLog.Trace("folder changed — rescanning");
+                FsLog.Trace("folder changed — relisting");
                 _cache.Clear();
-                InvalidateIndexForCurrentPath();
                 Restart();
             }, null);
         }
@@ -128,20 +173,7 @@ namespace SysDeck.FolderSize
             }
             if (!touched) return;
             FsLog.Trace("file sizes refreshed without a scan: " + paths.Length);
-            Publish(Snapshot(_path, rows, !_scanning, false));
-        }
-
-        private void InvalidateIndexForCurrentPath()
-        {
-            if (_path == null) return;
-            string root = SafeRoot(_path);
-            if (!string.IsNullOrEmpty(root)) _indexes.Invalidate(root[0]);
-        }
-
-        internal static string SafeRoot(string path)
-        {
-            try { return Path.GetPathRoot(path); }
-            catch { return null; }
+            Publish(Snapshot(_path, rows, !_scanning && _servedFinal, false));
         }
 
         private void Restart()
@@ -152,6 +184,7 @@ namespace SysDeck.FolderSize
                 _cts.Dispose();
                 _cts = null;
             }
+            lock (_served) _servedMap = null;
             _dirty = false;
             string path = _path;
             _watcher.Watch(path);
@@ -212,20 +245,30 @@ namespace SysDeck.FolderSize
                     if (r.IsReparsePoint || DirectoryWalker.IsUnwalkableDirectory(r.FullPath)) r.State = RowState.Ready;
                 pending.RemoveAll(delegate(SizeRow r) { return r.State != RowState.Pending; });
 
-                ApplyFreshCache(pending);
-                pending.RemoveAll(delegate(SizeRow r) { return r.State != RowState.Pending; });
+                VolumeMap map = _maps == null ? null : _maps.For(path);
+                if (map == null)
+                {
+                    ApplyFreshCache(pending);
+                    pending.RemoveAll(delegate(SizeRow r) { return r.State != RowState.Pending; });
+                }
 
                 // Числа прошлого сеанса — на экран сразу, приглушённо, до прихода настоящих: папка, которая
                 // считается две минуты, не должна две минуты быть пустой строкой.
                 ApplyStoredNumbers(pending);
 
+                if (map != null)
+                {
+                    Serve(map, path, rows, pending, ct);
+                    return;
+                }
+
+                _servedFinal = pending.Count == 0;
                 Publish(Snapshot(path, rows, pending.Count == 0, false));
                 if (pending.Count == 0)
                 {
                     Report(new ScanProgress(ScanPhase.Done, null, 100, 0));
                     return;
                 }
-                if (TryIndex(path, pending, rows, ct)) return;
                 Measure(path, rows, pending, counters, ct);
             }
             catch (OperationCanceledException) { }       // уход из папки — обычный конец подсчёта
@@ -240,30 +283,109 @@ namespace SysDeck.FolderSize
             }
         }
 
-        // Индекс NTFS отвечает за весь диск за секунды — когда он вообще доступен.
-        private bool TryIndex(string path, List<SizeRow> pending, List<SizeRow> rows, CancellationToken ct)
+        // ---------------- карта тома ----------------
+
+        private void Serve(VolumeMap map, string path, List<SizeRow> rows, List<SizeRow> dirs, CancellationToken ct)
         {
-            if (!_settings.UseFastNtfsIndex || !VolumeIndexProvider.CanEverWork(path)) return false;
-            string root = SafeRoot(path);
-            Report(new ScanProgress(ScanPhase.IndexingVolume, root, 0, 0));
-            NtfsVolumeIndex index = _indexes.Get(path, delegate(int p) { Report(new ScanProgress(ScanPhase.IndexingVolume, root, p, 0)); }, ct);
-            uint dirIndex;
-            if (index == null || !index.TryResolveDirectory(path, out dirIndex)) return false;
-            foreach (SizeRow row in pending)
+            lock (_served)
             {
-                DirTotals totals;
-                if (!index.TryGetChildTotals(dirIndex, row.Name, out totals)) continue;
-                Remember(row, new DirStats(totals.Bytes, totals.Files, totals.Directories, false));
+                if (ct.IsCancellationRequested) return;
+                _servedMap = map;
+                _servedPath = path;
+                _servedRows = rows;
+                _servedDirs = dirs;
+                _servedToken = ct;
+                _servedFinal = false;
             }
-            pending.RemoveAll(delegate(SizeRow r) { return r.State == RowState.Ready || r.State == RowState.Partial; });
-            if (pending.Count > 0) return false;
-            Publish(Snapshot(path, rows, true, true));
-            Report(new ScanProgress(ScanPhase.Done, null, 100, 0));
-            return true;
+            map.Focus(path);
+            ReadMap(true);
         }
 
-        // Всё, на что индекс не ответил (нет прав, точка монтирования, не NTFS), считается обычным образом,
-        // но все папки сразу, а не одна за другой.
+        private void OnMapChanged(VolumeMap map)
+        {
+            if (_disposed) return;
+            bool ours;
+            lock (_served) ours = _servedMap == map;
+            if (ours) ReadMap(false);
+        }
+
+        // Одна сверка показанных строк с картой: микросекунды под замком карты, без единого обращения к диску.
+        // Публикуется, только если что-то изменилось, — на тихой машине панель не перерисовывается вовсе.
+        private void ReadMap(bool first)
+        {
+            try
+            {
+                lock (_served)
+                {
+                    VolumeMap map = _servedMap;
+                    if (map == null || _servedToken.IsCancellationRequested) return;
+                    List<SizeRow> dirs = _servedDirs;
+                    string[] names = new string[dirs.Count];
+                    for (int i = 0; i < names.Length; i++) names[i] = dirs[i].Name;
+                    MapEntry[] entries = map.Read(_servedPath, names);
+
+                    bool changed = first, stored = false;
+                    int ready = 0;
+                    for (int i = 0; i < dirs.Count; i++)
+                    {
+                        SizeRow row = dirs[i];
+                        MapEntry e = entries[i];
+                        if (!e.Found) continue;
+                        if (e.Complete)
+                        {
+                            ready++;
+                            RowState state = e.Stats.Partial ? RowState.Partial : RowState.Ready;
+                            if (!row.FromCache && row.State == state && Same(row, e.Stats)) continue;
+                            Apply(row, e.Stats);
+                            _store.Put(row.FullPath, e.Stats);
+                            changed = stored = true;
+                        }
+                        else if (!row.FromCache && !Same(row, e.Stats))
+                        {
+                            // Пока поддерево досчитывается, растущая сумма лучше пустой строки. Число прошлого
+                            // сеанса стоит до конца: промежуточная сумма с нуля выглядела бы как уменьшившаяся папка.
+                            row.Bytes = e.Stats.Bytes;
+                            row.Files = e.Stats.Files;
+                            row.Directories = e.Stats.Directories;
+                            row.State = RowState.Measuring;
+                            changed = true;
+                        }
+                    }
+                    bool final = ready == dirs.Count;
+                    bool wasFinal = _servedFinal;
+                    _servedFinal = final;
+
+                    bool building;
+                    int percent;
+                    long items;
+                    map.Progress(out building, out percent, out items);
+                    if (changed) Publish(Snapshot(_servedPath, _servedRows, final, map.FromMft));
+                    if (final)
+                    {
+                        if (changed || !wasFinal) Report(new ScanProgress(ScanPhase.Done, null, 100, items));
+                    }
+                    else if (building) Report(new ScanProgress(ScanPhase.IndexingVolume, map.RootPath, percent, 0));
+                    else Report(new ScanProgress(ScanPhase.MeasuringFolders, ready + "/" + dirs.Count, 0, items));
+
+                    if (stored && !first && DateTime.UtcNow - _savedAtUtc > MapSaveInterval)
+                    {
+                        _savedAtUtc = DateTime.UtcNow;
+                        SizeCacheStore store = _store;
+                        Task.Factory.StartNew(delegate { store.Save(); });
+                    }
+                }
+            }
+            catch (Exception ex) { FsLog.Report(ex); }
+        }
+
+        private static bool Same(SizeRow row, DirStats stats)
+        {
+            return row.Bytes == stats.Bytes && row.Files == stats.Files && row.Directories == stats.Directories;
+        }
+
+        // ---------------- обход (сеть, съёмные диски) ----------------
+
+        // Все папки сразу, а не одна за другой, — но в фоновом режиме: диск остаётся за человеком.
         private void Measure(string path, List<SizeRow> rows, List<SizeRow> pending, ProgressCounters counters, CancellationToken ct)
         {
             List<TreeMeasurer.Job> jobs = new List<TreeMeasurer.Job>(pending.Count);
@@ -275,7 +397,7 @@ namespace SysDeck.FolderSize
             }
             int completed = 0;
             Stopwatch clock = Stopwatch.StartNew();
-            FsLog.Trace("measure start " + path + " folders=" + jobs.Count + " workers=" + TreeMeasurer.Workers);
+            FsLog.Trace("measure start " + path + " folders=" + jobs.Count + " workers=" + TreeMeasurer.BackgroundWorkers);
             Report(new ScanProgress(ScanPhase.MeasuringFolders, "0/" + jobs.Count, 0, 0));
 
             using (Timer ticker = new Timer(delegate
@@ -301,10 +423,11 @@ namespace SysDeck.FolderSize
                     int done = Interlocked.Increment(ref completed);
                     FsLog.Trace("  " + done + "/" + jobs.Count + " " + job.Row.Name + " = " + job.Bytes + " B, "
                                 + job.Files + " files, " + job.Directories + " dirs at " + clock.ElapsedMilliseconds + " ms");
-                }, ct);
+                }, ct, true);
             }
             ct.ThrowIfCancellationRequested();
             FsLog.Trace("measure done " + path + " in " + clock.ElapsedMilliseconds + " ms, " + counters.Items + " objects");
+            _servedFinal = true;
             Publish(Snapshot(path, rows, true, false));
             Report(new ScanProgress(ScanPhase.Done, null, 100, counters.Items));
         }
@@ -323,7 +446,6 @@ namespace SysDeck.FolderSize
             if (!_dirty) return;
             _dirty = false;
             _cache.Clear();
-            InvalidateIndexForCurrentPath();
             Restart();
         }
 
@@ -418,96 +540,10 @@ namespace SysDeck.FolderSize
                 _cts.Cancel();
                 _cts.Dispose();
             }
+            lock (_served) _servedMap = null;
             _watcher.Dispose();
-            _indexes.Dispose();
+            if (_maps != null) _maps.Dispose();
             _store.Save();
-        }
-    }
-
-    // ------------------------------------------------------------------ //
-    //  Один индекс NTFS на диск: строится не больше одного раза за раз и помнит, когда диск его дать не
-    //  может (нет прав, не NTFS, необычная $MFT), чтобы панель перестала спрашивать.
-    // ------------------------------------------------------------------ //
-    internal sealed class VolumeIndexProvider : IDisposable
-    {
-        private static readonly TimeSpan MaxAge = TimeSpan.FromMinutes(5);
-        private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(5);
-
-        private sealed class Slot
-        {
-            public readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
-            public NtfsVolumeIndex Index;
-            public DateTime FailedAtUtc = DateTime.MinValue;
-            public string FailureReason;
-            public bool Dirty;
-        }
-
-        private readonly ConcurrentDictionary<char, Slot> _slots = new ConcurrentDictionary<char, Slot>();
-        private bool _disposed;
-
-        public string LastFailureReason { get; private set; }
-
-        public static bool CanEverWork(string path) { return Elevation.IsElevated && RawVolume.LooksSupported(path); }
-
-        public void Invalidate(char drive)
-        {
-            Slot slot;
-            if (_slots.TryGetValue(char.ToUpperInvariant(drive), out slot)) slot.Dirty = true;
-        }
-
-        public void InvalidateAll()
-        {
-            foreach (Slot slot in _slots.Values) slot.Dirty = true;
-        }
-
-        // Годный индекс либо null, когда этот диск прямо сейчас его дать не может.
-        public NtfsVolumeIndex Get(string path, Action<int> progress, CancellationToken ct)
-        {
-            if (_disposed || !CanEverWork(path)) return null;
-            string root;
-            try { root = Path.GetPathRoot(Path.GetFullPath(path)); }
-            catch { return null; }
-            if (string.IsNullOrEmpty(root)) return null;
-            char drive = char.ToUpperInvariant(root[0]);
-            Slot slot = _slots.GetOrAdd(drive, delegate { return new Slot(); });
-            if (slot.FailedAtUtc != DateTime.MinValue && DateTime.UtcNow - slot.FailedAtUtc < RetryAfterFailure)
-            {
-                LastFailureReason = slot.FailureReason;
-                return null;
-            }
-            slot.Gate.Wait(ct);
-            try
-            {
-                bool fresh = slot.Index != null && !slot.Dirty && DateTime.UtcNow - slot.Index.BuiltAtUtc < MaxAge;
-                if (fresh) return slot.Index;
-                NtfsVolumeIndex index = MftIndexBuilder.Build(drive, progress, ct);
-                slot.Index = index;
-                slot.Dirty = false;
-                slot.FailedAtUtc = DateTime.MinValue;
-                slot.FailureReason = null;
-                LastFailureReason = null;
-                return index;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                // Любая неожиданность здесь не смертельна: обход даёт те же числа, только медленнее.
-                FsLog.Report(ex);
-                slot.FailedAtUtc = DateTime.UtcNow;
-                slot.FailureReason = ex.Message;
-                LastFailureReason = ex.Message;
-                return null;
-            }
-            finally
-            {
-                try { slot.Gate.Release(); } catch (ObjectDisposedException) { }
-            }
-        }
-
-        public void Dispose()
-        {
-            _disposed = true;
-            _slots.Clear();
         }
     }
 }

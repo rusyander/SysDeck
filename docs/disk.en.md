@@ -194,13 +194,27 @@ show above it; once they close, the panel is on top again.
   to what they point at. Folders whose names Windows rewrites (a trailing dot or space, `NUL`,
   `CON`, `COM1`…) are not walked into — the walk would loop — and the parent's size is then
   marked "≥". A size with unreadable parts is marked "≥" too.
+- **A map of the drive in memory.** For each local drive, background mode builds a map of every
+  folder with its size once (with rights from `$MFT` in seconds, without rights by a quiet
+  background walk) and then only keeps it current: a change anywhere on the drive re-reads the one
+  folder where it happened and carries the difference up to the root. So opening `C:\` or any big
+  folder puts no load on the disk — the numbers are already there; a new copy or delete reaches the
+  panel rows by itself within a few seconds, without navigating again. Reading runs in Windows'
+  background I/O mode (lowest disk priority) on two threads: the user's work always comes first. A
+  folder whose files change all the time (logs, a browser cache) is re-read at most once every few
+  seconds. The folder open in Explorer is finished before the rest. While the first map is being
+  built, last run's numbers are shown (dimmed). "Refresh" re-checks the shown folder against the
+  disk. Network folders and removable drives get no map: they are counted on visit, also in
+  background mode.
 - **Remembered between runs.** Measured sizes are kept for up to 30 days (`sizes.json`) and are
-  shown at once while a fresh count runs. The folder on screen is recounted when something in it
-  changes.
+  shown right after start while the map is built. The map itself is not written to disk: with
+  rights it is rebuilt in seconds, and a saved one would have to be checked against the disk anyway.
 - **Fast mode.** With administrator rights the NTFS file table (`$MFT`) is read directly — a
-  whole volume in seconds; a file with hard links (pnpm's `node_modules`, say) counts in every folder
-  where it has a name, as in Explorer's properties. Without rights it is a regular walk: the
-  same numbers, just slower. The "Enable fast mode" button is one UAC prompt: it creates the
+  whole volume in seconds (a table scattered across the disk too — NTFS itself supplies its
+  extents); a file with hard links (pnpm's `node_modules`, say) counts in every folder
+  where it has a name, as in Explorer's properties. Every 6 hours, and after a burst of changes
+  Windows could not describe one by one, the map is re-read from `$MFT`. Without rights it is a
+  regular walk: the same numbers, but the first map takes longer. The "Enable fast mode" button is one UAC prompt: it creates the
   `SysDeck FolderSize` Task Scheduler task with highest privileges and restarts
   background mode through it. From then on it starts elevated at sign-in without UAC, and
   "Restart as administrator" in the tray menu goes through the task as well.

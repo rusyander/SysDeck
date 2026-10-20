@@ -460,7 +460,7 @@ namespace SysDeck.FolderSize
             {
                 _settings.ShowHidden = !_settings.ShowHidden;
                 _settings.Save();
-                _engine.Refresh();
+                _engine.SettingsChanged();
             });
             Add(Tr.S("Не перекрывать Проводник (сдвигать окно)", "Don't cover Explorer (move the window)"), _settings.MakeRoomForPanel, delegate
             {
@@ -479,7 +479,7 @@ namespace SysDeck.FolderSize
                 {
                     _settings.UseFastNtfsIndex = !_settings.UseFastNtfsIndex;
                     _settings.Save();
-                    _engine.Refresh();
+                    _engine.SettingsChanged();
                 });
             };
             _menu.Items.Add(fast);
@@ -563,7 +563,7 @@ namespace SysDeck.FolderSize
             _badge.SetEnabled();
             _panel.ApplySettings();
             ApplyHotkey(false);
-            if (rescan) _engine.Refresh();
+            if (rescan) _engine.SettingsChanged();
             else if (resort) ResortCurrent();
             if (!_settings.ShowSidePanel && _panel.Visible) _panel.Hide();
             _tracker.Refresh();
