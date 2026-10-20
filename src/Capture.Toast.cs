@@ -295,6 +295,14 @@ namespace SysDeck.Capture
         // Открыть файл программой по умолчанию (своё окно просмотра появится вместе с галереей).
         public static void OpenFile(string path)
         {
+            // Агент с правами (показатели поверх игр с правами) запустил бы плеер или «Фотографии» тоже от администратора —
+            // такой запуск отдаётся Проводнику, с обычным токеном.
+            if (Elevation.IsElevated)
+            {
+                string why = CapLauncher.ShellExecuteUnelevated(path, "");
+                if (why == null) return;
+                CapLog.Write("unelevated open failed (" + why + "), opening directly");
+            }
             try
             {
                 ProcessStartInfo psi = new ProcessStartInfo(path);

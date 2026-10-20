@@ -498,6 +498,9 @@ namespace SysDeck.Capture
 
         public int Count { get { return _items.Count; } }
 
+        // Раздел в том порядке, в каком он на экране, — по нему листает окно просмотра.
+        public List<GalleryItem> Items() { return new List<GalleryItem>(_items); }
+
         public void SetItems(List<GalleryItem> items)
         {
             _items.Clear();

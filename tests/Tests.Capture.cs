@@ -128,8 +128,47 @@ namespace SysDeck.Tests
                     System.Threading.Thread.Sleep(100);
                 }
                 T.Eq("the window fills with the files from the capture folders", 3, form != null ? GridCount(form) : -1);
+                if (form != null) GalleryViewing(form, newer, older);
             }
             finally { agent.Dispose(); }
+
+            Rectangle area = new Rectangle(0, 0, 1000, 800);
+            T.Eq("a small screenshot is shown at its own size, centred", new Rectangle(476, 384, 48, 32), GalleryViewer.FitRect(new Size(48, 32), area));
+            T.Eq("a large screenshot is shrunk to fit whole", new Rectangle(0, 150, 1000, 500), GalleryViewer.FitRect(new Size(4000, 2000), area));
+        }
+
+        // Ошибка: двойной щелчок по снимку открывал «Фотографии» без соседних файлов — листать было нечего.
+        // Путь пользователя: Enter (то же, что двойной щелчок) на плитке галереи, затем стрелки в окне просмотра.
+        private static void GalleryViewing(GalleryForm form, string newer, string older)
+        {
+            GalleryGrid grid = (GalleryGrid)Field(form, "_grid");
+            grid.SelectPath(newer);
+            MethodInfo keyDown = typeof(GalleryGrid).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic);
+            keyDown.Invoke(grid, new object[] { new KeyEventArgs(Keys.Enter) });
+            Application.DoEvents();
+            GalleryViewer viewer = (GalleryViewer)Field(form, "_viewer");
+            T.Check("opening a screenshot shows the program's own viewer", viewer != null && viewer.Visible);
+            if (viewer == null) return;
+            try
+            {
+                T.Eq("the viewer pages through the screenshots of the section, videos left out", 2, viewer.Count);
+                T.Eq("the viewer starts at the screenshot that was opened", newer, viewer.Current);
+                T.Eq("the screenshot itself is on screen", new Size(48, 32), viewer.ShownSize);
+                MethodInfo cmdKey = typeof(GalleryViewer).GetMethod("ProcessCmdKey", BindingFlags.Instance | BindingFlags.NonPublic);
+                Message none = new Message();
+                cmdKey.Invoke(viewer, new object[] { none, Keys.Right });
+                T.Eq("the right arrow goes to the next screenshot", older, viewer.Current);
+                cmdKey.Invoke(viewer, new object[] { none, Keys.Right });
+                T.Eq("at the last screenshot the arrow stays put", older, viewer.Current);
+                cmdKey.Invoke(viewer, new object[] { none, Keys.Left });
+                T.Eq("the left arrow goes back", newer, viewer.Current);
+                Application.DoEvents();
+                T.Eq("the gallery selects the screenshot being viewed", newer, grid.Selected().Count == 1 ? grid.Selected()[0].Path : "");
+                cmdKey.Invoke(viewer, new object[] { none, Keys.Escape });
+                Application.DoEvents();
+                T.Check("Esc closes the viewer", viewer.IsDisposed || !viewer.Visible);
+            }
+            finally { if (!viewer.IsDisposed) viewer.Close(); }
         }
 
         private static int GridCount(GalleryForm form)

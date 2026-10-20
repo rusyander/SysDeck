@@ -31,6 +31,7 @@ namespace SysDeck.Capture
         private readonly System.Windows.Forms.Timer _rescan = new System.Windows.Forms.Timer();
         private readonly List<FileSystemWatcher> _watchers = new List<FileSystemWatcher>();
         private Button _edit;
+        private GalleryViewer _viewer;
         private Font _barFont;
         private CapSettings _settings;
         private List<GalleryItem> _all = new List<GalleryItem>();
@@ -311,11 +312,31 @@ namespace SysDeck.Capture
             return picked.Count > 0 ? picked[0] : null;
         }
 
+        // Видео — плеером Windows; снимок — своим окном просмотра, которое листает весь раздел галереи.
         private void Open(GalleryItem it)
         {
             if (it == null) return;
             if (!File.Exists(it.Path)) { Reload(); return; }
-            ToastHost.OpenFile(it.Path);
+            if (it.Video) { ToastHost.OpenFile(it.Path); return; }
+            int index;
+            List<GalleryItem> images = GalleryViewer.Images(_grid.Items(), it, out index);
+            if (_viewer != null && _viewer.IsDisposed) _viewer = null;
+            if (_viewer == null)
+            {
+                GalleryViewer viewer = new GalleryViewer(Screen.FromControl(this).WorkingArea);
+                viewer.EditRequested += delegate(string path) { if (EditRequested != null) EditRequested(path, CurrentMonitor()); };
+                viewer.Viewed += delegate(string path) { if (!IsDisposed) _grid.SelectPath(path); };
+                viewer.FormClosed += delegate { _viewer = null; };
+                _viewer = viewer;
+                viewer.ShowList(images, index);
+                viewer.Show();
+            }
+            else
+            {
+                _viewer.ShowList(images, index);
+                if (_viewer.WindowState == FormWindowState.Minimized) _viewer.WindowState = FormWindowState.Maximized;
+            }
+            _viewer.Activate();
         }
 
         private void Edit()
@@ -424,6 +445,7 @@ namespace SysDeck.Capture
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (_viewer != null && !_viewer.IsDisposed) _viewer.Close();
             SavePlace();
             base.OnFormClosing(e);
         }

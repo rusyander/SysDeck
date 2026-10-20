@@ -190,6 +190,18 @@ After a shot a card with a thumbnail appears in the bottom-right corner of the m
   on when first read; the next save writes the version, and notifications turned off after that stay off.
 - **In a fullscreen game — show after leaving it**: the card does not pop up over the game.
 
+## Gallery
+A window with the shots and recordings from the capture folders, newest first; sections “All”, “Screenshots”, “Videos”.
+- A double-click or `Enter` on a **video** opens it in the default Windows player.
+- A double-click or `Enter` on a **screenshot** opens the viewer. It pages through all screenshots of the section in
+  gallery order: `←`/`→`, `PageUp`/`PageDown`, Space, the mouse wheel or the arrows at the picture's edges;
+  `Home`/`End` go to the first and the last. The picture fits the window and is never stretched beyond its own size.
+  `F11`, `Enter` or a double-click on the picture toggles full screen, `Esc` leaves it or closes the window. Buttons:
+  “Open in app” (the default program), “Edit”, “Show in folder”. After viewing, the gallery has the last viewed
+  screenshot selected.
+- Why not Photos: only Explorer hands it the neighbouring files. Opened from another program, it shows a single
+  picture with no paging.
+
 ## Screenshot editor
 It opens three ways: the “Edit” button (`E`) on the panel under the selection, the “open the editor” value of the
 “After a shot” setting, or the “Edit” button in the notification. In the first two cases the shot is not saved
